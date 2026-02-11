@@ -1,0 +1,541 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Expense Tracker — Documentation</title>
+<style>
+  :root {
+    --bg: #ffffff;
+    --text: #1a1a2e;
+    --muted: #555;
+    --accent: #2563eb;
+    --accent-light: #dbeafe;
+    --border: #e5e7eb;
+    --code-bg: #f3f4f6;
+    --success: #16a34a;
+    --warning: #d97706;
+    --radius: 8px;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    color: var(--text);
+    background: var(--bg);
+    line-height: 1.7;
+    max-width: 860px;
+    margin: 0 auto;
+    padding: 2rem 1.5rem 4rem;
+  }
+  h1 { font-size: 2rem; margin-bottom: 0.25rem; }
+  h1 + p { color: var(--muted); font-size: 1.1rem; margin-bottom: 2rem; }
+  h2 {
+    font-size: 1.4rem;
+    margin-top: 2.5rem;
+    margin-bottom: 0.75rem;
+    padding-bottom: 0.3rem;
+    border-bottom: 2px solid var(--accent);
+  }
+  h3 {
+    font-size: 1.1rem;
+    margin-top: 1.5rem;
+    margin-bottom: 0.5rem;
+  }
+  p, li { margin-bottom: 0.5rem; }
+  ul, ol { padding-left: 1.5rem; margin-bottom: 1rem; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  code {
+    font-family: "SF Mono", "Fira Code", "Consolas", monospace;
+    font-size: 0.9em;
+    background: var(--code-bg);
+    padding: 0.15em 0.4em;
+    border-radius: 4px;
+  }
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1rem 1.25rem;
+    overflow-x: auto;
+    margin-bottom: 1rem;
+    line-height: 1.5;
+  }
+  pre code {
+    background: none;
+    padding: 0;
+    font-size: 0.85rem;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 1rem;
+    font-size: 0.95rem;
+  }
+  th, td {
+    text-align: left;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--border);
+  }
+  th { background: var(--code-bg); font-weight: 600; }
+  tr:nth-child(even) { background: #fafafa; }
+
+  .quick-start {
+    background: var(--accent-light);
+    border: 1px solid #bfdbfe;
+    border-radius: var(--radius);
+    padding: 1.25rem 1.5rem;
+    margin-bottom: 1.5rem;
+  }
+  .quick-start h2 { border: none; margin-top: 0; padding-bottom: 0; }
+  .quick-start pre { background: #fff; border-color: #bfdbfe; }
+
+  .tip {
+    background: #f0fdf4;
+    border-left: 4px solid var(--success);
+    border-radius: 0 var(--radius) var(--radius) 0;
+    padding: 0.75rem 1rem;
+    margin-bottom: 1rem;
+  }
+  .warning {
+    background: #fffbeb;
+    border-left: 4px solid var(--warning);
+    border-radius: 0 var(--radius) var(--radius) 0;
+    padding: 0.75rem 1rem;
+    margin-bottom: 1rem;
+  }
+
+  .diagram {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1rem 1.25rem;
+    font-family: "SF Mono", "Fira Code", "Consolas", monospace;
+    font-size: 0.85rem;
+    line-height: 1.6;
+    overflow-x: auto;
+    margin-bottom: 1rem;
+    white-space: pre;
+  }
+
+  .script-card {
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1rem 1.25rem;
+    margin-bottom: 1rem;
+  }
+  .script-card h3 { margin-top: 0; color: var(--accent); }
+
+  hr { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
+
+  .toc { margin-bottom: 2rem; }
+  .toc ul { list-style: none; padding-left: 0; }
+  .toc li { margin-bottom: 0.3rem; }
+  .toc a { font-size: 0.95rem; }
+</style>
+</head>
+<body>
+
+<h1>Expense Tracker</h1>
+<p>Personal expense tracking pipeline for UTF-16 CSV bank statements.</p>
+
+<!-- Quick Start -->
+<div class="quick-start">
+  <h2>Quick Start</h2>
+  <pre><code># 1. First-time setup (run once)
+./install.sh
+
+# 2. Drop your bank CSV(s) into the raw/ folder
+
+# 3. Import data and generate the report
+./run.sh
+
+# 4. Open expense-report.ods in LibreOffice or Google Sheets</code></pre>
+</div>
+
+<!-- Table of Contents -->
+<nav class="toc">
+  <strong>Contents</strong>
+  <ul>
+    <li><a href="#scripts">Shell Scripts</a></li>
+    <li><a href="#cli">Python CLI Reference</a></li>
+    <li><a href="#cards">Account Holders</a></li>
+    <li><a href="#ods">The ODS Report</a></li>
+    <li><a href="#rules">Categorization Rules</a></li>
+    <li><a href="#architecture">Data Architecture</a></li>
+    <li><a href="#structure">Project Structure</a></li>
+    <li><a href="#commands">All Commands at a Glance</a></li>
+    <li><a href="#requirements">Requirements</a></li>
+    <li><a href="#troubleshooting">Troubleshooting</a></li>
+  </ul>
+</nav>
+
+<hr>
+
+<!-- Shell Scripts -->
+<h2 id="scripts">Shell Scripts</h2>
+
+<div class="script-card">
+  <h3>install.sh &mdash; First-Time Setup</h3>
+  <p>Run this <strong>once</strong> when you first get the project (or on a new computer).</p>
+  <pre><code>./install.sh</code></pre>
+  <p>What it does:</p>
+  <ol>
+    <li>Checks that Python 3.9+ is installed</li>
+    <li>Creates a virtual environment (<code>.venv/</code>)</li>
+    <li>Installs Python dependencies (<code>odfpy</code>)</li>
+    <li>Creates the <code>raw/</code> and <code>data/</code> directories</li>
+    <li>Creates starter <code>rules.csv</code> and <code>account-holders.csv</code> if they don't exist</li>
+    <li>Makes the shell scripts executable</li>
+  </ol>
+</div>
+
+<div class="script-card">
+  <h3>run.sh &mdash; Import Data &amp; Generate Report</h3>
+  <p>The <strong>everyday script</strong>. Double-click it or run it from Terminal.</p>
+  <pre><code>./run.sh</code></pre>
+  <p>What it does:</p>
+  <ol>
+    <li>Scans <code>raw/</code> for any new CSV files not yet imported</li>
+    <li>Auto-renames them (e.g. <code>EXPORT_0_1022026.csv</code> &rarr; <code>2026-01.csv</code>)</li>
+    <li>Imports new transactions into the SQLite database</li>
+    <li>Syncs any manual category edits from the ODS back into the database</li>
+    <li>Applies categorization rules from <code>rules.csv</code></li>
+    <li>Regenerates the <code>expense-report.ods</code> report</li>
+  </ol>
+</div>
+
+<div class="script-card">
+  <h3>update.sh &mdash; Pull Latest Code from GitHub</h3>
+  <p>Run this occasionally to get the latest improvements.</p>
+  <pre><code>./update.sh</code></pre>
+  <p>What it does:</p>
+  <ol>
+    <li>Fetches changes from the GitHub remote</li>
+    <li>If there are updates, pulls them safely (fast-forward only)</li>
+    <li>Re-runs <code>install.sh</code> if dependencies changed</li>
+    <li>If already up to date, does nothing</li>
+  </ol>
+</div>
+
+<hr>
+
+<!-- CLI Reference -->
+<h2 id="cli">Python CLI Reference</h2>
+
+<p>The shell scripts use <code>bank_ingest.py</code> under the hood. You can also use it directly for more control. Always activate the virtual environment first: <code>source .venv/bin/activate</code></p>
+
+<h3><code>auto</code> (default)</h3>
+<p>Scan for new files, import, and regenerate the report. This is what <code>run.sh</code> calls.</p>
+<pre><code>python bank_ingest.py              # same as 'auto'
+python bank_ingest.py auto
+python bank_ingest.py auto --raw path/to/csvs</code></pre>
+
+<h3><code>ingest</code></h3>
+<p>Manually import specific CSV files.</p>
+<pre><code>python bank_ingest.py ingest raw/EXPORT_0_1022026.csv
+python bank_ingest.py ingest raw/*.csv
+python bank_ingest.py ingest --no-rename raw/some-file.csv</code></pre>
+<p>The <code>ingest</code> command auto-renames files based on the date range inside the CSV (e.g. <code>EXPORT_0_1022026.csv</code> &rarr; <code>2026-01.csv</code>). Use <code>--no-rename</code> to skip this.</p>
+
+<h3><code>report</code></h3>
+<p>Apply rules and regenerate the ODS report (without importing new data).</p>
+<pre><code>python bank_ingest.py report
+python bank_ingest.py report --fresh
+python bank_ingest.py report --no-sync
+python bank_ingest.py report --fresh --no-sync</code></pre>
+<table>
+  <thead><tr><th>Flag</th><th>Effect</th></tr></thead>
+  <tbody>
+    <tr><td><code>--fresh</code></td><td>Deletes the existing ODS and regenerates <strong>all</strong> sheets (including Dashboard, Monthly Summary/Trend, Category/Subcategory Breakdown, and any custom sheets). Manual edits are still saved to the database first.</td></tr>
+    <tr><td><code>--no-sync</code></td><td>Skips reading manual edits from the ODS back into the database.</td></tr>
+  </tbody>
+</table>
+
+<h3><code>cards</code></h3>
+<p>Manage card-holder mappings (which debit card belongs to whom).</p>
+<pre><code>python bank_ingest.py cards                          # list all card holders
+python bank_ingest.py cards add 1234 Alice           # add a card
+python bank_ingest.py cards add 5678 Bob             # add another
+python bank_ingest.py cards remove 1234              # remove a card</code></pre>
+<p>Card mappings are stored in <code>account-holders.csv</code> and determine the &ldquo;Who&rdquo; column during import. See <a href="#cards">Account Holders</a>.</p>
+
+<h3><code>rules</code></h3>
+<p>Manage categorization rules from the command line.</p>
+<pre><code>python bank_ingest.py rules                                          # list all
+python bank_ingest.py rules add CONTINENTE Groceries                 # simple rule
+python bank_ingest.py rules add FARMACIA Health --sub Pharmacy --payment card
+python bank_ingest.py rules remove CONTINENTE                        # remove by pattern</code></pre>
+<table>
+  <thead><tr><th>Flag</th><th>Default</th><th>Description</th></tr></thead>
+  <tbody>
+    <tr><td><code>--field</code></td><td><code>description</code></td><td>Field to match: <code>description</code> (cleaned) or <code>description_raw</code></td></tr>
+    <tr><td><code>--sub</code></td><td><em>(empty)</em></td><td>Subcategory</td></tr>
+    <tr><td><code>--payment</code></td><td><em>(empty)</em></td><td>Payment type: <code>card</code>, <code>transfer</code>, <code>direct_debit</code>, <code>fee</code>, <code>tax</code></td></tr>
+  </tbody>
+</table>
+<p>Rules are appended to the end of <code>rules.csv</code>. See <a href="#rules">Categorization Rules</a>.</p>
+
+<h3><code>export</code></h3>
+<p>Export all transactions to a clean UTF-8 CSV file.</p>
+<pre><code>python bank_ingest.py export
+python bank_ingest.py export --out my-data.csv</code></pre>
+
+<hr>
+
+<!-- Account Holders -->
+<h2 id="cards">Account Holders (<code>account-holders.csv</code>)</h2>
+
+<p>This file maps debit card last-4 digits to owner names, so the &ldquo;Who&rdquo; column in the report shows who made each purchase.</p>
+
+<h3>Format</h3>
+<pre><code>card_last4,name
+1234,Alice
+5678,Bob</code></pre>
+
+<p>You can edit this file directly or use the CLI:</p>
+<pre><code>python bank_ingest.py cards add 1234 Alice
+python bank_ingest.py cards remove 1234
+python bank_ingest.py cards               # list all</code></pre>
+
+<div class="tip">
+  Transactions made with a card not in this file will show &ldquo;Joint&rdquo; as the owner.
+</div>
+
+<hr>
+
+<!-- ODS Report -->
+<h2 id="ods">The ODS Report (<code>expense-report.ods</code>)</h2>
+
+<p>Open this file in <strong>LibreOffice Calc</strong> or upload it to <strong>Google Sheets</strong>.</p>
+
+<h3>Sheets</h3>
+<table>
+  <thead><tr><th>Sheet</th><th>Regenerated?</th><th>Description</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><strong>Intro</strong></td><td>Yes, always</td>
+      <td>Overview of the file and what each sheet does</td>
+    </tr>
+    <tr>
+      <td><strong>Data</strong></td><td>Yes, always</td>
+      <td>All transactions &mdash; one row per transaction. You can manually edit the <strong>Category</strong>, <strong>Subcategory</strong>, and <strong>Notes</strong> columns; those edits are saved back to the database on the next run.</td>
+    </tr>
+    <tr>
+      <td><strong>Rules</strong></td><td>Yes, always</td>
+      <td>A read-only view of the current categorization rules</td>
+    </tr>
+    <tr>
+      <td><strong>Dashboard</strong></td><td>First run only</td>
+      <td>Key summary figures: total income/expenses, net balance, average monthly spend, uncategorized count, and top categories.</td>
+    </tr>
+    <tr>
+      <td><strong>Monthly Summary</strong></td><td>First run only</td>
+      <td>Spending by month and category in a grid with formulas.</td>
+    </tr>
+    <tr>
+      <td><strong>Monthly Trend</strong></td><td>First run only</td>
+      <td>Income vs expenses vs net per month, with a running balance column.</td>
+    </tr>
+    <tr>
+      <td><strong>Category Breakdown</strong></td><td>First run only</td>
+      <td>Total spent, % of total, avg/month, and transaction count per category.</td>
+    </tr>
+    <tr>
+      <td><strong>Subcategory Breakdown</strong></td><td>First run only</td>
+      <td>Detailed breakdown within each category (e.g. &ldquo;Eating Out / Restaurant&rdquo; vs &ldquo;Eating Out / Cafe&rdquo;).</td>
+    </tr>
+    <tr>
+      <td><em>Your custom sheets</em></td><td>Never touched</td>
+      <td>Add as many sheets as you want. The script will never modify or remove them.</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>Manual Categorization &amp; Notes</h3>
+<p>If a transaction isn't caught by the rules (shows as &ldquo;uncategorized&rdquo;), you have two options:</p>
+<div class="tip">
+  <strong>Option A: Add a rule</strong> &mdash; Edit <code>rules.csv</code> (or run <code>python bank_ingest.py rules add ...</code>) to catch similar transactions automatically in the future. Best for recurring patterns.
+</div>
+<div class="tip">
+  <strong>Option B: Edit in the spreadsheet</strong> &mdash; Change the Category/Subcategory columns directly in the Data sheet. The next time you run <code>./run.sh</code>, those edits are synced back to the database. Best for one-off expenses.
+</div>
+<div class="tip">
+  <strong>Notes column (R)</strong> &mdash; Use this free-text column to annotate any transaction (e.g. &ldquo;birthday dinner&rdquo;, &ldquo;reimbursed by insurance&rdquo;). Notes are synced back to the database just like categories.
+</div>
+
+<hr>
+
+<!-- Rules -->
+<h2 id="rules">Categorization Rules (<code>rules.csv</code>)</h2>
+
+<p>Rules are defined in a simple CSV file that anyone can edit in a spreadsheet or text editor.</p>
+
+<h3>Format</h3>
+<pre><code>pattern,match_field,category,subcategory,payment_type
+CONTINENTE,description,Groceries,,card
+FARMACIA,description,Health,Pharmacy,card
+TRF P/ Renda,description,Housing,Rent,transfer</code></pre>
+
+<h3>Columns</h3>
+<table>
+  <thead><tr><th>Column</th><th>Required</th><th>Description</th></tr></thead>
+  <tbody>
+    <tr><td><code>pattern</code></td><td>Yes</td><td>Text to search for (case-insensitive)</td></tr>
+    <tr><td><code>match_field</code></td><td>Yes</td><td>Which field to search: <code>description</code> (cleaned) or <code>description_raw</code> (original)</td></tr>
+    <tr><td><code>category</code></td><td>Yes</td><td>Main category (e.g. Groceries, Health, Transport)</td></tr>
+    <tr><td><code>subcategory</code></td><td>No</td><td>Optional sub-category (e.g. Pharmacy, Rent, Fast Food)</td></tr>
+    <tr><td><code>payment_type</code></td><td>No</td><td>Optional override: <code>card</code>, <code>transfer</code>, <code>direct_debit</code>, <code>fee</code>, <code>tax</code></td></tr>
+  </tbody>
+</table>
+
+<h3>How Rules Work</h3>
+<ul>
+  <li>Rules are applied <strong>in order</strong> &mdash; the first matching rule wins</li>
+  <li>Matching is <strong>case-insensitive</strong> and uses substring matching</li>
+  <li>Rules only apply to <strong>uncategorized</strong> transactions (they won't override manual edits or previous rules)</li>
+  <li>After adding new rules, run <code>./run.sh</code> to apply them</li>
+</ul>
+
+<hr>
+
+<!-- Architecture -->
+<h2 id="architecture">Data Architecture</h2>
+
+<div class="diagram">Bank CSV (raw/)  &rarr;  Python parser  &rarr;  SQLite (data/ledger.sqlite)  &rarr;  ODS report
+                          &uarr;                     &uarr;                              |
+               account-holders.csv          rules.csv                              |
+                                                 &uarr;                              |
+                                                 &larr;&mdash; manual edits synced back &larr;&rsquo;</div>
+
+<ul>
+  <li><strong>Raw CSVs</strong> (<code>raw/</code>) &mdash; Immutable bank exports, kept as-is for reference</li>
+  <li><strong>Account holders</strong> (<code>account-holders.csv</code>) &mdash; Maps card last-4 digits to owner names</li>
+  <li><strong>Rules</strong> (<code>rules.csv</code>) &mdash; Defines how transactions get categorized</li>
+  <li><strong>SQLite database</strong> (<code>data/ledger.sqlite</code>) &mdash; The single source of truth for all transactions, deduplicated and normalized</li>
+  <li><strong>ODS report</strong> (<code>expense-report.ods</code>) &mdash; A generated spreadsheet for viewing, analysis, and manual edits</li>
+</ul>
+<p>Python handles all the &ldquo;intelligence&rdquo; (parsing, cleaning, deduplication, categorization). The spreadsheet is purely for presentation and custom analysis.</p>
+
+<hr>
+
+<!-- Project Structure -->
+<h2 id="structure">Project Structure</h2>
+
+<pre><code>expense-tracking/
+&#9500;&#9472;&#9472; raw/                    # Drop bank CSVs here
+&#9500;&#9472;&#9472; data/
+&#9474;   &#9500;&#9472;&#9472; ledger.sqlite       # Source of truth
+&#9474;   &#9492;&#9472;&#9472; ledger.csv          # Optional CSV export
+&#9500;&#9472;&#9472; rules.csv               # Categorization rules (editable)
+&#9500;&#9472;&#9472; account-holders.csv     # Card-to-owner mappings (editable)
+&#9500;&#9472;&#9472; expense-report.ods      # Generated report
+&#9500;&#9472;&#9472; bank_ingest.py          # Main entry point
+&#9500;&#9472;&#9472; expense_tracker/        # Python package
+&#9474;   &#9500;&#9472;&#9472; cli.py              # Command-line interface
+&#9474;   &#9500;&#9472;&#9472; parser.py           # UTF-16 CSV parser + auto-rename
+&#9474;   &#9500;&#9472;&#9472; db.py               # SQLite storage and queries
+&#9474;   &#9500;&#9472;&#9472; rules.py            # Rule &amp; card management + categorization
+&#9474;   &#9500;&#9472;&#9472; ods.py              # ODS report generation + sync-back
+&#9474;   &#9500;&#9472;&#9472; export.py           # CSV export
+&#9474;   &#9492;&#9472;&#9472; constants.py        # Shared configuration
+&#9500;&#9472;&#9472; install.sh              # First-time setup
+&#9500;&#9472;&#9472; run.sh                  # Import + report (everyday use)
+&#9500;&#9472;&#9472; update.sh               # Pull latest from GitHub
+&#9492;&#9472;&#9472; requirements.txt        # Python dependencies</code></pre>
+
+<hr>
+
+<!-- All Commands -->
+<h2 id="commands">All CLI Commands at a Glance</h2>
+
+<table>
+  <thead><tr><th>Command</th><th>Description</th></tr></thead>
+  <tbody>
+    <tr><td><code>python bank_ingest.py</code></td><td>Auto-detect, import, and report (default)</td></tr>
+    <tr><td><code>python bank_ingest.py auto</code></td><td>Same as above</td></tr>
+    <tr><td><code>python bank_ingest.py ingest &lt;files&gt;</code></td><td>Import specific CSV files</td></tr>
+    <tr><td><code>python bank_ingest.py report</code></td><td>Regenerate the ODS report</td></tr>
+    <tr><td><code>python bank_ingest.py export</code></td><td>Export to UTF-8 CSV</td></tr>
+    <tr><td><code>python bank_ingest.py cards</code></td><td>List card holders</td></tr>
+    <tr><td><code>python bank_ingest.py cards add &lt;last4&gt; &lt;name&gt;</code></td><td>Add a card holder</td></tr>
+    <tr><td><code>python bank_ingest.py cards remove &lt;last4&gt;</code></td><td>Remove a card holder</td></tr>
+    <tr><td><code>python bank_ingest.py rules</code></td><td>List categorization rules</td></tr>
+    <tr><td><code>python bank_ingest.py rules add &lt;pattern&gt; &lt;category&gt;</code></td><td>Add a rule</td></tr>
+    <tr><td><code>python bank_ingest.py rules remove &lt;pattern&gt;</code></td><td>Remove a rule</td></tr>
+  </tbody>
+</table>
+
+<hr>
+
+<!-- Requirements -->
+<h2 id="requirements">Requirements</h2>
+
+<ul>
+  <li><strong>Python 3.9+</strong></li>
+  <li><strong>macOS or Linux</strong> (the shell scripts use bash)</li>
+  <li><strong>LibreOffice</strong> or <strong>Google Sheets</strong> (to view the ODS report)</li>
+</ul>
+
+<hr>
+
+<!-- Privacy & Git -->
+<h2 id="privacy-git">Privacy &amp; Git</h2>
+
+<p>This project includes a <code>.gitignore</code> that keeps all personal/financial data out of version control:</p>
+
+<table>
+  <thead><tr><th>Ignored</th><th>Why</th></tr></thead>
+  <tbody>
+    <tr><td><code>raw/</code></td><td>Raw bank statement CSVs &mdash; contain account numbers and transaction details</td></tr>
+    <tr><td><code>data/</code></td><td>SQLite database and CSV exports &mdash; contain all your transactions</td></tr>
+    <tr><td><code>account-holders.csv</code></td><td>Maps card numbers to real names</td></tr>
+    <tr><td><code>rules.csv</code></td><td>May reveal spending patterns and merchants</td></tr>
+    <tr><td><code>expense-report.ods</code></td><td>The generated report &mdash; contains all your financial data</td></tr>
+  </tbody>
+</table>
+
+<p><strong>Only code and documentation are committed.</strong> When you first clone the repo on a new machine, run <code>./install.sh</code> to recreate the directory structure and starter config files.</p>
+
+<p>If you want to back up your personal data files, do so separately (e.g. a private cloud folder, encrypted archive, etc.) &mdash; <strong>never commit them to Git</strong>.</p>
+
+<hr>
+
+<!-- Troubleshooting -->
+<h2 id="troubleshooting">Troubleshooting</h2>
+
+<div class="warning">
+  <strong>"No new files to ingest"</strong><br>
+  All CSV files in <code>raw/</code> have already been imported. Drop a new one and run again.
+</div>
+
+<div class="warning">
+  <strong>"Could not find date range"</strong><br>
+  The CSV file doesn't have the expected UTF-16 header format. Use <code>ingest --no-rename</code> to import it with its original filename.
+</div>
+
+<div class="warning">
+  <strong>"File already exists with range..."</strong><br>
+  You're trying to import a CSV for a month that's already been imported with the same or wider date range. If you need to re-import, delete the existing file from <code>raw/</code> first.
+</div>
+
+<div class="warning">
+  <strong>Formulas show #VALUE!</strong><br>
+  Make sure you're opening the file in LibreOffice Calc (not a text editor). If the issue persists, run <code>python bank_ingest.py report --fresh</code> to regenerate all sheets.
+</div>
+
+<div class="warning">
+  <strong>"externally-managed-environment" error</strong><br>
+  You're trying to install packages on system Python. Run <code>./install.sh</code> to set up a virtual environment instead.
+</div>
+
+<hr>
+<p style="color: var(--muted); font-size: 0.85rem; text-align: center; margin-top: 2rem;">
+  Expense Tracker &mdash; Built for UTF-16 CSV bank statements
+</p>
+
+</body>
+</html>

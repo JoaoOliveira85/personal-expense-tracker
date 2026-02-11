@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+
+# Personal data (contains financial information)
+raw/
+data/
+account-holders.csv
+rules.csv
+expense-report.ods
+
+# OS
+.DS_Store
+Thumbs.db
+.~lock.*
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo

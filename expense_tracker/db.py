@@ -1,0 +1,186 @@
+"""SQLite storage: schema, ingestion, migrations, queries."""
+from __future__ import annotations
+
+import hashlib
+import sqlite3
+from datetime import datetime
+from pathlib import Path
+from typing import Iterable
+
+from .parser import parse_utf16_csv
+
+
+# ---------------------------------------------------------------------------
+# Transaction ID (for deduplication)
+# ---------------------------------------------------------------------------
+
+
+def tx_id(row: dict) -> str:
+    """Stable hash for deduplication. Includes balance to reduce collisions."""
+    key = "|".join(
+        [
+            row["account"],
+            row["date_posted"],
+            row["date_value"],
+            row["description_raw"],
+            f"{row['amount_signed']:.2f}",
+            f"{row['balance']:.2f}",
+        ]
+    )
+    return hashlib.sha1(key.encode("utf-8")).hexdigest()[:16]
+
+
+# ---------------------------------------------------------------------------
+# Schema
+# ---------------------------------------------------------------------------
+
+
+def ensure_schema(conn: sqlite3.Connection) -> None:
+    """Create the transactions table if it doesn't exist."""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS transactions (
+            transaction_id    TEXT PRIMARY KEY,
+            date_posted       TEXT NOT NULL,
+            date_value        TEXT NOT NULL,
+            month             TEXT NOT NULL,
+            day_of_week       TEXT NOT NULL,
+            description_raw   TEXT NOT NULL,
+            description_clean TEXT,
+            amount_signed     REAL NOT NULL,
+            amount_abs        REAL NOT NULL,
+            direction         TEXT NOT NULL,
+            tx_type           TEXT,
+            balance           REAL,
+            currency          TEXT NOT NULL,
+            account           TEXT NOT NULL,
+            card_last4        TEXT,
+            payment_type      TEXT,
+            who               TEXT,
+            category          TEXT,
+            subcategory       TEXT,
+            notes             TEXT,
+            source_file       TEXT NOT NULL,
+            imported_at       TEXT NOT NULL
+        );
+        """
+    )
+    conn.commit()
+
+
+def migrate_schema(conn: sqlite3.Connection) -> None:
+    """Add columns that may be missing from an older schema."""
+    existing = {
+        row[1] for row in conn.execute("PRAGMA table_info(transactions)").fetchall()
+    }
+    migrations = [
+        ("month", "TEXT NOT NULL DEFAULT ''"),
+        ("day_of_week", "TEXT NOT NULL DEFAULT ''"),
+        ("description_clean", "TEXT"),
+        ("payment_type", "TEXT"),
+        ("who", "TEXT"),
+        ("notes", "TEXT"),
+    ]
+    for col, typedef in migrations:
+        if col not in existing:
+            conn.execute(f"ALTER TABLE transactions ADD COLUMN {col} {typedef}")
+    conn.commit()
+
+
+# ---------------------------------------------------------------------------
+# Ingestion
+# ---------------------------------------------------------------------------
+
+
+def ingest(db_path: Path, csv_paths: Iterable[Path]) -> None:
+    """Parse bank CSV files and insert into SQLite with deduplication."""
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(str(db_path))
+    try:
+        ensure_schema(conn)
+        migrate_schema(conn)
+        now = datetime.now().astimezone().isoformat(timespec="seconds")
+
+        total_parsed = 0
+        total_inserted = 0
+        paths = list(csv_paths)
+        for p in paths:
+            rows = parse_utf16_csv(p)
+            total_parsed += len(rows)
+            for r in rows:
+                r["transaction_id"] = tx_id(r)
+                r["imported_at"] = now
+
+                cur = conn.execute(
+                    """
+                    INSERT OR IGNORE INTO transactions (
+                        transaction_id, date_posted, date_value, month, day_of_week,
+                        description_raw, description_clean,
+                        amount_signed, amount_abs, direction, tx_type, balance,
+                        currency, account, card_last4, payment_type, who,
+                        category, subcategory,
+                        source_file, imported_at
+                    ) VALUES (
+                        :transaction_id, :date_posted, :date_value, :month, :day_of_week,
+                        :description_raw, :description_clean,
+                        :amount_signed, :amount_abs, :direction, :tx_type, :balance,
+                        :currency, :account, :card_last4, :payment_type, :who,
+                        NULL, NULL,
+                        :source_file, :imported_at
+                    )
+                    """,
+                    r,
+                )
+                if cur.rowcount > 0:
+                    total_inserted += 1
+
+        conn.commit()
+        print(f"Parsed {total_parsed} transactions from {len(paths)} file(s).")
+        print(f"Inserted {total_inserted} new transactions into {db_path}.")
+    finally:
+        conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Queries
+# ---------------------------------------------------------------------------
+
+
+def ingested_source_files(db_path: Path) -> set[str]:
+    """Return the set of source_file names already present in the DB."""
+    if not db_path.exists():
+        return set()
+    conn = sqlite3.connect(str(db_path))
+    try:
+        ensure_schema(conn)
+        rows = conn.execute(
+            "SELECT DISTINCT source_file FROM transactions"
+        ).fetchall()
+        return {r[0] for r in rows}
+    finally:
+        conn.close()
+
+
+def fetch_all_transactions(conn: sqlite3.Connection) -> list[dict]:
+    """Fetch all transactions as a list of dicts, sorted by date desc."""
+    conn.row_factory = sqlite3.Row
+    rows = conn.execute(
+        """
+        SELECT
+            transaction_id, date_posted, date_value, month, day_of_week,
+            description_raw, description_clean,
+            amount_signed, amount_abs, direction, tx_type, balance,
+            currency, account, card_last4, payment_type, who,
+            category, subcategory, notes, source_file, imported_at
+        FROM transactions
+        ORDER BY date_posted DESC, rowid DESC
+        """
+    ).fetchall()
+    conn.row_factory = None
+
+    result = []
+    for r in rows:
+        d = dict(r)
+        d["status"] = "categorized" if d.get("category") else "uncategorized"
+        result.append(d)
+    return result
