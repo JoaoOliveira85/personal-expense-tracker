@@ -165,6 +165,7 @@
     <li><a href="#cards">Account Holders</a></li>
     <li><a href="#ods">The ODS Report</a></li>
     <li><a href="#rules">Categorization Rules</a></li>
+    <li><a href="#cleaning">Cleaning Patterns</a></li>
     <li><a href="#architecture">Data Architecture</a></li>
     <li><a href="#structure">Project Structure</a></li>
     <li><a href="#commands">All Commands at a Glance</a></li>
@@ -402,6 +403,46 @@ TRF P/ Renda,description,Housing,Rent,transfer</code></pre>
 
 <hr>
 
+<!-- Cleaning Patterns -->
+<h2 id="cleaning">Cleaning Patterns</h2>
+
+<p>When bank descriptions are imported, the parser cleans them up by stripping prefixes, noise words, and reference codes. These patterns are loaded from two external files so you can tweak them without touching Python code.</p>
+
+<h3><code>noise-words.txt</code> &mdash; Simple word list</h3>
+
+<p>A plain text file with one word per line. These words are stripped from descriptions when they appear as standalone words (surrounded by spaces). Case-insensitive.</p>
+
+<pre><code>CONTACTLESS
+PT
+Portugal
+PORTO
+LISBOA</code></pre>
+
+<ul>
+  <li>Add city names if you move to a different area</li>
+  <li>Remove words if they're being stripped from merchant names you want to keep</li>
+  <li>Lines starting with <code>#</code> are comments</li>
+</ul>
+
+<h3><code>cleaning-patterns.csv</code> &mdash; Regex patterns (advanced)</h3>
+
+<p>A CSV file for power users who need finer control over how descriptions are cleaned. Each row has a type, a regex pattern, and a description.</p>
+
+<table>
+  <thead><tr><th>Column</th><th>Description</th></tr></thead>
+  <tbody>
+    <tr><td><code>type</code></td><td><code>prefix</code> (stripped from the start) or <code>noise</code> (stripped anywhere)</td></tr>
+    <tr><td><code>pattern</code></td><td>A regular expression (compiled with case-insensitive flag)</td></tr>
+    <tr><td><code>description</code></td><td>Human-readable explanation of what the pattern does</td></tr>
+  </tbody>
+</table>
+
+<p><strong>Important:</strong> If your regex pattern contains commas (e.g. <code>{8,12}</code>), wrap the entire row in quotes.</p>
+
+<p>You normally won't need to edit this file unless you're seeing unexpected cleaning results.</p>
+
+<hr>
+
 <!-- Architecture -->
 <h2 id="architecture">Data Architecture</h2>
 
@@ -432,6 +473,8 @@ TRF P/ Renda,description,Housing,Rent,transfer</code></pre>
 &#9474;   &#9492;&#9472;&#9472; ledger.csv          # Optional CSV export
 &#9500;&#9472;&#9472; rules.csv               # Categorization rules (editable)
 &#9500;&#9472;&#9472; account-holders.csv     # Card-to-owner mappings (editable)
+&#9500;&#9472;&#9472; noise-words.txt         # Words to strip from descriptions (editable)
+&#9500;&#9472;&#9472; cleaning-patterns.csv   # Regex patterns for description cleaning
 &#9500;&#9472;&#9472; expense-report.ods      # Generated report
 &#9500;&#9472;&#9472; bank_ingest.py          # Main entry point
 &#9500;&#9472;&#9472; expense_tracker/        # Python package

@@ -30,6 +30,8 @@ expense-tracking/
 │   └── ledger.csv          # Optional CSV export
 ├── rules.csv               # Categorization rules (editable)
 ├── account-holders.csv     # Card-to-owner mappings (editable)
+├── noise-words.txt         # Words to strip from descriptions (editable)
+├── cleaning-patterns.csv   # Regex patterns for description cleaning
 ├── expense-report.ods      # Generated report (open in LibreOffice)
 ├── bank_ingest.py          # Main entry point (convenience wrapper)
 ├── expense_tracker/        # Python package (the actual code)
@@ -268,6 +270,42 @@ TRF P/ Renda,description,Housing,Rent,transfer
 - Matching is **case-insensitive** and uses substring matching
 - Rules only apply to **uncategorized** transactions (they won't override manual edits or previous rules)
 - After adding new rules, run `./run.sh` to apply them
+
+---
+
+## Cleaning Patterns
+
+When bank descriptions are imported, the parser cleans them up by stripping prefixes, noise words, and reference codes. These patterns are loaded from two external files so you can tweak them without touching Python code.
+
+### `noise-words.txt` — Simple word list
+
+A plain text file with one word per line. These words are stripped from descriptions when they appear as standalone words (surrounded by spaces). Case-insensitive.
+
+```
+CONTACTLESS
+PT
+Portugal
+PORTO
+LISBOA
+```
+
+- Add city names if you move to a different area
+- Remove words if they're being stripped from merchant names you want to keep
+- Lines starting with `#` are comments
+
+### `cleaning-patterns.csv` — Regex patterns (advanced)
+
+A CSV file for power users who need finer control over how descriptions are cleaned. Each row has a type, a regex pattern, and a description.
+
+| Column | Description |
+|--------|-------------|
+| `type` | `prefix` (stripped from the start) or `noise` (stripped anywhere) |
+| `pattern` | A regular expression (compiled with case-insensitive flag) |
+| `description` | Human-readable explanation of what the pattern does |
+
+**Important:** If your regex pattern contains commas (e.g. `{8,12}`), wrap the entire row in quotes.
+
+You normally won't need to edit this file unless you're seeing unexpected cleaning results.
 
 ---
 

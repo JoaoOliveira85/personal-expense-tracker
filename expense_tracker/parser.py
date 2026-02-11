@@ -12,7 +12,9 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Optional
 
-from .constants import DEFAULT_CARDS, DOW_NAMES
+from .constants import (
+    DEFAULT_CARDS, DEFAULT_NOISE_WORDS, DEFAULT_CLEANING_PATTERNS, DOW_NAMES,
+)
 
 # ---------------------------------------------------------------------------
 # Header detection
@@ -42,46 +44,82 @@ PAYMENT_TYPE_PATTERNS: list[tuple[re.Pattern, str]] = [
 ]
 
 # ---------------------------------------------------------------------------
-# Description cleaning
+# Description cleaning — loaded from external files
 # ---------------------------------------------------------------------------
 
-# Noise tokens to strip
-NOISE_RE = re.compile(
-    r"""
-    \bCONTACTLESS\b |
-    \bPT\b          |
-    \bPortugal\b    |
-    \bPORTO\b       |
-    \bLISBOA\b      |
-    \bLUXEMBOURG\s*LU\b |
-    \b[A-Z0-9]{8,12}\b  |  # transaction codes like ZD7844FC4
-    \b\d{4}-\d{3}\b      |  # postal codes like 1000-001
-    \bIE\b           |
-    \bLU\b
-    """,
-    re.VERBOSE | re.IGNORECASE,
-)
-
-# Prefixes to strip (COMPRA NNNN, DD, TRF MB WAY P/, etc.)
-PREFIX_RE = re.compile(
-    r"^(?:"
-    r"COMPRA\s+\d{4}\s*|"
-    r"DD\s+|"
-    r"TRF\s*MB\s*WAY\s*P/\s*|"
-    r"TRF\.?\s*P/O?\s*|"
-    r"TRF\s*P/\s*|"
-    r"TRANSFERENCIA\s*-?\s*|"
-    r"LEV\s*ATM\s+\d{4}\s+\w+\s+|"
-    r"COMISSAO\s+TRF\s+MBWAY\s+[\d.]+\s+APP\s+MB\s+WAY|"
-    r"COMISSAO\s+|"
-    r"COM\.MAN\.CONTA\s+|"
-    r"CUSTO\s+DE\s+SERVICO\s+|"
-    r"IMPOSTO\s+(?:DO\s+SELO|SELO\s+ART\s+[\d.]+)"
-    r")",
-    re.IGNORECASE,
-)
-
 CARD_RE = re.compile(r"\b(\d{4})\b")
+
+# Cached compiled regexes (populated on first call to _get_cleaning_patterns)
+_cleaning_cache: dict[str, re.Pattern | None] | None = None
+
+
+def _get_cleaning_patterns(
+    noise_words_path: Path = DEFAULT_NOISE_WORDS,
+    cleaning_patterns_path: Path = DEFAULT_CLEANING_PATTERNS,
+) -> dict[str, re.Pattern | None]:
+    """
+    Load and compile cleaning patterns from external files.
+
+    Returns a dict with keys 'prefix' and 'noise', each mapping to a
+    compiled regex (or None if no patterns were found).
+
+    Results are cached after the first call.
+    """
+    global _cleaning_cache
+    if _cleaning_cache is not None:
+        return _cleaning_cache
+
+    prefix_parts: list[str] = []
+    noise_parts: list[str] = []
+
+    # --- Load noise words from text file (space-bounded matching) ---
+    if noise_words_path.exists():
+        words: list[str] = []
+        for line in noise_words_path.read_text(encoding="utf-8").splitlines():
+            word = line.strip()
+            if word and not word.startswith("#"):
+                words.append(word)
+        if words:
+            escaped = [re.escape(w) for w in words]
+            # Match only when surrounded by whitespace or string boundaries
+            # so "PT" won't match inside "CONTINENTE.PT"
+            noise_parts.append(
+                r"(?<!\S)(?:" + "|".join(escaped) + r")(?!\S)"
+            )
+
+    # --- Load regex patterns from CSV ---
+    if cleaning_patterns_path.exists():
+        with cleaning_patterns_path.open("r", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                ptype = row.get("type", "").strip().lower()
+                pattern = row.get("pattern", "").strip()
+                if not pattern:
+                    continue
+                if ptype == "prefix":
+                    prefix_parts.append(pattern)
+                elif ptype == "noise":
+                    noise_parts.append(pattern)
+
+    # --- Compile ---
+    prefix_re = None
+    if prefix_parts:
+        prefix_re = re.compile(
+            r"^(?:" + "|".join(prefix_parts) + r")", re.IGNORECASE
+        )
+
+    noise_re = None
+    if noise_parts:
+        noise_re = re.compile("|".join(noise_parts), re.IGNORECASE)
+
+    _cleaning_cache = {"prefix": prefix_re, "noise": noise_re}
+    return _cleaning_cache
+
+
+def reset_cleaning_cache() -> None:
+    """Clear the cached cleaning patterns (useful for testing)."""
+    global _cleaning_cache
+    _cleaning_cache = None
 
 
 # ---------------------------------------------------------------------------
@@ -129,9 +167,16 @@ def clean_description(raw: str) -> str:
     Strips prefixes (COMPRA NNNN, DD, TRF P/, etc.), noise tokens
     (CONTACTLESS, PT, postal codes, transaction hashes), and normalizes
     whitespace.
+
+    Patterns are loaded from noise-words.txt and cleaning-patterns.csv.
     """
-    cleaned = PREFIX_RE.sub("", raw).strip()
-    cleaned = NOISE_RE.sub(" ", cleaned)
+    patterns = _get_cleaning_patterns()
+
+    cleaned = raw
+    if patterns["prefix"]:
+        cleaned = patterns["prefix"].sub("", cleaned).strip()
+    if patterns["noise"]:
+        cleaned = patterns["noise"].sub(" ", cleaned)
     cleaned = re.sub(r"\s{2,}", " ", cleaned).strip()
     cleaned = cleaned.strip(" ,-/")
     return cleaned if cleaned else raw

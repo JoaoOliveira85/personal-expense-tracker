@@ -13,6 +13,8 @@ DEFAULT_RULES = Path("rules.csv")
 DEFAULT_CARDS = Path("account-holders.csv")
 DEFAULT_ODS = Path("expense-report.ods")
 DEFAULT_CSV = Path("data/ledger.csv")
+DEFAULT_NOISE_WORDS = Path("noise-words.txt")
+DEFAULT_CLEANING_PATTERNS = Path("cleaning-patterns.csv")
 
 # ---------------------------------------------------------------------------
 # Day-of-week names (Python weekday() index -> abbreviation)

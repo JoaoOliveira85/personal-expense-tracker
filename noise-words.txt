@@ -1,0 +1,24 @@
+# ============================================================
+# Noise Words — removed from bank descriptions
+# ============================================================
+#
+# One word per line, case-insensitive.
+# Words are matched only when surrounded by spaces (or at the
+# start/end of the description), so "PT" here will NOT strip
+# the "PT" inside "CONTINENTE.PT".
+#
+# Lines starting with # are comments. Blank lines are ignored.
+# ============================================================
+
+# Payment markers
+CONTACTLESS
+
+# Country names / codes
+PT
+Portugal
+IE
+LU
+
+# City names (add your own as needed)
+PORTO
+LISBOA
