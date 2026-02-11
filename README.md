@@ -27,12 +27,12 @@ expense-tracking/
 ├── raw/                    # Drop bank CSVs here (e.g. EXPORT_0_1022026.csv)
 ├── data/
 │   ├── ledger.sqlite       # Source of truth — all transactions
-│   └── ledger.csv          # Optional CSV export
-├── rules.csv               # Categorization rules (editable)
-├── account-holders.csv     # Card-to-owner mappings (editable)
-├── noise-words.txt         # Words to strip from descriptions (editable)
-├── cleaning-patterns.csv   # Regex patterns for description cleaning
-├── description-notes.csv   # Merchant notes (editable, per-merchant)
+│   ├── ledger.csv          # Optional CSV export
+│   ├── rules.csv           # Categorization rules (editable)
+│   ├── account-holders.csv # Card-to-owner mappings (editable)
+│   ├── noise-words.txt     # Words to strip from descriptions (editable)
+│   ├── cleaning-patterns.csv # Regex patterns for description cleaning
+│   └── description-notes.csv # Merchant notes (editable, per-merchant)
 ├── expense-report.ods      # Generated report (open in LibreOffice)
 ├── bank_ingest.py          # Main entry point (convenience wrapper)
 ├── expense_tracker/        # Python package (the actual code)
@@ -66,7 +66,7 @@ What it does:
 2. Creates a virtual environment (`.venv/`)
 3. Installs Python dependencies (`odfpy`)
 4. Creates the `raw/` and `data/` directories
-5. Creates a starter `rules.csv` if one doesn't exist
+5. Creates starter config files (`rules.csv`, `account-holders.csv`, etc.) in `data/` if they don't exist
 6. Makes the shell scripts executable
 
 ### `run.sh` — Import Data & Generate Report
@@ -82,7 +82,7 @@ What it does:
 2. Auto-renames them (e.g. `EXPORT_0_1022026.csv` → `2026-01.csv`)
 3. Imports new transactions into the SQLite database
 4. Syncs any manual category edits from the ODS back into the database
-5. Applies categorization rules from `rules.csv`
+5. Applies categorization rules from `data/rules.csv`
 6. Regenerates the `expense-report.ods` report
 
 ### `update.sh` — Pull Latest Code from GitHub
@@ -154,7 +154,7 @@ python bank_ingest.py cards add 5678 Bob             # add another
 python bank_ingest.py cards remove 1234              # remove a card
 ```
 
-Card mappings are stored in `account-holders.csv` and are used to populate the "Who" column when transactions are imported. See the [Account Holders](#account-holders-account-holderscsv) section below.
+Card mappings are stored in `data/account-holders.csv` and are used to populate the "Who" column when transactions are imported. See the [Account Holders](#account-holders-dataaccount-holderscsv) section below.
 
 ### `rules`
 
@@ -174,7 +174,7 @@ python bank_ingest.py rules remove CONTINENTE                        # remove a 
 | `--sub` | *(empty)* | Subcategory |
 | `--payment` | *(empty)* | Payment type: `card`, `transfer`, `direct_debit`, `fee`, `tax` |
 
-Rules are appended to the end of `rules.csv`. See the [Categorization Rules](#categorization-rules-rulescsv) section below.
+Rules are appended to the end of `data/rules.csv`. See the [Categorization Rules](#categorization-rules-datarulescsv) section below.
 
 ### `export`
 
@@ -187,7 +187,7 @@ python bank_ingest.py export --out my-data.csv
 
 ### `reclean`
 
-Recompute all cleaned descriptions from the raw bank text using the current cleaning patterns. Use this after editing `noise-words.txt` or `cleaning-patterns.csv`.
+Recompute all cleaned descriptions from the raw bank text using the current cleaning patterns. Use this after editing `data/noise-words.txt` or `data/cleaning-patterns.csv`.
 
 ```bash
 python bank_ingest.py reclean
@@ -202,7 +202,7 @@ All categories, notes, and other data are preserved.
 
 ---
 
-## Merchant Notes (`description-notes.csv`)
+## Merchant Notes (`data/description-notes.csv`)
 
 Merchant notes are annotations that apply to **all transactions** with the same cleaned description. Unlike per-transaction notes (the "Notes" column), a merchant note is shared across every occurrence of that merchant.
 
@@ -210,7 +210,7 @@ Merchant notes are annotations that apply to **all transactions** with the same 
 
 1. In the ODS Data sheet, find the **Merchant Note** column (S)
 2. Type a note on any row (e.g. "Weekly groceries" next to a Continente transaction)
-3. Run `./run.sh` — the note is saved to `description-notes.csv`
+3. Run `./run.sh` — the note is saved to `data/description-notes.csv`
 4. On the next regeneration, **every** row with that same merchant description gets the note
 
 ### Format
@@ -225,7 +225,7 @@ You can edit this file directly or let it be populated from the ODS.
 
 ---
 
-## Account Holders (`account-holders.csv`)
+## Account Holders (`data/account-holders.csv`)
 
 This file maps debit card last-4 digits to owner names, so the "Who" column in the report shows who made each purchase.
 
@@ -271,7 +271,7 @@ Open this file in **LibreOffice Calc** or upload it to **Google Sheets**.
 
 If a transaction isn't caught by the rules (shows as "uncategorized"), you can:
 
-1. **Add a rule** — edit `rules.csv` (or use `python bank_ingest.py rules add ...`) to catch similar transactions automatically in the future
+1. **Add a rule** — edit `data/rules.csv` (or use `python bank_ingest.py rules add ...`) to catch similar transactions automatically in the future
 2. **Edit directly in the ODS** — change the Category/Subcategory columns in the Data sheet. The next time you run `./run.sh`, those edits are synced back to the database.
 
 You can also use the **Notes** column (R) to add personal annotations to any transaction (e.g. "birthday dinner", "reimbursed by insurance"). Notes are synced back to the database just like categories.
@@ -282,7 +282,7 @@ For recurring patterns, adding a rule is better. For one-off expenses, editing i
 
 ---
 
-## Categorization Rules (`rules.csv`)
+## Categorization Rules (`data/rules.csv`)
 
 Rules are defined in a simple CSV file that anyone can edit in a spreadsheet or text editor.
 
@@ -318,7 +318,7 @@ TRF P/ Renda,description,Housing,Rent,transfer
 
 When bank descriptions are imported, the parser cleans them up by stripping prefixes, noise words, and reference codes. These patterns are loaded from two external files so you can tweak them without touching Python code.
 
-### `noise-words.txt` — Simple word list
+### `data/noise-words.txt` — Simple word list
 
 A plain text file with one word per line. These words are stripped from descriptions when they appear as standalone words (surrounded by spaces). Case-insensitive.
 
@@ -334,7 +334,7 @@ LISBOA
 - Remove words if they're being stripped from merchant names you want to keep
 - Lines starting with `#` are comments
 
-### `cleaning-patterns.csv` — Regex patterns (advanced)
+### `data/cleaning-patterns.csv` — Regex patterns (advanced)
 
 A CSV file for power users who need finer control over how descriptions are cleaned. Each row has a type, a regex pattern, and a description.
 
@@ -355,14 +355,14 @@ You normally won't need to edit this file unless you're seeing unexpected cleani
 ```
 Bank CSV (raw/)  →  Python parser  →  SQLite (data/ledger.sqlite)  →  ODS report
                          ↑                    ↑                            |
-              account-holders.csv        rules.csv                         |
+              data/account-holders.csv   data/rules.csv                    |
                                               ↑                            |
                                               └── manual edits synced back ┘
 ```
 
 - **Raw CSVs** (`raw/`) — immutable bank exports, kept as-is for reference
-- **Account holders** (`account-holders.csv`) — maps card last-4 digits to owner names
-- **Rules** (`rules.csv`) — defines how transactions get categorized
+- **Account holders** (`data/account-holders.csv`) — maps card last-4 digits to owner names
+- **Rules** (`data/rules.csv`) — defines how transactions get categorized
 - **SQLite database** (`data/ledger.sqlite`) — the single source of truth for all transactions, deduplicated and normalized
 - **ODS report** (`expense-report.ods`) — a generated spreadsheet for viewing, analysis, and manual edits
 
@@ -404,10 +404,7 @@ This project includes a `.gitignore` that keeps all personal/financial data out 
 | Ignored | Why |
 |---------|-----|
 | `raw/` | Raw bank statement CSVs — contain account numbers and transaction details |
-| `data/` | SQLite database and CSV exports — contain all your transactions |
-| `account-holders.csv` | Maps card numbers to real names |
-| `rules.csv` | May reveal spending patterns and merchants |
-| `description-notes.csv` | Contains merchant annotations |
+| `data/` | SQLite database, config files, and CSV exports — contain all your transactions and personal data (rules, card mappings, merchant notes, cleaning patterns) |
 | `expense-report.ods` | The generated report — contains all your financial data |
 
 **Only code and documentation are committed.** When you first clone the repo on a new machine, run `./install.sh` to recreate the directory structure and starter config files.

@@ -9,13 +9,13 @@ from pathlib import Path
 
 DEFAULT_RAW = Path("raw")
 DEFAULT_DB = Path("data/ledger.sqlite")
-DEFAULT_RULES = Path("rules.csv")
-DEFAULT_CARDS = Path("account-holders.csv")
+DEFAULT_RULES = Path("data/rules.csv")
+DEFAULT_CARDS = Path("data/account-holders.csv")
 DEFAULT_ODS = Path("expense-report.ods")
 DEFAULT_CSV = Path("data/ledger.csv")
-DEFAULT_NOISE_WORDS = Path("noise-words.txt")
-DEFAULT_CLEANING_PATTERNS = Path("cleaning-patterns.csv")
-DEFAULT_DESC_NOTES = Path("description-notes.csv")
+DEFAULT_NOISE_WORDS = Path("data/noise-words.txt")
+DEFAULT_CLEANING_PATTERNS = Path("data/cleaning-patterns.csv")
+DEFAULT_DESC_NOTES = Path("data/description-notes.csv")
 
 # ---------------------------------------------------------------------------
 # Day-of-week names (Python weekday() index -> abbreviation)

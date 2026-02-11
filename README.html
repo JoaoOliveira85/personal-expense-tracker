@@ -190,7 +190,7 @@
     <li>Creates a virtual environment (<code>.venv/</code>)</li>
     <li>Installs Python dependencies (<code>odfpy</code>)</li>
     <li>Creates the <code>raw/</code> and <code>data/</code> directories</li>
-    <li>Creates starter <code>rules.csv</code> and <code>account-holders.csv</code> if they don't exist</li>
+    <li>Creates starter config files (<code>rules.csv</code>, <code>account-holders.csv</code>, etc.) in <code>data/</code> if they don't exist</li>
     <li>Makes the shell scripts executable</li>
   </ol>
 </div>
@@ -205,7 +205,7 @@
     <li>Auto-renames them (e.g. <code>EXPORT_0_1022026.csv</code> &rarr; <code>2026-01.csv</code>)</li>
     <li>Imports new transactions into the SQLite database</li>
     <li>Syncs any manual category edits from the ODS back into the database</li>
-    <li>Applies categorization rules from <code>rules.csv</code></li>
+    <li>Applies categorization rules from <code>data/rules.csv</code></li>
     <li>Regenerates the <code>expense-report.ods</code> report</li>
   </ol>
 </div>
@@ -263,7 +263,7 @@ python bank_ingest.py report --fresh --no-sync</code></pre>
 python bank_ingest.py cards add 1234 Alice           # add a card
 python bank_ingest.py cards add 5678 Bob             # add another
 python bank_ingest.py cards remove 1234              # remove a card</code></pre>
-<p>Card mappings are stored in <code>account-holders.csv</code> and determine the &ldquo;Who&rdquo; column during import. See <a href="#cards">Account Holders</a>.</p>
+<p>Card mappings are stored in <code>data/account-holders.csv</code> and determine the &ldquo;Who&rdquo; column during import. See <a href="#cards">Account Holders</a>.</p>
 
 <h3><code>rules</code></h3>
 <p>Manage categorization rules from the command line.</p>
@@ -279,7 +279,7 @@ python bank_ingest.py rules remove CONTINENTE                        # remove by
     <tr><td><code>--payment</code></td><td><em>(empty)</em></td><td>Payment type: <code>card</code>, <code>transfer</code>, <code>direct_debit</code>, <code>fee</code>, <code>tax</code></td></tr>
   </tbody>
 </table>
-<p>Rules are appended to the end of <code>rules.csv</code>. See <a href="#rules">Categorization Rules</a>.</p>
+<p>Rules are appended to the end of <code>data/rules.csv</code>. See <a href="#rules">Categorization Rules</a>.</p>
 
 <h3><code>export</code></h3>
 <p>Export all transactions to a clean UTF-8 CSV file.</p>
@@ -287,7 +287,7 @@ python bank_ingest.py rules remove CONTINENTE                        # remove by
 python bank_ingest.py export --out my-data.csv</code></pre>
 
 <h3><code>reclean</code></h3>
-<p>Recompute all cleaned descriptions from the raw bank text using the current cleaning patterns. Use this after editing <code>noise-words.txt</code> or <code>cleaning-patterns.csv</code>.</p>
+<p>Recompute all cleaned descriptions from the raw bank text using the current cleaning patterns. Use this after editing <code>data/noise-words.txt</code> or <code>data/cleaning-patterns.csv</code>.</p>
 <pre><code>python bank_ingest.py reclean</code></pre>
 <p>What it does:</p>
 <ol>
@@ -300,7 +300,7 @@ python bank_ingest.py export --out my-data.csv</code></pre>
 <hr>
 
 <!-- Merchant Notes -->
-<h2 id="merchant-notes">Merchant Notes (<code>description-notes.csv</code>)</h2>
+<h2 id="merchant-notes">Merchant Notes (<code>data/description-notes.csv</code>)</h2>
 
 <p>Merchant notes are annotations that apply to <strong>all transactions</strong> with the same cleaned description. Unlike per-transaction notes (the &ldquo;Notes&rdquo; column), a merchant note is shared across every occurrence of that merchant.</p>
 
@@ -308,7 +308,7 @@ python bank_ingest.py export --out my-data.csv</code></pre>
 <ol>
   <li>In the ODS Data sheet, find the <strong>Merchant Note</strong> column (S)</li>
   <li>Type a note on any row (e.g. &ldquo;Weekly groceries&rdquo; next to a Continente transaction)</li>
-  <li>Run <code>./run.sh</code> &mdash; the note is saved to <code>description-notes.csv</code></li>
+  <li>Run <code>./run.sh</code> &mdash; the note is saved to <code>data/description-notes.csv</code></li>
   <li>On the next regeneration, <strong>every</strong> row with that same merchant description gets the note</li>
 </ol>
 
@@ -322,7 +322,7 @@ CONTINENTE,Main weekly grocery shop</code></pre>
 <hr>
 
 <!-- Account Holders -->
-<h2 id="cards">Account Holders (<code>account-holders.csv</code>)</h2>
+<h2 id="cards">Account Holders (<code>data/account-holders.csv</code>)</h2>
 
 <p>This file maps debit card last-4 digits to owner names, so the &ldquo;Who&rdquo; column in the report shows who made each purchase.</p>
 
@@ -393,7 +393,7 @@ python bank_ingest.py cards               # list all</code></pre>
 <h3>Manual Categorization &amp; Notes</h3>
 <p>If a transaction isn't caught by the rules (shows as &ldquo;uncategorized&rdquo;), you have two options:</p>
 <div class="tip">
-  <strong>Option A: Add a rule</strong> &mdash; Edit <code>rules.csv</code> (or run <code>python bank_ingest.py rules add ...</code>) to catch similar transactions automatically in the future. Best for recurring patterns.
+  <strong>Option A: Add a rule</strong> &mdash; Edit <code>data/rules.csv</code> (or run <code>python bank_ingest.py rules add ...</code>) to catch similar transactions automatically in the future. Best for recurring patterns.
 </div>
 <div class="tip">
   <strong>Option B: Edit in the spreadsheet</strong> &mdash; Change the Category/Subcategory columns directly in the Data sheet. The next time you run <code>./run.sh</code>, those edits are synced back to the database. Best for one-off expenses.
@@ -405,7 +405,7 @@ python bank_ingest.py cards               # list all</code></pre>
 <hr>
 
 <!-- Rules -->
-<h2 id="rules">Categorization Rules (<code>rules.csv</code>)</h2>
+<h2 id="rules">Categorization Rules (<code>data/rules.csv</code>)</h2>
 
 <p>Rules are defined in a simple CSV file that anyone can edit in a spreadsheet or text editor.</p>
 
@@ -442,7 +442,7 @@ TRF P/ Renda,description,Housing,Rent,transfer</code></pre>
 
 <p>When bank descriptions are imported, the parser cleans them up by stripping prefixes, noise words, and reference codes. These patterns are loaded from two external files so you can tweak them without touching Python code.</p>
 
-<h3><code>noise-words.txt</code> &mdash; Simple word list</h3>
+<h3><code>data/noise-words.txt</code> &mdash; Simple word list</h3>
 
 <p>A plain text file with one word per line. These words are stripped from descriptions when they appear as standalone words (surrounded by spaces). Case-insensitive.</p>
 
@@ -458,7 +458,7 @@ LISBOA</code></pre>
   <li>Lines starting with <code>#</code> are comments</li>
 </ul>
 
-<h3><code>cleaning-patterns.csv</code> &mdash; Regex patterns (advanced)</h3>
+<h3><code>data/cleaning-patterns.csv</code> &mdash; Regex patterns (advanced)</h3>
 
 <p>A CSV file for power users who need finer control over how descriptions are cleaned. Each row has a type, a regex pattern, and a description.</p>
 
@@ -482,14 +482,14 @@ LISBOA</code></pre>
 
 <div class="diagram">Bank CSV (raw/)  &rarr;  Python parser  &rarr;  SQLite (data/ledger.sqlite)  &rarr;  ODS report
                           &uarr;                     &uarr;                              |
-               account-holders.csv          rules.csv                              |
+            data/account-holders.csv     data/rules.csv                            |
                                                  &uarr;                              |
                                                  &larr;&mdash; manual edits synced back &larr;&rsquo;</div>
 
 <ul>
   <li><strong>Raw CSVs</strong> (<code>raw/</code>) &mdash; Immutable bank exports, kept as-is for reference</li>
-  <li><strong>Account holders</strong> (<code>account-holders.csv</code>) &mdash; Maps card last-4 digits to owner names</li>
-  <li><strong>Rules</strong> (<code>rules.csv</code>) &mdash; Defines how transactions get categorized</li>
+  <li><strong>Account holders</strong> (<code>data/account-holders.csv</code>) &mdash; Maps card last-4 digits to owner names</li>
+  <li><strong>Rules</strong> (<code>data/rules.csv</code>) &mdash; Defines how transactions get categorized</li>
   <li><strong>SQLite database</strong> (<code>data/ledger.sqlite</code>) &mdash; The single source of truth for all transactions, deduplicated and normalized</li>
   <li><strong>ODS report</strong> (<code>expense-report.ods</code>) &mdash; A generated spreadsheet for viewing, analysis, and manual edits</li>
 </ul>
@@ -504,12 +504,12 @@ LISBOA</code></pre>
 &#9500;&#9472;&#9472; raw/                    # Drop bank CSVs here
 &#9500;&#9472;&#9472; data/
 &#9474;   &#9500;&#9472;&#9472; ledger.sqlite       # Source of truth
-&#9474;   &#9492;&#9472;&#9472; ledger.csv          # Optional CSV export
-&#9500;&#9472;&#9472; rules.csv               # Categorization rules (editable)
-&#9500;&#9472;&#9472; account-holders.csv     # Card-to-owner mappings (editable)
-&#9500;&#9472;&#9472; noise-words.txt         # Words to strip from descriptions (editable)
-&#9500;&#9472;&#9472; cleaning-patterns.csv   # Regex patterns for description cleaning
-&#9500;&#9472;&#9472; description-notes.csv   # Merchant notes (editable, per-merchant)
+&#9474;   &#9500;&#9472;&#9472; ledger.csv          # Optional CSV export
+&#9474;   &#9500;&#9472;&#9472; rules.csv           # Categorization rules (editable)
+&#9474;   &#9500;&#9472;&#9472; account-holders.csv # Card-to-owner mappings (editable)
+&#9474;   &#9500;&#9472;&#9472; noise-words.txt     # Words to strip from descriptions (editable)
+&#9474;   &#9500;&#9472;&#9472; cleaning-patterns.csv # Regex patterns for description cleaning
+&#9474;   &#9492;&#9472;&#9472; description-notes.csv # Merchant notes (editable, per-merchant)
 &#9500;&#9472;&#9472; expense-report.ods      # Generated report
 &#9500;&#9472;&#9472; bank_ingest.py          # Main entry point
 &#9500;&#9472;&#9472; expense_tracker/        # Python package
@@ -570,10 +570,7 @@ LISBOA</code></pre>
   <thead><tr><th>Ignored</th><th>Why</th></tr></thead>
   <tbody>
     <tr><td><code>raw/</code></td><td>Raw bank statement CSVs &mdash; contain account numbers and transaction details</td></tr>
-    <tr><td><code>data/</code></td><td>SQLite database and CSV exports &mdash; contain all your transactions</td></tr>
-    <tr><td><code>account-holders.csv</code></td><td>Maps card numbers to real names</td></tr>
-    <tr><td><code>rules.csv</code></td><td>May reveal spending patterns and merchants</td></tr>
-    <tr><td><code>description-notes.csv</code></td><td>Contains merchant annotations</td></tr>
+    <tr><td><code>data/</code></td><td>SQLite database, config files, and CSV exports &mdash; contain all your transactions and personal data (rules, card mappings, merchant notes, cleaning patterns)</td></tr>
     <tr><td><code>expense-report.ods</code></td><td>The generated report &mdash; contains all your financial data</td></tr>
   </tbody>
 </table>

@@ -84,32 +84,67 @@ mkdir -p raw data
 ok "Directories ready (raw/, data/)"
 
 # ── 5. Starter config files ──────────────────────────────────────────────
-if [ ! -f "rules.csv" ]; then
-    cat > rules.csv << 'RULES'
+if [ ! -f "data/rules.csv" ]; then
+    cat > data/rules.csv << 'RULES'
 pattern,match_field,category,subcategory,payment_type
 RULES
-    ok "Created starter rules.csv (add your categorization rules here)"
+    ok "Created starter data/rules.csv (add your categorization rules here)"
 else
-    ok "rules.csv already exists"
+    ok "data/rules.csv already exists"
 fi
 
-if [ ! -f "account-holders.csv" ]; then
-    cat > account-holders.csv << 'CARDS'
+if [ ! -f "data/account-holders.csv" ]; then
+    cat > data/account-holders.csv << 'CARDS'
 card_last4,name
 CARDS
-    ok "Created starter account-holders.csv (add your card mappings here)"
+    ok "Created starter data/account-holders.csv (add your card mappings here)"
     echo "    Tip: run './bank_ingest.py cards add 1234 \"Your Name\"' to add a card"
 else
-    ok "account-holders.csv already exists"
+    ok "data/account-holders.csv already exists"
 fi
 
-if [ ! -f "description-notes.csv" ]; then
-    cat > description-notes.csv << 'DESCNOTES'
+if [ ! -f "data/noise-words.txt" ]; then
+    cat > data/noise-words.txt << 'NOISE'
+# Noise words — removed from bank descriptions
+# One word per line, case-insensitive.
+CONTACTLESS
+PT
+Portugal
+IE
+LU
+PORTO
+LISBOA
+NOISE
+    ok "Created starter data/noise-words.txt (add noise words to strip from descriptions)"
+else
+    ok "data/noise-words.txt already exists"
+fi
+
+if [ ! -f "data/cleaning-patterns.csv" ]; then
+    cat > data/cleaning-patterns.csv << 'PATTERNS'
+type,pattern,description
+prefix,COMPRA\s+\d{4}\s*,Card purchase with card number
+prefix,DD\s+,Direct debit
+prefix,TRF\.\s*P/O\s*,Transfer on behalf of
+prefix,TRF\.\s*,Transfer
+prefix,PAG\.\s*,Payment
+prefix,MBWAY\s+\d{9}\s*,MB Way with phone number
+"noise","\b(?=[A-Z0-9]*\d)[A-Z0-9]{8,12}\b","Transaction reference codes (requires at least one digit)"
+noise,\b\d{4}-\d{3}\b,Portuguese postal codes
+noise,\bLUXEMBOURG\s*LU\b,Luxembourg + country code
+PATTERNS
+    ok "Created starter data/cleaning-patterns.csv (regex patterns for description cleaning)"
+else
+    ok "data/cleaning-patterns.csv already exists"
+fi
+
+if [ ! -f "data/description-notes.csv" ]; then
+    cat > data/description-notes.csv << 'DESCNOTES'
 description_clean,merchant_note
 DESCNOTES
-    ok "Created starter description-notes.csv (merchant notes will be saved here)"
+    ok "Created starter data/description-notes.csv (merchant notes will be saved here)"
 else
-    ok "description-notes.csv already exists"
+    ok "data/description-notes.csv already exists"
 fi
 
 # ── 6. Make scripts executable ───────────────────────────────────────────
