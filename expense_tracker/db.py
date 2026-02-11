@@ -161,6 +161,42 @@ def ingested_source_files(db_path: Path) -> set[str]:
         conn.close()
 
 
+def reclean_descriptions(db_path: Path) -> int:
+    """Re-run clean_description() on all transactions in the DB.
+
+    Updates description_clean for any row where the new cleaned value
+    differs from the stored one.  All other fields are preserved.
+
+    Returns the number of rows updated.
+    """
+    from .parser import clean_description  # avoid circular import at top level
+
+    conn = sqlite3.connect(str(db_path))
+    updated = 0
+    try:
+        migrate_schema(conn)
+        rows = conn.execute(
+            "SELECT transaction_id, description_raw, description_clean "
+            "FROM transactions"
+        ).fetchall()
+
+        for tid, raw, old_clean in rows:
+            new_clean = clean_description(raw)
+            if new_clean != (old_clean or ""):
+                conn.execute(
+                    "UPDATE transactions SET description_clean = ? "
+                    "WHERE transaction_id = ?",
+                    (new_clean, tid),
+                )
+                updated += 1
+
+        conn.commit()
+    finally:
+        conn.close()
+
+    return updated
+
+
 def fetch_all_transactions(conn: sqlite3.Connection) -> list[dict]:
     """Fetch all transactions as a list of dicts, sorted by date desc."""
     conn.row_factory = sqlite3.Row

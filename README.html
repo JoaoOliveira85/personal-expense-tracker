@@ -162,6 +162,7 @@
   <ul>
     <li><a href="#scripts">Shell Scripts</a></li>
     <li><a href="#cli">Python CLI Reference</a></li>
+    <li><a href="#merchant-notes">Merchant Notes</a></li>
     <li><a href="#cards">Account Holders</a></li>
     <li><a href="#ods">The ODS Report</a></li>
     <li><a href="#rules">Categorization Rules</a></li>
@@ -284,6 +285,39 @@ python bank_ingest.py rules remove CONTINENTE                        # remove by
 <p>Export all transactions to a clean UTF-8 CSV file.</p>
 <pre><code>python bank_ingest.py export
 python bank_ingest.py export --out my-data.csv</code></pre>
+
+<h3><code>reclean</code></h3>
+<p>Recompute all cleaned descriptions from the raw bank text using the current cleaning patterns. Use this after editing <code>noise-words.txt</code> or <code>cleaning-patterns.csv</code>.</p>
+<pre><code>python bank_ingest.py reclean</code></pre>
+<p>What it does:</p>
+<ol>
+  <li>Re-runs the description cleaner on every transaction in the database</li>
+  <li>Updates only the rows where the cleaned description changed</li>
+  <li>Regenerates the ODS report</li>
+</ol>
+<p>All categories, notes, and other data are preserved.</p>
+
+<hr>
+
+<!-- Merchant Notes -->
+<h2 id="merchant-notes">Merchant Notes (<code>description-notes.csv</code>)</h2>
+
+<p>Merchant notes are annotations that apply to <strong>all transactions</strong> with the same cleaned description. Unlike per-transaction notes (the &ldquo;Notes&rdquo; column), a merchant note is shared across every occurrence of that merchant.</p>
+
+<h3>How it works</h3>
+<ol>
+  <li>In the ODS Data sheet, find the <strong>Merchant Note</strong> column (S)</li>
+  <li>Type a note on any row (e.g. &ldquo;Weekly groceries&rdquo; next to a Continente transaction)</li>
+  <li>Run <code>./run.sh</code> &mdash; the note is saved to <code>description-notes.csv</code></li>
+  <li>On the next regeneration, <strong>every</strong> row with that same merchant description gets the note</li>
+</ol>
+
+<h3>Format</h3>
+<pre><code>description_clean,merchant_note
+FARMACIA DA GARE,Pharmacy
+CONTINENTE,Main weekly grocery shop</code></pre>
+
+<p>You can edit this file directly or let it be populated from the ODS.</p>
 
 <hr>
 
@@ -475,6 +509,7 @@ LISBOA</code></pre>
 &#9500;&#9472;&#9472; account-holders.csv     # Card-to-owner mappings (editable)
 &#9500;&#9472;&#9472; noise-words.txt         # Words to strip from descriptions (editable)
 &#9500;&#9472;&#9472; cleaning-patterns.csv   # Regex patterns for description cleaning
+&#9500;&#9472;&#9472; description-notes.csv   # Merchant notes (editable, per-merchant)
 &#9500;&#9472;&#9472; expense-report.ods      # Generated report
 &#9500;&#9472;&#9472; bank_ingest.py          # Main entry point
 &#9500;&#9472;&#9472; expense_tracker/        # Python package
@@ -509,6 +544,7 @@ LISBOA</code></pre>
     <tr><td><code>python bank_ingest.py rules</code></td><td>List categorization rules</td></tr>
     <tr><td><code>python bank_ingest.py rules add &lt;pattern&gt; &lt;category&gt;</code></td><td>Add a rule</td></tr>
     <tr><td><code>python bank_ingest.py rules remove &lt;pattern&gt;</code></td><td>Remove a rule</td></tr>
+    <tr><td><code>python bank_ingest.py reclean</code></td><td>Re-clean all descriptions and regenerate report</td></tr>
   </tbody>
 </table>
 
@@ -537,6 +573,7 @@ LISBOA</code></pre>
     <tr><td><code>data/</code></td><td>SQLite database and CSV exports &mdash; contain all your transactions</td></tr>
     <tr><td><code>account-holders.csv</code></td><td>Maps card numbers to real names</td></tr>
     <tr><td><code>rules.csv</code></td><td>May reveal spending patterns and merchants</td></tr>
+    <tr><td><code>description-notes.csv</code></td><td>Contains merchant annotations</td></tr>
     <tr><td><code>expense-report.ods</code></td><td>The generated report &mdash; contains all your financial data</td></tr>
   </tbody>
 </table>

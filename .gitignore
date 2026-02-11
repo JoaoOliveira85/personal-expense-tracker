@@ -9,6 +9,7 @@ raw/
 data/
 account-holders.csv
 rules.csv
+description-notes.csv
 expense-report.ods
 
 # OS

@@ -32,6 +32,7 @@ expense-tracking/
 ├── account-holders.csv     # Card-to-owner mappings (editable)
 ├── noise-words.txt         # Words to strip from descriptions (editable)
 ├── cleaning-patterns.csv   # Regex patterns for description cleaning
+├── description-notes.csv   # Merchant notes (editable, per-merchant)
 ├── expense-report.ods      # Generated report (open in LibreOffice)
 ├── bank_ingest.py          # Main entry point (convenience wrapper)
 ├── expense_tracker/        # Python package (the actual code)
@@ -184,6 +185,44 @@ python bank_ingest.py export
 python bank_ingest.py export --out my-data.csv
 ```
 
+### `reclean`
+
+Recompute all cleaned descriptions from the raw bank text using the current cleaning patterns. Use this after editing `noise-words.txt` or `cleaning-patterns.csv`.
+
+```bash
+python bank_ingest.py reclean
+```
+
+What it does:
+1. Re-runs the description cleaner on every transaction in the database
+2. Updates only the rows where the cleaned description changed
+3. Regenerates the ODS report
+
+All categories, notes, and other data are preserved.
+
+---
+
+## Merchant Notes (`description-notes.csv`)
+
+Merchant notes are annotations that apply to **all transactions** with the same cleaned description. Unlike per-transaction notes (the "Notes" column), a merchant note is shared across every occurrence of that merchant.
+
+### How it works
+
+1. In the ODS Data sheet, find the **Merchant Note** column (S)
+2. Type a note on any row (e.g. "Weekly groceries" next to a Continente transaction)
+3. Run `./run.sh` — the note is saved to `description-notes.csv`
+4. On the next regeneration, **every** row with that same merchant description gets the note
+
+### Format
+
+```csv
+description_clean,merchant_note
+FARMACIA DA GARE,Pharmacy
+CONTINENTE,Main weekly grocery shop
+```
+
+You can edit this file directly or let it be populated from the ODS.
+
 ---
 
 ## Account Holders (`account-holders.csv`)
@@ -219,7 +258,7 @@ Open this file in **LibreOffice Calc** or upload it to **Google Sheets**.
 | Sheet | Regenerated? | Description |
 |-------|-------------|-------------|
 | **Intro** | Yes, always | Overview of the file and what each sheet does |
-| **Data** | Yes, always | All transactions — one row per transaction. You can manually edit the **Category**, **Subcategory**, and **Notes** columns; those edits are saved back to the database on the next run. |
+| **Data** | Yes, always | All transactions — one row per transaction. You can manually edit the **Category**, **Subcategory**, **Notes**, and **Merchant Note** columns; edits are saved back on the next run. |
 | **Rules** | Yes, always | A read-only view of the current categorization rules |
 | **Dashboard** | First run only | Key summary figures: total income/expenses, net balance, average monthly spend, uncategorized count, and top categories. |
 | **Monthly Summary** | First run only | Spending by month and category in a grid with formulas. |
@@ -236,6 +275,8 @@ If a transaction isn't caught by the rules (shows as "uncategorized"), you can:
 2. **Edit directly in the ODS** — change the Category/Subcategory columns in the Data sheet. The next time you run `./run.sh`, those edits are synced back to the database.
 
 You can also use the **Notes** column (R) to add personal annotations to any transaction (e.g. "birthday dinner", "reimbursed by insurance"). Notes are synced back to the database just like categories.
+
+The **Merchant Note** column (S) works differently: a note here applies to **all** transactions with the same merchant. Write it once, see it everywhere. See the [Merchant Notes](#merchant-notes-description-notescsv) section for details.
 
 For recurring patterns, adding a rule is better. For one-off expenses, editing in the ODS is fine.
 
@@ -352,6 +393,7 @@ The Python script handles all the "intelligence" (parsing, cleaning, deduplicati
 | `python bank_ingest.py rules` | List categorization rules |
 | `python bank_ingest.py rules add <pattern> <category>` | Add a rule |
 | `python bank_ingest.py rules remove <pattern>` | Remove a rule |
+| `python bank_ingest.py reclean` | Re-clean all descriptions and regenerate report |
 
 ---
 
@@ -365,6 +407,7 @@ This project includes a `.gitignore` that keeps all personal/financial data out 
 | `data/` | SQLite database and CSV exports — contain all your transactions |
 | `account-holders.csv` | Maps card numbers to real names |
 | `rules.csv` | May reveal spending patterns and merchants |
+| `description-notes.csv` | Contains merchant annotations |
 | `expense-report.ods` | The generated report — contains all your financial data |
 
 **Only code and documentation are committed.** When you first clone the repo on a new machine, run `./install.sh` to recreate the directory structure and starter config files.

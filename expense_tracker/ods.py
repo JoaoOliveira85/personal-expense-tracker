@@ -11,9 +11,12 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
+import csv
+
 from .constants import (
-    DATA_COLUMNS, DATA_HEADERS,
-    COL_CATEGORY, COL_SUBCATEGORY, COL_TRANSACTION_ID, COL_NOTES,
+    DATA_COLUMNS, DATA_HEADERS, DEFAULT_DESC_NOTES,
+    COL_DESCRIPTION_CLEAN, COL_CATEGORY, COL_SUBCATEGORY,
+    COL_TRANSACTION_ID, COL_NOTES, COL_MERCHANT_NOTE,
 )
 from .db import migrate_schema, fetch_all_transactions
 from .rules import load_rules
@@ -24,12 +27,49 @@ from .rules import load_rules
 # ---------------------------------------------------------------------------
 
 
-def sync_from_ods(db_path: Path, ods_path: Path) -> int:
-    """
-    Read the Data sheet from an existing ODS file and sync any manual
-    category/subcategory edits back into SQLite.
+def _load_description_notes(
+    desc_notes_path: Path = DEFAULT_DESC_NOTES,
+) -> dict[str, str]:
+    """Load merchant notes from description-notes.csv.
 
-    Returns the number of transactions updated.
+    Returns a dict mapping description_clean -> merchant_note.
+    """
+    if not desc_notes_path.exists():
+        return {}
+    notes: dict[str, str] = {}
+    with desc_notes_path.open("r", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            key = row.get("description_clean", "").strip()
+            val = row.get("merchant_note", "").strip()
+            if key and val:
+                notes[key] = val
+    return notes
+
+
+def _save_description_notes(
+    notes: dict[str, str],
+    desc_notes_path: Path = DEFAULT_DESC_NOTES,
+) -> None:
+    """Write merchant notes dict to description-notes.csv."""
+    with desc_notes_path.open("w", encoding="utf-8", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["description_clean", "merchant_note"])
+        for key in sorted(notes):
+            writer.writerow([key, notes[key]])
+
+
+def sync_from_ods(
+    db_path: Path,
+    ods_path: Path,
+    desc_notes_path: Path = DEFAULT_DESC_NOTES,
+) -> int:
+    """
+    Read the Data sheet from an existing ODS file and sync:
+    1. category/subcategory/notes edits back into SQLite (per-transaction)
+    2. merchant notes back to description-notes.csv (per-merchant)
+
+    Returns the number of transactions updated in SQLite.
     """
     if not ods_path.exists():
         return 0
@@ -56,11 +96,14 @@ def sync_from_ods(db_path: Path, ods_path: Path) -> int:
     if len(rows) < 2:
         return 0
 
-    max_col = max(COL_TRANSACTION_ID, COL_NOTES)
+    max_col = max(COL_TRANSACTION_ID, COL_NOTES, COL_MERCHANT_NOTE)
 
     # Parse each data row (skip header at index 0)
     # Each edit: (tx_id, category, subcategory, notes)
     edits: list[tuple[str, str, str, str]] = []
+    # Merchant notes: description_clean -> merchant_note
+    merchant_notes_from_ods: dict[str, str] = {}
+
     for row in rows[1:]:
         cells = row.getElementsByType(TableCell)
 
@@ -94,13 +137,31 @@ def sync_from_ods(db_path: Path, ods_path: Path) -> int:
         subcategory = expanded[COL_SUBCATEGORY].strip()
         notes = expanded[COL_NOTES].strip() if len(expanded) > COL_NOTES else ""
 
+        # Read merchant note + description_clean for the merchant notes sync
+        desc_clean = (
+            expanded[COL_DESCRIPTION_CLEAN].strip()
+            if len(expanded) > COL_DESCRIPTION_CLEAN else ""
+        )
+        merchant_note = (
+            expanded[COL_MERCHANT_NOTE].strip()
+            if len(expanded) > COL_MERCHANT_NOTE else ""
+        )
+        if desc_clean and merchant_note:
+            merchant_notes_from_ods[desc_clean] = merchant_note
+
         if tx_id:
             edits.append((tx_id, category, subcategory, notes))
+
+    # Sync merchant notes to description-notes.csv
+    if merchant_notes_from_ods:
+        existing_notes = _load_description_notes(desc_notes_path)
+        existing_notes.update(merchant_notes_from_ods)
+        _save_description_notes(existing_notes, desc_notes_path)
 
     if not edits:
         return 0
 
-    # Write edits back to SQLite
+    # Write per-transaction edits back to SQLite
     conn = sqlite3.connect(str(db_path))
     updated = 0
     try:
@@ -135,7 +196,12 @@ def sync_from_ods(db_path: Path, ods_path: Path) -> int:
     return updated
 
 
-def generate_ods(db_path: Path, rules_path: Path, ods_path: Path) -> None:
+def generate_ods(
+    db_path: Path,
+    rules_path: Path,
+    ods_path: Path,
+    desc_notes_path: Path = DEFAULT_DESC_NOTES,
+) -> None:
     """Generate (or update) an ODS expense report."""
     try:
         from odf.opendocument import OpenDocumentSpreadsheet, load as load_ods
@@ -153,6 +219,11 @@ def generate_ods(db_path: Path, rules_path: Path, ods_path: Path) -> None:
         conn.close()
 
     rules = load_rules(rules_path) if rules_path.exists() else []
+
+    # Inject merchant notes into each transaction dict
+    desc_notes = _load_description_notes(desc_notes_path)
+    for tx in transactions:
+        tx["merchant_note"] = desc_notes.get(tx.get("description_clean", ""), "")
 
     is_first_run = not ods_path.exists()
 
@@ -337,6 +408,7 @@ def _build_data_sheet(doc, transactions):
         "col_medium", "col_currency", "col_medium",   # Account, Balance, Source
         "col_medium",                                 # ID (transaction_id)
         "col_wide",                                   # Notes
+        "col_wide",                                   # Merchant Note
     ]
     for cs in col_styles:
         table.addElement(TableColumn(stylename=cs))

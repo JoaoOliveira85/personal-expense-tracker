@@ -8,8 +8,9 @@ from pathlib import Path
 
 from .constants import (
     DEFAULT_RAW, DEFAULT_DB, DEFAULT_RULES, DEFAULT_CARDS, DEFAULT_ODS, DEFAULT_CSV,
+    DEFAULT_DESC_NOTES,
 )
-from .db import ingest, ingested_source_files, migrate_schema
+from .db import ingest, ingested_source_files, migrate_schema, reclean_descriptions
 from .parser import auto_rename_csv, load_card_holders
 from .rules import (
     load_rules, categorize_transactions,
@@ -117,7 +118,7 @@ def cmd_auto(args):
 
     # Step 3: Sync manual edits, apply rules, regenerate report
     print()
-    synced = sync_from_ods(args.db, args.out)
+    synced = sync_from_ods(args.db, args.out, args.desc_notes)
     if synced:
         print(f"Synced {synced} manual edit(s) from {args.out} back to database.")
 
@@ -132,7 +133,7 @@ def cmd_auto(args):
     finally:
         conn.close()
 
-    generate_ods(args.db, args.rules, args.out)
+    generate_ods(args.db, args.rules, args.out, args.desc_notes)
     print(f"\nDone! Report saved to {args.out}")
 
 
@@ -154,7 +155,7 @@ def cmd_report(args):
     _check_setup()
     # Step 1: Sync back any manual edits from the existing ODS
     if not args.no_sync:
-        synced = sync_from_ods(args.db, args.out)
+        synced = sync_from_ods(args.db, args.out, args.desc_notes)
         if synced:
             print(f"Synced {synced} manual edit(s) from {args.out} back to database.")
     else:
@@ -176,7 +177,7 @@ def cmd_report(args):
         args.out.unlink()
         print(f"Deleted existing {args.out} (--fresh flag).")
 
-    generate_ods(args.db, args.rules, args.out)
+    generate_ods(args.db, args.rules, args.out, args.desc_notes)
 
 
 def cmd_cards(args):
@@ -276,6 +277,22 @@ def cmd_export(args):
     export_csv(args.db, args.out)
 
 
+def cmd_reclean(args):
+    """Handle the 'reclean' subcommand: recompute cleaned descriptions."""
+    _check_setup()
+    print("Re-cleaning all descriptions using current patterns...")
+    updated = reclean_descriptions(args.db)
+    if updated:
+        print(f"Updated {updated} description(s).")
+    else:
+        print("All descriptions are already up to date.")
+
+    # Regenerate the report with fresh descriptions
+    print()
+    generate_ods(args.db, args.rules, args.out, args.desc_notes)
+    print(f"\nDone! Report saved to {args.out}")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(
         description="Expense tracking pipeline for UTF-16 CSV bank statements."
@@ -302,6 +319,10 @@ def main() -> None:
     ap_auto.add_argument(
         "--out", type=Path, default=DEFAULT_ODS,
         help=f"Output ODS file path (default: {DEFAULT_ODS})",
+    )
+    ap_auto.add_argument(
+        "--desc-notes", type=Path, default=DEFAULT_DESC_NOTES,
+        help=f"Merchant notes CSV (default: {DEFAULT_DESC_NOTES})",
     )
     ap_auto.set_defaults(func=cmd_auto)
 
@@ -346,6 +367,10 @@ def main() -> None:
     ap_report.add_argument(
         "--no-sync", action="store_true",
         help="Skip syncing manual edits from the ODS back to the database",
+    )
+    ap_report.add_argument(
+        "--desc-notes", type=Path, default=DEFAULT_DESC_NOTES,
+        help=f"Merchant notes CSV (default: {DEFAULT_DESC_NOTES})",
     )
     ap_report.set_defaults(func=cmd_report)
 
@@ -413,6 +438,29 @@ def main() -> None:
         help=f"Output CSV path (default: {DEFAULT_CSV})",
     )
     ap_export.set_defaults(func=cmd_export)
+
+    # -- reclean --
+    ap_reclean = sub.add_parser(
+        "reclean",
+        help="Re-clean all descriptions using current patterns and regenerate report",
+    )
+    ap_reclean.add_argument(
+        "--db", type=Path, default=DEFAULT_DB,
+        help=f"SQLite database path (default: {DEFAULT_DB})",
+    )
+    ap_reclean.add_argument(
+        "--rules", type=Path, default=DEFAULT_RULES,
+        help=f"Categorization rules CSV (default: {DEFAULT_RULES})",
+    )
+    ap_reclean.add_argument(
+        "--out", type=Path, default=DEFAULT_ODS,
+        help=f"Output ODS file path (default: {DEFAULT_ODS})",
+    )
+    ap_reclean.add_argument(
+        "--desc-notes", type=Path, default=DEFAULT_DESC_NOTES,
+        help=f"Merchant notes CSV (default: {DEFAULT_DESC_NOTES})",
+    )
+    ap_reclean.set_defaults(func=cmd_reclean)
 
     args = ap.parse_args()
 

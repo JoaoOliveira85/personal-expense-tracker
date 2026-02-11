@@ -15,6 +15,7 @@ DEFAULT_ODS = Path("expense-report.ods")
 DEFAULT_CSV = Path("data/ledger.csv")
 DEFAULT_NOISE_WORDS = Path("noise-words.txt")
 DEFAULT_CLEANING_PATTERNS = Path("cleaning-patterns.csv")
+DEFAULT_DESC_NOTES = Path("description-notes.csv")
 
 # ---------------------------------------------------------------------------
 # Day-of-week names (Python weekday() index -> abbreviation)
@@ -46,6 +47,7 @@ DATA_COLUMNS = [
     "source_file",
     "transaction_id",
     "notes",
+    "merchant_note",
 ]
 
 # Pretty headers shown in the ODS Data sheet and CSV export
@@ -68,10 +70,13 @@ DATA_HEADERS = [
     "Source File",
     "ID",
     "Notes",
+    "Merchant Note",
 ]
 
 # Column indices in the Data sheet (0-based) used for sync-back
-COL_CATEGORY = 7       # H
-COL_SUBCATEGORY = 8    # I
-COL_TRANSACTION_ID = 16  # Q
-COL_NOTES = 17           # R
+COL_DESCRIPTION_CLEAN = 4  # E
+COL_CATEGORY = 7           # H
+COL_SUBCATEGORY = 8        # I
+COL_TRANSACTION_ID = 16    # Q
+COL_NOTES = 17             # R
+COL_MERCHANT_NOTE = 18     # S

@@ -103,6 +103,15 @@ else
     ok "account-holders.csv already exists"
 fi
 
+if [ ! -f "description-notes.csv" ]; then
+    cat > description-notes.csv << 'DESCNOTES'
+description_clean,merchant_note
+DESCNOTES
+    ok "Created starter description-notes.csv (merchant notes will be saved here)"
+else
+    ok "description-notes.csv already exists"
+fi
+
 # ── 6. Make scripts executable ───────────────────────────────────────────
 chmod +x run.sh install.sh
 ok "run.sh and install.sh are executable"
