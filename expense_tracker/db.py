@@ -92,8 +92,17 @@ def migrate_schema(conn: sqlite3.Connection) -> None:
 # ---------------------------------------------------------------------------
 
 
-def ingest(db_path: Path, csv_paths: Iterable[Path]) -> None:
+def ingest(
+    db_path: Path,
+    csv_paths: Iterable[Path],
+    cards_path: Path | None = None,
+) -> None:
     """Parse bank CSV files and insert into SQLite with deduplication."""
+    from .constants import DEFAULT_CARDS
+
+    if cards_path is None:
+        cards_path = DEFAULT_CARDS
+
     db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(db_path))
     try:
@@ -105,7 +114,7 @@ def ingest(db_path: Path, csv_paths: Iterable[Path]) -> None:
         total_inserted = 0
         paths = list(csv_paths)
         for p in paths:
-            rows = parse_utf16_csv(p)
+            rows = parse_utf16_csv(p, cards_path=cards_path)
             total_parsed += len(rows)
             for r in rows:
                 r["transaction_id"] = tx_id(r)
