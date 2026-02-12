@@ -42,15 +42,19 @@ expense-tracking/
 │   ├── parser.py           # UTF-16 CSV parser + auto-rename
 │   ├── db.py               # SQLite storage and queries
 │   ├── rules.py            # Rule & card management + categorization
-│   ├── ods.py              # ODS report generation + sync-back
+│   ├── ods.py              # ODS report orchestration + sync-back
+│   ├── ods_sheets.py       # ODS sheet builders (styles, cells, all sheets)
 │   ├── export.py           # CSV export
+│   ├── backup.py           # Backup utilities (zip archives)
 │   └── constants.py        # Shared configuration
-├── tests/                  # Test suite (99 tests)
+├── backups/                # Backup archives (auto + manual)
+├── tests/                  # Test suite (115 tests)
 │   ├── conftest.py         # Shared fixtures + synthetic CSV builder
 │   ├── test_parser.py      # Parser tests (39)
 │   ├── test_db.py          # Database tests (19)
 │   ├── test_rules.py       # Rules tests (17)
 │   ├── test_export.py      # Export tests (4)
+│   ├── test_backup.py      # Backup tests (16)
 │   └── test_integration.py # End-to-end tests (4)
 ├── install.sh              # First-time setup script
 ├── run.sh                  # Import new data + regenerate report
@@ -76,7 +80,7 @@ What it does:
 1. Checks that Python 3.9+ is installed
 2. Creates a virtual environment (`.venv/`)
 3. Installs Python dependencies (`odfpy`)
-4. Creates the `raw/` and `data/` directories
+4. Creates the `raw/`, `data/`, and `backups/` directories
 5. Creates starter config files (`rules.csv`, `account-holders.csv`, etc.) in `data/` if they don't exist
 6. Makes the shell scripts executable
 
@@ -116,6 +120,13 @@ What it does:
 
 The shell scripts use `bank_ingest.py` under the hood. You can also use it directly for more control.
 
+**Global flags** (work with any subcommand):
+
+| Flag | Effect |
+|------|--------|
+| `-q` / `--quiet` | Suppress all output except errors |
+| `-v` / `--verbose` | Show detailed progress information |
+
 ### `auto` (default)
 
 Scan for new files, import, and regenerate the report. This is what `run.sh` calls.
@@ -124,7 +135,13 @@ Scan for new files, import, and regenerate the report. This is what `run.sh` cal
 python bank_ingest.py              # same as 'auto'
 python bank_ingest.py auto
 python bank_ingest.py auto --raw path/to/csvs
+python bank_ingest.py auto --no-backup    # skip automatic monthly backup
+python bank_ingest.py auto --dry-run      # show what would happen, change nothing
 ```
+
+The `auto` command automatically creates a monthly backup (e.g. `backups/backup-2026-01.zip`) for the previous month if one doesn't already exist. Use `--no-backup` to skip this.
+
+Use `--dry-run` to preview what would happen without making any changes.
 
 ### `ingest`
 
@@ -134,6 +151,7 @@ Manually import specific CSV files.
 python bank_ingest.py ingest raw/EXPORT_0_1022026.csv
 python bank_ingest.py ingest raw/*.csv
 python bank_ingest.py ingest --no-rename raw/some-file.csv   # skip auto-rename
+python bank_ingest.py ingest --dry-run raw/EXPORT_0_1022026.csv  # preview only
 ```
 
 The `ingest` command auto-renames files based on the date range inside the CSV (e.g. `EXPORT_0_1022026.csv` → `2026-01.csv`). Use `--no-rename` to skip this.
@@ -151,7 +169,7 @@ python bank_ingest.py report --fresh --no-sync   # full nuclear reset
 
 | Flag | Effect |
 |------|--------|
-| `--fresh` | Deletes the existing ODS and regenerates all sheets (including Dashboard, Monthly Summary/Trend, Category/Subcategory Breakdown, and any custom sheets). Manual edits are still saved to the database first. |
+| `--fresh` | Creates a backup, then deletes the existing ODS and regenerates all sheets (including Dashboard, Monthly Summary/Trend, Category/Subcategory Breakdown, and any custom sheets). Manual edits are still saved to the database first. |
 | `--no-sync` | Skips reading manual edits from the ODS back into the database. |
 
 ### `cards`
@@ -205,11 +223,26 @@ python bank_ingest.py reclean
 ```
 
 What it does:
-1. Re-runs the description cleaner on every transaction in the database
-2. Updates only the rows where the cleaned description changed
-3. Regenerates the ODS report
+1. Creates a backup (in case the reclean changes something you didn't expect)
+2. Re-runs the description cleaner on every transaction in the database
+3. Updates only the rows where the cleaned description changed
+4. Regenerates the ODS report
 
 All categories, notes, and other data are preserved.
+
+### `backup`
+
+Create a zip archive of all your data (database, config files, raw CSVs, and the ODS report).
+
+```bash
+python bank_ingest.py backup                   # save to backups/ (default)
+python bank_ingest.py backup --out ~/Desktop    # save to a custom location
+```
+
+The zip file is named with a timestamp (e.g. `backup-2026-02-11T14-30-00.zip`) and contains:
+- `data/` — SQLite database, rules, account holders, cleaning patterns, merchant notes
+- `raw/` — original bank CSV files
+- `expense-report.ods` — the generated report
 
 ---
 
@@ -271,12 +304,13 @@ Open this file in **LibreOffice Calc** or upload it to **Google Sheets**.
 | **Intro** | Yes, always | Overview of the file and what each sheet does |
 | **Data** | Yes, always | All transactions — one row per transaction. You can manually edit the **Category**, **Subcategory**, **Notes**, and **Merchant Note** columns; edits are saved back on the next run. |
 | **Rules** | Yes, always | A read-only view of the current categorization rules |
-| **Dashboard** | First run only | Key summary figures: total income/expenses, net balance, average monthly spend, uncategorized count, and top categories. |
+| **Dashboard** | First run only | Key summary figures: total income/expenses, net balance, average monthly spend, uncategorized count, top categories, top 10 merchants, and uncategorized preview. |
 | **Monthly Summary** | First run only | Spending by month and category in a grid with formulas. |
 | **Monthly Trend** | First run only | Income vs expenses vs net per month, with a running balance column. |
 | **Category Breakdown** | First run only | Total spent, % of total, avg/month, and transaction count per category. |
 | **Subcategory Breakdown** | First run only | Detailed breakdown within each category (e.g. "Eating Out / Restaurant" vs "Eating Out / Cafe"). |
 | **Tags** | First run only | Track spending by #tags used in the Notes or Merchant Note columns. Pre-filled with example tags and empty slots — just type a tag and the formulas do the rest. |
+| **Recurring Merchants** | First run only | Merchants that appear 3+ times — helps spot subscriptions, regular bills, and habitual spending. Shows count, total, average, date range, and category. |
 | *Your custom sheets* | Never touched | Add as many sheets as you want. The script will never modify or remove them. |
 
 ### Manual Categorization & Notes
@@ -398,6 +432,38 @@ You normally won't need to edit this file unless you're seeing unexpected cleani
 
 ---
 
+## Backups
+
+The system creates backups automatically and on demand. Backups are zip archives stored in `backups/` (added to `.gitignore`).
+
+### Automatic backups
+
+Every time you run `./run.sh` (or `python bank_ingest.py auto`), the system checks if a backup for the **previous month** exists. If not, it creates one automatically (e.g. `backups/backup-2026-01.zip` when running in February). This happens silently if a backup already exists.
+
+Use `--no-backup` to skip this check.
+
+### Pre-destructive backups
+
+Before potentially destructive operations, a timestamped backup is created automatically:
+- `report --fresh` — backs up before deleting and regenerating the ODS
+- `reclean` — backs up before modifying descriptions in the database
+
+### Manual backups
+
+```bash
+python bank_ingest.py backup                   # save to backups/
+python bank_ingest.py backup --out ~/Desktop    # save somewhere else
+```
+
+### What's included
+
+Each backup zip contains all personal data:
+- `data/` — SQLite database, rules, account holders, cleaning patterns, merchant notes, CSV export
+- `raw/` — original bank CSV files
+- `expense-report.ods` — the generated report
+
+---
+
 ## Data Architecture
 
 ```
@@ -442,6 +508,7 @@ The Python script handles all the "intelligence" (parsing, cleaning, deduplicati
 | `python bank_ingest.py rules add <pattern> <category>` | Add a rule |
 | `python bank_ingest.py rules remove <pattern>` | Remove a rule |
 | `python bank_ingest.py reclean` | Re-clean all descriptions and regenerate report |
+| `python bank_ingest.py backup` | Create a zip backup of all data |
 
 ---
 
@@ -456,7 +523,7 @@ source .venv/bin/activate
 python -m pytest tests/ -v
 ```
 
-99 tests covering the parser, database, rules engine, export, and end-to-end workflows. Runs in ~0.5 seconds using synthetic UTF-16 CSV fixtures (no real bank data needed).
+115 tests covering the parser, database, rules engine, export, backup, and end-to-end workflows. Runs in under a second using synthetic UTF-16 CSV fixtures (no real bank data needed).
 
 ---
 
@@ -469,10 +536,11 @@ This project includes a `.gitignore` that keeps all personal/financial data out 
 | `raw/` | Raw bank statement CSVs — contain account numbers and transaction details |
 | `data/` | SQLite database, config files, and CSV exports — contain all your transactions and personal data (rules, card mappings, merchant notes, cleaning patterns) |
 | `expense-report.ods` | The generated report — contains all your financial data |
+| `backups/` | Zip archives of all the above — also contain financial data |
 
 **Only code and documentation are committed.** When you first clone the repo on a new machine, run `./install.sh` to recreate the directory structure and starter config files.
 
-If you want to back up your personal data files, do so separately (e.g. a private cloud folder, encrypted archive, etc.) — **never commit them to Git**.
+The system creates automatic and manual backups in `backups/` (see the [Backups](#backups) section). For offsite backup, copy the `backups/` folder to a private cloud folder or encrypted archive — **never commit data files to Git**.
 
 ---
 

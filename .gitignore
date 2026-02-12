@@ -9,6 +9,7 @@ __pycache__/
 raw/
 data/
 expense-report.ods
+backups/
 
 # OS
 .DS_Store

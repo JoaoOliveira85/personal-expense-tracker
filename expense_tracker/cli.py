@@ -8,7 +8,11 @@ from pathlib import Path
 
 from .constants import (
     DEFAULT_RAW, DEFAULT_DB, DEFAULT_RULES, DEFAULT_CARDS, DEFAULT_ODS, DEFAULT_CSV,
-    DEFAULT_DESC_NOTES,
+    DEFAULT_DESC_NOTES, DEFAULT_BACKUPS,
+)
+from .backup import (
+    create_backup, create_monthly_backup,
+    previous_month_backup_exists, list_backups, format_size,
 )
 from .db import ingest, ingested_source_files, migrate_schema, reclean_descriptions
 from .parser import auto_rename_csv, load_card_holders
@@ -62,6 +66,37 @@ def _check_raw_dir(raw_dir: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Output helpers
+# ---------------------------------------------------------------------------
+
+# Verbosity level: 0 = quiet, 1 = normal (default), 2 = verbose
+_verbosity = 1
+
+
+def _set_verbosity(args) -> None:
+    """Set the global verbosity level from parsed args."""
+    global _verbosity
+    if getattr(args, "quiet", False):
+        _verbosity = 0
+    elif getattr(args, "verbose", False):
+        _verbosity = 2
+    else:
+        _verbosity = 1
+
+
+def _info(msg: str) -> None:
+    """Print a message at normal verbosity (suppressed by --quiet)."""
+    if _verbosity >= 1:
+        print(msg)
+
+
+def _detail(msg: str) -> None:
+    """Print a message only at verbose level."""
+    if _verbosity >= 2:
+        print(msg)
+
+
+# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
@@ -97,12 +132,35 @@ def _discover_new_csvs(raw_dir: Path, db_path: Path) -> list[Path]:
 def cmd_auto(args):
     """Handle the 'auto' subcommand: discover, rename, ingest, and report."""
     _check_setup()
+    _set_verbosity(args)
+    dry = getattr(args, "dry_run", False)
+
+    # Auto-monthly backup: create one for the previous month if missing
+    if not args.no_backup and not dry:
+        backup_dir = args.backup_dir
+        if not previous_month_backup_exists(backup_dir):
+            zp = create_monthly_backup(
+                backup_dir, raw_dir=args.raw, ods_path=args.out,
+            )
+            _info(f"Auto-backup created: {zp} ({format_size(zp.stat().st_size)})")
+        # (if it already exists we stay silent)
+    
     raw_dir = args.raw
     _check_raw_dir(raw_dir)
-    print(f"Scanning {raw_dir}/ for new bank statements...")
+    _info(f"Scanning {raw_dir}/ for new bank statements...")
 
     # Step 1: Discover new files
     new_files = _discover_new_csvs(raw_dir, args.db)
+
+    if dry:
+        if new_files:
+            print(f"[dry-run] Would rename and ingest {len(new_files)} file(s):")
+            for f in new_files:
+                print(f"  {f.name}")
+        else:
+            print("[dry-run] No new files to ingest.")
+        print("[dry-run] Would sync ODS edits, apply rules, and regenerate report.")
+        return
 
     # Step 2: Auto-rename
     if new_files:
@@ -111,16 +169,16 @@ def cmd_auto(args):
         new_files = _discover_new_csvs(raw_dir, args.db)
 
     if new_files:
-        print(f"Found {len(new_files)} new file(s): {', '.join(f.name for f in new_files)}")
+        _info(f"Found {len(new_files)} new file(s): {', '.join(f.name for f in new_files)}")
         ingest(args.db, new_files)
     else:
-        print("No new files to ingest.")
+        _info("No new files to ingest.")
 
     # Step 3: Sync manual edits, apply rules, regenerate report
-    print()
+    _detail("")
     synced = sync_from_ods(args.db, args.out, args.desc_notes)
     if synced:
-        print(f"Synced {synced} manual edit(s) from {args.out} back to database.")
+        _info(f"Synced {synced} manual edit(s) from {args.out} back to database.")
 
     conn = sqlite3.connect(str(args.db))
     try:
@@ -129,18 +187,27 @@ def cmd_auto(args):
         if rules:
             updated = categorize_transactions(conn, rules)
             if updated:
-                print(f"Categorized {updated} transactions using {len(rules)} rules.")
+                _detail(f"Categorized {updated} transactions using {len(rules)} rules.")
     finally:
         conn.close()
 
     generate_ods(args.db, args.rules, args.out, args.desc_notes)
-    print(f"\nDone! Report saved to {args.out}")
+    _info(f"\nDone! Report saved to {args.out}")
 
 
 def cmd_ingest(args):
     """Handle the 'ingest' subcommand."""
     _check_setup()
+    dry = getattr(args, "dry_run", False)
     files = list(args.files)
+
+    if dry:
+        print(f"[dry-run] Would ingest {len(files)} file(s):")
+        for f in files:
+            print(f"  {f.name}")
+        if not args.no_rename:
+            print("[dry-run] Would auto-rename files based on date ranges.")
+        return
 
     # Auto-rename files based on date range (unless --no-rename)
     if not args.no_rename:
@@ -153,13 +220,15 @@ def cmd_ingest(args):
 def cmd_report(args):
     """Handle the 'report' subcommand."""
     _check_setup()
+    _set_verbosity(args)
+
     # Step 1: Sync back any manual edits from the existing ODS
     if not args.no_sync:
         synced = sync_from_ods(args.db, args.out, args.desc_notes)
         if synced:
-            print(f"Synced {synced} manual edit(s) from {args.out} back to database.")
+            _info(f"Synced {synced} manual edit(s) from {args.out} back to database.")
     else:
-        print("Skipping sync (--no-sync flag).")
+        _detail("Skipping sync (--no-sync flag).")
 
     # Step 2: Apply rules to uncategorized transactions
     conn = sqlite3.connect(str(args.db))
@@ -168,14 +237,16 @@ def cmd_report(args):
         rules = load_rules(args.rules)
         if rules:
             updated = categorize_transactions(conn, rules)
-            print(f"Categorized {updated} transactions using {len(rules)} rules.")
+            _detail(f"Categorized {updated} transactions using {len(rules)} rules.")
     finally:
         conn.close()
 
     # Step 3: Regenerate ODS (delete first if --fresh to force full regeneration)
     if args.fresh and args.out.exists():
+        zp = create_backup(args.backup_dir, raw_dir=args.raw, ods_path=args.out)
+        _info(f"Pre-fresh backup: {zp} ({format_size(zp.stat().st_size)})")
         args.out.unlink()
-        print(f"Deleted existing {args.out} (--fresh flag).")
+        _info(f"Deleted existing {args.out} (--fresh flag).")
 
     generate_ods(args.db, args.rules, args.out, args.desc_notes)
 
@@ -280,22 +351,48 @@ def cmd_export(args):
 def cmd_reclean(args):
     """Handle the 'reclean' subcommand: recompute cleaned descriptions."""
     _check_setup()
-    print("Re-cleaning all descriptions using current patterns...")
+    _set_verbosity(args)
+
+    # Pre-destructive backup
+    zp = create_backup(args.backup_dir, ods_path=args.out)
+    _info(f"Pre-reclean backup: {zp} ({format_size(zp.stat().st_size)})")
+
+    _info("Re-cleaning all descriptions using current patterns...")
     updated = reclean_descriptions(args.db)
     if updated:
-        print(f"Updated {updated} description(s).")
+        _info(f"Updated {updated} description(s).")
     else:
-        print("All descriptions are already up to date.")
+        _info("All descriptions are already up to date.")
 
     # Regenerate the report with fresh descriptions
-    print()
+    _detail("")
     generate_ods(args.db, args.rules, args.out, args.desc_notes)
-    print(f"\nDone! Report saved to {args.out}")
+    _info(f"\nDone! Report saved to {args.out}")
+
+
+def cmd_backup(args):
+    """Handle the 'backup' subcommand: create a manual backup."""
+    _check_setup()
+    zp = create_backup(args.out, raw_dir=args.raw, ods_path=args.ods)
+    size = format_size(zp.stat().st_size)
+    print(f"Backup created: {zp} ({size})")
+
+    existing = list_backups(args.out)
+    if len(existing) > 1:
+        print(f"  ({len(existing)} backups in {args.out}/)")
 
 
 def main() -> None:
     ap = argparse.ArgumentParser(
         description="Expense tracking pipeline for UTF-16 CSV bank statements."
+    )
+    ap.add_argument(
+        "-q", "--quiet", action="store_true",
+        help="Suppress all output except errors",
+    )
+    ap.add_argument(
+        "-v", "--verbose", action="store_true",
+        help="Show detailed progress information",
     )
     sub = ap.add_subparsers(dest="cmd")
 
@@ -324,6 +421,18 @@ def main() -> None:
         "--desc-notes", type=Path, default=DEFAULT_DESC_NOTES,
         help=f"Merchant notes CSV (default: {DEFAULT_DESC_NOTES})",
     )
+    ap_auto.add_argument(
+        "--backup-dir", type=Path, default=DEFAULT_BACKUPS,
+        help=f"Directory for backup archives (default: {DEFAULT_BACKUPS})",
+    )
+    ap_auto.add_argument(
+        "--no-backup", action="store_true",
+        help="Skip the automatic monthly backup",
+    )
+    ap_auto.add_argument(
+        "--dry-run", action="store_true",
+        help="Show what would happen without making any changes",
+    )
     ap_auto.set_defaults(func=cmd_auto)
 
     # -- ingest --
@@ -337,6 +446,10 @@ def main() -> None:
     ap_ingest.add_argument(
         "--no-rename", action="store_true",
         help="Skip auto-renaming CSV files based on their date range",
+    )
+    ap_ingest.add_argument(
+        "--dry-run", action="store_true",
+        help="Show what would happen without making any changes",
     )
     ap_ingest.add_argument(
         "files", nargs="+", type=Path, help="Bank CSV export files to ingest",
@@ -371,6 +484,14 @@ def main() -> None:
     ap_report.add_argument(
         "--desc-notes", type=Path, default=DEFAULT_DESC_NOTES,
         help=f"Merchant notes CSV (default: {DEFAULT_DESC_NOTES})",
+    )
+    ap_report.add_argument(
+        "--backup-dir", type=Path, default=DEFAULT_BACKUPS,
+        help=f"Directory for backup archives (default: {DEFAULT_BACKUPS})",
+    )
+    ap_report.add_argument(
+        "--raw", type=Path, default=DEFAULT_RAW,
+        help=f"Directory containing raw bank CSV files (default: {DEFAULT_RAW})",
     )
     ap_report.set_defaults(func=cmd_report)
 
@@ -460,7 +581,29 @@ def main() -> None:
         "--desc-notes", type=Path, default=DEFAULT_DESC_NOTES,
         help=f"Merchant notes CSV (default: {DEFAULT_DESC_NOTES})",
     )
+    ap_reclean.add_argument(
+        "--backup-dir", type=Path, default=DEFAULT_BACKUPS,
+        help=f"Directory for backup archives (default: {DEFAULT_BACKUPS})",
+    )
     ap_reclean.set_defaults(func=cmd_reclean)
+
+    # -- backup --
+    ap_backup = sub.add_parser(
+        "backup", help="Create a zip backup of all data (data/, raw/, ODS report)"
+    )
+    ap_backup.add_argument(
+        "--out", type=Path, default=DEFAULT_BACKUPS,
+        help=f"Directory to store the backup zip (default: {DEFAULT_BACKUPS})",
+    )
+    ap_backup.add_argument(
+        "--raw", type=Path, default=DEFAULT_RAW,
+        help=f"Directory containing raw bank CSV files (default: {DEFAULT_RAW})",
+    )
+    ap_backup.add_argument(
+        "--ods", type=Path, default=DEFAULT_ODS,
+        help=f"ODS report file path (default: {DEFAULT_ODS})",
+    )
+    ap_backup.set_defaults(func=cmd_backup)
 
     args = ap.parse_args()
 

@@ -129,10 +129,32 @@
   }
   .script-card h3 { margin-top: 0; color: var(--accent); }
 
+  .step-number {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    border-radius: 50%;
+    background: var(--accent);
+    color: #fff;
+    font-weight: 700;
+    font-size: 1rem;
+    margin-right: 0.5rem;
+    flex-shrink: 0;
+  }
+  .step {
+    display: flex;
+    align-items: flex-start;
+    margin-bottom: 1rem;
+  }
+  .step-content { flex: 1; }
+  .step-content h3 { margin-top: 0; }
+
   hr { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
 
   .toc { margin-bottom: 2rem; }
-  .toc ul { list-style: none; padding-left: 0; }
+  .toc ul { list-style: none; padding-left: 0; columns: 2; }
   .toc li { margin-bottom: 0.3rem; }
   .toc a { font-size: 0.95rem; }
 </style>
@@ -140,45 +162,224 @@
 <body>
 
 <h1>Expense Tracker</h1>
-<p>Personal expense tracking pipeline for UTF-16 CSV bank statements.</p>
-<p style="color: var(--muted); font-size: 0.9rem;">Built with <a href="https://cursor.com">Cursor</a> + <strong>Claude 4.6 Opus</strong> (Anthropic). See <a href="CONTRIBUTING.md">CONTRIBUTING.md</a> for developer docs.</p>
+<p>Personal expense tracking for UTF-16 CSV bank statements &mdash; simple, private, and yours to customize.</p>
 
-<!-- Quick Start -->
+<!-- ================================================================== -->
+<!--  PART 1: GETTING STARTED (non-technical)                          -->
+<!-- ================================================================== -->
+
 <div class="quick-start">
-  <h2>Quick Start</h2>
-  <pre><code># 1. First-time setup (run once)
-./install.sh
-
-# 2. Drop your bank CSV(s) into the raw/ folder
-
-# 3. Import data and generate the report
-./run.sh
-
-# 4. Open expense-report.ods in LibreOffice or Google Sheets</code></pre>
+  <h2>Get Up and Running in 3 Steps</h2>
+  <p>No programming knowledge required. You just need the bank CSV files that you download from UTF-16 CSV.</p>
 </div>
 
-<!-- Table of Contents -->
-<nav class="toc">
-  <strong>Contents</strong>
-  <ul>
-    <li><a href="#scripts">Shell Scripts</a></li>
-    <li><a href="#cli">Python CLI Reference</a></li>
-    <li><a href="#merchant-notes">Merchant Notes</a></li>
-    <li><a href="#tags">Using #Tags</a></li>
-    <li><a href="#cards">Account Holders</a></li>
-    <li><a href="#ods">The ODS Report</a></li>
-    <li><a href="#rules">Categorization Rules</a></li>
-    <li><a href="#cleaning">Cleaning Patterns</a></li>
-    <li><a href="#architecture">Data Architecture</a></li>
-    <li><a href="#structure">Project Structure</a></li>
-    <li><a href="#commands">All Commands at a Glance</a></li>
-    <li><a href="#development">Development</a></li>
-    <li><a href="#requirements">Requirements</a></li>
-    <li><a href="#troubleshooting">Troubleshooting</a></li>
-  </ul>
-</nav>
+<div class="step">
+  <span class="step-number">1</span>
+  <div class="step-content">
+    <h3>Install (once)</h3>
+    <p>Double-click <strong>install.sh</strong> (or right-click &rarr; Open With &rarr; Terminal). This sets up everything automatically. You only need to do this once.</p>
+  </div>
+</div>
+
+<div class="step">
+  <span class="step-number">2</span>
+  <div class="step-content">
+    <h3>Add your bank statements</h3>
+    <p>Download your account movements from UTF-16 CSV as a CSV file and drop it into the <strong>raw/</strong> folder.</p>
+  </div>
+</div>
+
+<div class="step">
+  <span class="step-number">3</span>
+  <div class="step-content">
+    <h3>Run &amp; open</h3>
+    <p>Double-click <strong>run.sh</strong>. It imports your data and creates (or updates) the <strong>expense-report.ods</strong> spreadsheet. Open it in LibreOffice Calc or upload it to Google Sheets.</p>
+  </div>
+</div>
+
+<div class="tip">
+  <strong>That's it!</strong> Every time you get a new bank statement, just drop the CSV into <code>raw/</code> and double-click <code>run.sh</code> again. Your previous data and any edits you've made are preserved.
+</div>
 
 <hr>
+
+<!-- ================================================================== -->
+<!--  PART 2: USING THE SPREADSHEET                                    -->
+<!-- ================================================================== -->
+
+<h2 id="spreadsheet">Using the Spreadsheet</h2>
+
+<p>The <strong>expense-report.ods</strong> file is where you'll spend most of your time. Here's what you'll find inside:</p>
+
+<h3>The Data sheet &mdash; your transaction list</h3>
+<p>This is the main sheet with all your transactions, one per row. The most important columns are:</p>
+
+<table>
+  <thead><tr><th>Column</th><th>What it shows</th><th>Can I edit it?</th></tr></thead>
+  <tbody>
+    <tr><td>Date</td><td>When the transaction happened</td><td>No (imported from bank)</td></tr>
+    <tr><td>Description</td><td>Cleaned merchant/transaction name</td><td>No</td></tr>
+    <tr><td>Amount</td><td>How much was spent or received</td><td>No</td></tr>
+    <tr><td>Category</td><td>What type of expense (e.g. Groceries, Health)</td><td><strong>Yes!</strong></td></tr>
+    <tr><td>Subcategory</td><td>More specific label (e.g. Pharmacy, Cafe)</td><td><strong>Yes!</strong></td></tr>
+    <tr><td>Notes</td><td>Your personal annotations</td><td><strong>Yes!</strong></td></tr>
+    <tr><td>Merchant Note</td><td>A shared note for ALL transactions from this merchant</td><td><strong>Yes!</strong></td></tr>
+  </tbody>
+</table>
+
+<div class="tip">
+  <strong>Your edits are safe.</strong> When you manually change the Category, Subcategory, Notes, or Merchant Note columns and then run <code>run.sh</code> again, your edits are saved to the database first &mdash; they won't be lost.
+</div>
+
+<h3>Categorizing your expenses</h3>
+
+<p>New transactions come in as &ldquo;uncategorized.&rdquo; You have two ways to fix that:</p>
+
+<ol>
+  <li><strong>Edit directly in the spreadsheet</strong> &mdash; Just type a category in the Category column on any row. Great for one-off expenses.</li>
+  <li><strong>Add a rule</strong> &mdash; If you want all transactions from a certain merchant to be automatically categorized in the future, add a rule (see <a href="#rules">Categorization Rules</a> below). This is the best approach for recurring expenses like groceries, subscriptions, etc.</li>
+</ol>
+
+<h3>All the sheets at a glance</h3>
+<p>The first time you run the tool, it generates several starter analysis sheets. You can customize, rename, or delete any of them (except Intro, Data, and Rules which are regenerated each time).</p>
+
+<table>
+  <thead><tr><th>Sheet</th><th>What it does</th></tr></thead>
+  <tbody>
+    <tr><td><strong>Intro</strong></td><td>Quick overview and tips (regenerated each run)</td></tr>
+    <tr><td><strong>Data</strong></td><td>All your transactions &mdash; the heart of the spreadsheet (regenerated, but your edits are saved first)</td></tr>
+    <tr><td><strong>Rules</strong></td><td>Shows your current categorization rules (regenerated)</td></tr>
+    <tr><td><strong>Dashboard</strong></td><td>Summary: total income/expenses, top categories, top merchants, uncategorized preview</td></tr>
+    <tr><td><strong>Monthly Summary</strong></td><td>Spending by month and category in a grid</td></tr>
+    <tr><td><strong>Monthly Trend</strong></td><td>Income vs expenses over time, with running balance</td></tr>
+    <tr><td><strong>Category Breakdown</strong></td><td>How much you spend per category, as amounts and percentages</td></tr>
+    <tr><td><strong>Subcategory Breakdown</strong></td><td>Detailed breakdown within each category</td></tr>
+    <tr><td><strong>Tags</strong></td><td>Track spending by #tags (see below)</td></tr>
+    <tr><td><strong>Recurring Merchants</strong></td><td>Merchants that appear 3+ times &mdash; helps spot subscriptions and regular bills</td></tr>
+  </tbody>
+</table>
+
+<div class="tip">
+  <strong>Add your own sheets!</strong> You can create as many custom sheets as you want with your own formulas and charts. The tool will never touch them.
+</div>
+
+<hr>
+
+<!-- ================================================================== -->
+<!--  PART 3: FEATURES IN MORE DETAIL                                  -->
+<!-- ================================================================== -->
+
+<h2 id="rules">Categorization Rules</h2>
+
+<p>Rules automatically categorize transactions based on text patterns. Instead of manually categorizing &ldquo;CONTINENTE&rdquo; every month, add a rule once and it's handled forever.</p>
+
+<h3>Adding rules the easy way</h3>
+<p>Open a Terminal in the project folder and type:</p>
+<pre><code>./run.sh                                                 # activate environment
+python bank_ingest.py rules add CONTINENTE Groceries     # simple rule
+python bank_ingest.py rules add FARMACIA Health --sub Pharmacy  # with subcategory</code></pre>
+
+<p>Or edit the file <code>data/rules.csv</code> directly in any spreadsheet or text editor:</p>
+<pre><code>pattern,match_field,category,subcategory,payment_type
+CONTINENTE,description,Groceries,,card
+FARMACIA,description,Health,Pharmacy,card
+VODAFONE,description,Utilities,Phone,direct_debit</code></pre>
+
+<ul>
+  <li>Rules match by <strong>case-insensitive substring</strong> &mdash; &ldquo;CONTINENTE&rdquo; matches &ldquo;WWW.CONTINENTE.PT&rdquo;</li>
+  <li>Rules are applied <strong>in order</strong> &mdash; the first matching rule wins</li>
+  <li>Rules only affect <strong>uncategorized</strong> transactions &mdash; they won't override your manual edits</li>
+  <li>After adding new rules, run <code>./run.sh</code> to apply them</li>
+</ul>
+
+<hr>
+
+<h2 id="tags">Using #Tags</h2>
+
+<p>Tags are a flexible way to label and track transactions beyond just categories. Add any word starting with <code>#</code> in the <strong>Notes</strong> or <strong>Merchant Note</strong> columns.</p>
+
+<h3>Examples</h3>
+<table>
+  <thead><tr><th>Where</th><th>What you type</th><th>Effect</th></tr></thead>
+  <tbody>
+    <tr><td>Notes column</td><td><code>Birthday dinner #gift #shared</code></td><td>Tags this single transaction</td></tr>
+    <tr><td>Merchant Note column</td><td><code>#recurring #essential</code></td><td>Tags <strong>all</strong> transactions from this merchant</td></tr>
+  </tbody>
+</table>
+
+<p><strong>Tag ideas:</strong> <code>#recurring</code> <code>#reimbursable</code> <code>#gift</code> <code>#shared</code> <code>#splurge</code> <code>#essential</code> <code>#one-off</code> <code>#work</code> <code>#vacation</code></p>
+
+<h3>The Tags sheet</h3>
+<p>The starter <strong>Tags</strong> sheet automatically counts and sums tagged transactions. It comes with a few example tags &mdash; just replace them with your own or add more rows.</p>
+
+<table>
+  <thead><tr><th>Column</th><th>What it shows</th></tr></thead>
+  <tbody>
+    <tr><td>Tag</td><td>The #tag to search for (e.g. <code>#recurring</code>)</td></tr>
+    <tr><td># Transactions</td><td>How many transactions have this tag</td></tr>
+    <tr><td>Total Spent</td><td>Sum of amounts for tagged expenses</td></tr>
+    <tr><td>% of Total Spend</td><td>What percentage of your total spending this tag represents</td></tr>
+  </tbody>
+</table>
+
+<div class="tip">
+  <strong>Build your own tag formulas!</strong> In any custom sheet you can count tagged transactions with:<br>
+  <code>=COUNTIF(Data.R:R, "*#gift*") + COUNTIF(Data.S:S, "*#gift*")</code>
+</div>
+
+<hr>
+
+<h2 id="merchant-notes">Merchant Notes</h2>
+
+<p>Merchant notes are annotations that apply to <strong>all transactions</strong> with the same merchant name. Unlike per-transaction notes, a merchant note is shared across every occurrence.</p>
+
+<ol>
+  <li>In the Data sheet, find the <strong>Merchant Note</strong> column (S)</li>
+  <li>Type a note on any row (e.g. &ldquo;Weekly groceries&rdquo; next to a Continente transaction)</li>
+  <li>Run <code>./run.sh</code> &mdash; the note is saved</li>
+  <li>On the next run, <strong>every</strong> row with that merchant gets the same note</li>
+</ol>
+
+<p>Merchant notes are also great for #tags &mdash; tag a merchant once and all its transactions are tagged.</p>
+
+<hr>
+
+<h2 id="cards">Account Holders (shared accounts)</h2>
+
+<p>If you share a bank account and want to see who made each purchase (based on the debit card used), set up card holders:</p>
+
+<pre><code>python bank_ingest.py cards add 1234 Alice
+python bank_ingest.py cards add 5678 Bob</code></pre>
+
+<p>Or edit <code>data/account-holders.csv</code> directly:</p>
+<pre><code>card_last4,name
+1234,Alice
+5678,Bob</code></pre>
+
+<p>The &ldquo;Who&rdquo; column in the Data sheet will then show the cardholder's name. Transactions without a recognized card show &ldquo;Joint.&rdquo;</p>
+
+<hr>
+
+<h2 id="backups">Backups</h2>
+
+<p>Your data is backed up automatically &mdash; no action needed:</p>
+
+<ul>
+  <li><strong>Monthly backups</strong> &mdash; Every time you run <code>./run.sh</code>, the system checks if last month has a backup. If not, it creates one automatically.</li>
+  <li><strong>Safety backups</strong> &mdash; Before any operation that could change your data (like regenerating all sheets), a timestamped backup is created.</li>
+  <li><strong>Manual backups</strong> &mdash; Run <code>python bank_ingest.py backup</code> at any time. Use <code>--out ~/Desktop</code> to save it somewhere specific.</li>
+</ul>
+
+<p>Backups are zip files in the <code>backups/</code> folder, containing your database, config files, raw CSVs, and the spreadsheet.</p>
+
+<hr>
+
+<!-- ================================================================== -->
+<!--  PART 4: TECHNICAL REFERENCE                                      -->
+<!-- ================================================================== -->
+
+<h2 id="technical" style="font-size: 1.5rem; border-bottom: 3px solid var(--accent);">Technical Reference</h2>
+<p style="color: var(--muted); margin-bottom: 1.5rem;">Everything below is for users comfortable with the command line. The basics above are all you need to get started.</p>
 
 <!-- Shell Scripts -->
 <h2 id="scripts">Shell Scripts</h2>
@@ -192,7 +393,7 @@
     <li>Checks that Python 3.9+ is installed</li>
     <li>Creates a virtual environment (<code>.venv/</code>)</li>
     <li>Installs Python dependencies (<code>odfpy</code>)</li>
-    <li>Creates the <code>raw/</code> and <code>data/</code> directories</li>
+    <li>Creates the <code>raw/</code>, <code>data/</code>, and <code>backups/</code> directories</li>
     <li>Creates starter config files (<code>rules.csv</code>, <code>account-holders.csv</code>, etc.) in <code>data/</code> if they don't exist</li>
     <li>Makes the shell scripts executable</li>
   </ol>
@@ -233,17 +434,30 @@
 
 <p>The shell scripts use <code>bank_ingest.py</code> under the hood. You can also use it directly for more control. Always activate the virtual environment first: <code>source .venv/bin/activate</code></p>
 
+<p><strong>Global flags</strong> (work with any subcommand):</p>
+<table>
+  <thead><tr><th>Flag</th><th>Effect</th></tr></thead>
+  <tbody>
+    <tr><td><code>-q</code> / <code>--quiet</code></td><td>Suppress all output except errors</td></tr>
+    <tr><td><code>-v</code> / <code>--verbose</code></td><td>Show detailed progress information</td></tr>
+  </tbody>
+</table>
+
 <h3><code>auto</code> (default)</h3>
 <p>Scan for new files, import, and regenerate the report. This is what <code>run.sh</code> calls.</p>
 <pre><code>python bank_ingest.py              # same as 'auto'
 python bank_ingest.py auto
-python bank_ingest.py auto --raw path/to/csvs</code></pre>
+python bank_ingest.py auto --raw path/to/csvs
+python bank_ingest.py auto --no-backup    # skip automatic monthly backup
+python bank_ingest.py auto --dry-run      # show what would happen, change nothing</code></pre>
+<p>The <code>auto</code> command automatically creates a monthly backup (e.g. <code>backups/backup-2026-01.zip</code>) for the previous month if one doesn't already exist. Use <code>--no-backup</code> to skip this. Use <code>--dry-run</code> to preview what would happen without making any changes.</p>
 
 <h3><code>ingest</code></h3>
 <p>Manually import specific CSV files.</p>
 <pre><code>python bank_ingest.py ingest raw/EXPORT_0_1022026.csv
 python bank_ingest.py ingest raw/*.csv
-python bank_ingest.py ingest --no-rename raw/some-file.csv</code></pre>
+python bank_ingest.py ingest --no-rename raw/some-file.csv
+python bank_ingest.py ingest --dry-run raw/EXPORT_0_1022026.csv</code></pre>
 <p>The <code>ingest</code> command auto-renames files based on the date range inside the CSV (e.g. <code>EXPORT_0_1022026.csv</code> &rarr; <code>2026-01.csv</code>). Use <code>--no-rename</code> to skip this.</p>
 
 <h3><code>report</code></h3>
@@ -255,7 +469,7 @@ python bank_ingest.py report --fresh --no-sync</code></pre>
 <table>
   <thead><tr><th>Flag</th><th>Effect</th></tr></thead>
   <tbody>
-    <tr><td><code>--fresh</code></td><td>Deletes the existing ODS and regenerates <strong>all</strong> sheets (including Dashboard, Monthly Summary/Trend, Category/Subcategory Breakdown, and any custom sheets). Manual edits are still saved to the database first.</td></tr>
+    <tr><td><code>--fresh</code></td><td>Creates a backup, then deletes the existing ODS and regenerates <strong>all</strong> sheets (including Dashboard, Monthly Summary/Trend, Category/Subcategory Breakdown, and any custom sheets). Manual edits are still saved to the database first.</td></tr>
     <tr><td><code>--no-sync</code></td><td>Skips reading manual edits from the ODS back into the database.</td></tr>
   </tbody>
 </table>
@@ -266,7 +480,6 @@ python bank_ingest.py report --fresh --no-sync</code></pre>
 python bank_ingest.py cards add 1234 Alice           # add a card
 python bank_ingest.py cards add 5678 Bob             # add another
 python bank_ingest.py cards remove 1234              # remove a card</code></pre>
-<p>Card mappings are stored in <code>data/account-holders.csv</code> and determine the &ldquo;Who&rdquo; column during import. See <a href="#cards">Account Holders</a>.</p>
 
 <h3><code>rules</code></h3>
 <p>Manage categorization rules from the command line.</p>
@@ -282,7 +495,6 @@ python bank_ingest.py rules remove CONTINENTE                        # remove by
     <tr><td><code>--payment</code></td><td><em>(empty)</em></td><td>Payment type: <code>card</code>, <code>transfer</code>, <code>direct_debit</code>, <code>fee</code>, <code>tax</code></td></tr>
   </tbody>
 </table>
-<p>Rules are appended to the end of <code>data/rules.csv</code>. See <a href="#rules">Categorization Rules</a>.</p>
 
 <h3><code>export</code></h3>
 <p>Export all transactions to a clean UTF-8 CSV file.</p>
@@ -294,194 +506,22 @@ python bank_ingest.py export --out my-data.csv</code></pre>
 <pre><code>python bank_ingest.py reclean</code></pre>
 <p>What it does:</p>
 <ol>
+  <li>Creates a backup (in case the reclean changes something you didn't expect)</li>
   <li>Re-runs the description cleaner on every transaction in the database</li>
   <li>Updates only the rows where the cleaned description changed</li>
   <li>Regenerates the ODS report</li>
 </ol>
 <p>All categories, notes, and other data are preserved.</p>
 
-<hr>
-
-<!-- Merchant Notes -->
-<h2 id="merchant-notes">Merchant Notes (<code>data/description-notes.csv</code>)</h2>
-
-<p>Merchant notes are annotations that apply to <strong>all transactions</strong> with the same cleaned description. Unlike per-transaction notes (the &ldquo;Notes&rdquo; column), a merchant note is shared across every occurrence of that merchant.</p>
-
-<h3>How it works</h3>
-<ol>
-  <li>In the ODS Data sheet, find the <strong>Merchant Note</strong> column (S)</li>
-  <li>Type a note on any row (e.g. &ldquo;Weekly groceries&rdquo; next to a Continente transaction)</li>
-  <li>Run <code>./run.sh</code> &mdash; the note is saved to <code>data/description-notes.csv</code></li>
-  <li>On the next regeneration, <strong>every</strong> row with that same merchant description gets the note</li>
-</ol>
-
-<h3>Format</h3>
-<pre><code>description_clean,merchant_note
-FARMACIA DA GARE,Pharmacy
-CONTINENTE,Main weekly grocery shop</code></pre>
-
-<p>You can edit this file directly or let it be populated from the ODS.</p>
-
-<hr>
-
-<!-- Tags -->
-<h2 id="tags">Using #Tags</h2>
-
-<p>Add <strong>#tags</strong> anywhere in the <strong>Notes</strong> (R) or <strong>Merchant Note</strong> (S) columns to label transactions for tracking. Tags are just words starting with <code>#</code> &mdash; no special setup required.</p>
-
-<h3>Examples</h3>
-<table>
-  <thead><tr><th>Column</th><th>Value</th><th>Effect</th></tr></thead>
-  <tbody>
-    <tr><td>Notes (R)</td><td><code>Birthday dinner #gift #shared</code></td><td>Tags this single transaction</td></tr>
-    <tr><td>Merchant Note (S)</td><td><code>#recurring #essential</code></td><td>Tags <strong>all</strong> transactions from this merchant</td></tr>
-  </tbody>
-</table>
-
-<p>Some useful tag ideas: <code>#recurring</code>, <code>#reimbursable</code>, <code>#gift</code>, <code>#shared</code>, <code>#splurge</code>, <code>#essential</code>, <code>#one-off</code></p>
-
-<h3>The Tags sheet</h3>
-<p>The starter <strong>Tags</strong> sheet (generated on first run) automatically counts and sums tagged transactions. It comes with a few example tags &mdash; just replace them with your own or add more in the empty rows below.</p>
-
-<table>
-  <thead><tr><th>Column</th><th>What it shows</th></tr></thead>
-  <tbody>
-    <tr><td>Tag</td><td>The #tag to search for (e.g. <code>#recurring</code>)</td></tr>
-    <tr><td># Transactions</td><td>Number of transactions containing the tag (in either Notes or Merchant Note)</td></tr>
-    <tr><td>Total Spent</td><td>Sum of amounts for tagged outgoing transactions</td></tr>
-    <tr><td>% of Total Spend</td><td>What percentage of your total spending this tag represents</td></tr>
-  </tbody>
-</table>
-
-<div class="tip">
-  <strong>Custom formulas:</strong> You can also build your own tag formulas in custom sheets. For example, to count all transactions tagged <code>#gift</code>:<br>
-  <code>=COUNTIF(Data.R:R, "*#gift*") + COUNTIF(Data.S:S, "*#gift*")</code>
-</div>
-
-<hr>
-
-<!-- Account Holders -->
-<h2 id="cards">Account Holders (<code>data/account-holders.csv</code>)</h2>
-
-<p>This file maps debit card last-4 digits to owner names, so the &ldquo;Who&rdquo; column in the report shows who made each purchase.</p>
-
-<h3>Format</h3>
-<pre><code>card_last4,name
-1234,Alice
-5678,Bob</code></pre>
-
-<p>You can edit this file directly or use the CLI:</p>
-<pre><code>python bank_ingest.py cards add 1234 Alice
-python bank_ingest.py cards remove 1234
-python bank_ingest.py cards               # list all</code></pre>
-
-<div class="tip">
-  Transactions made with a card not in this file will show &ldquo;Joint&rdquo; as the owner.
-</div>
-
-<hr>
-
-<!-- ODS Report -->
-<h2 id="ods">The ODS Report (<code>expense-report.ods</code>)</h2>
-
-<p>Open this file in <strong>LibreOffice Calc</strong> or upload it to <strong>Google Sheets</strong>.</p>
-
-<h3>Sheets</h3>
-<table>
-  <thead><tr><th>Sheet</th><th>Regenerated?</th><th>Description</th></tr></thead>
-  <tbody>
-    <tr>
-      <td><strong>Intro</strong></td><td>Yes, always</td>
-      <td>Overview of the file and what each sheet does</td>
-    </tr>
-    <tr>
-      <td><strong>Data</strong></td><td>Yes, always</td>
-      <td>All transactions &mdash; one row per transaction. You can manually edit the <strong>Category</strong>, <strong>Subcategory</strong>, and <strong>Notes</strong> columns; those edits are saved back to the database on the next run.</td>
-    </tr>
-    <tr>
-      <td><strong>Rules</strong></td><td>Yes, always</td>
-      <td>A read-only view of the current categorization rules</td>
-    </tr>
-    <tr>
-      <td><strong>Dashboard</strong></td><td>First run only</td>
-      <td>Key summary figures: total income/expenses, net balance, average monthly spend, uncategorized count, and top categories.</td>
-    </tr>
-    <tr>
-      <td><strong>Monthly Summary</strong></td><td>First run only</td>
-      <td>Spending by month and category in a grid with formulas.</td>
-    </tr>
-    <tr>
-      <td><strong>Monthly Trend</strong></td><td>First run only</td>
-      <td>Income vs expenses vs net per month, with a running balance column.</td>
-    </tr>
-    <tr>
-      <td><strong>Category Breakdown</strong></td><td>First run only</td>
-      <td>Total spent, % of total, avg/month, and transaction count per category.</td>
-    </tr>
-    <tr>
-      <td><strong>Subcategory Breakdown</strong></td><td>First run only</td>
-      <td>Detailed breakdown within each category (e.g. &ldquo;Eating Out / Restaurant&rdquo; vs &ldquo;Eating Out / Cafe&rdquo;).</td>
-    </tr>
-    <tr>
-      <td><strong>Tags</strong></td><td>First run only</td>
-      <td>Track spending by #tags used in the Notes or Merchant Note columns. Pre-filled with example tags and empty slots &mdash; just type a tag and the formulas do the rest.</td>
-    </tr>
-    <tr>
-      <td><em>Your custom sheets</em></td><td>Never touched</td>
-      <td>Add as many sheets as you want. The script will never modify or remove them.</td>
-    </tr>
-  </tbody>
-</table>
-
-<h3>Manual Categorization &amp; Notes</h3>
-<p>If a transaction isn't caught by the rules (shows as &ldquo;uncategorized&rdquo;), you have two options:</p>
-<div class="tip">
-  <strong>Option A: Add a rule</strong> &mdash; Edit <code>data/rules.csv</code> (or run <code>python bank_ingest.py rules add ...</code>) to catch similar transactions automatically in the future. Best for recurring patterns.
-</div>
-<div class="tip">
-  <strong>Option B: Edit in the spreadsheet</strong> &mdash; Change the Category/Subcategory columns directly in the Data sheet. The next time you run <code>./run.sh</code>, those edits are synced back to the database. Best for one-off expenses.
-</div>
-<div class="tip">
-  <strong>Notes column (R)</strong> &mdash; Use this free-text column to annotate any transaction (e.g. &ldquo;birthday dinner&rdquo;, &ldquo;reimbursed by insurance&rdquo;). Notes are synced back to the database just like categories.
-</div>
-
-<hr>
-
-<!-- Rules -->
-<h2 id="rules">Categorization Rules (<code>data/rules.csv</code>)</h2>
-
-<p>Rules are defined in a simple CSV file that anyone can edit in a spreadsheet or text editor.</p>
-
-<h3>Format</h3>
-<pre><code>pattern,match_field,category,subcategory,payment_type
-CONTINENTE,description,Groceries,,card
-FARMACIA,description,Health,Pharmacy,card
-TRF P/ Renda,description,Housing,Rent,transfer</code></pre>
-
-<h3>Columns</h3>
-<table>
-  <thead><tr><th>Column</th><th>Required</th><th>Description</th></tr></thead>
-  <tbody>
-    <tr><td><code>pattern</code></td><td>Yes</td><td>Text to search for (case-insensitive)</td></tr>
-    <tr><td><code>match_field</code></td><td>Yes</td><td>Which field to search: <code>description</code> (cleaned) or <code>description_raw</code> (original)</td></tr>
-    <tr><td><code>category</code></td><td>Yes</td><td>Main category (e.g. Groceries, Health, Transport)</td></tr>
-    <tr><td><code>subcategory</code></td><td>No</td><td>Optional sub-category (e.g. Pharmacy, Rent, Fast Food)</td></tr>
-    <tr><td><code>payment_type</code></td><td>No</td><td>Optional override: <code>card</code>, <code>transfer</code>, <code>direct_debit</code>, <code>fee</code>, <code>tax</code></td></tr>
-  </tbody>
-</table>
-
-<h3>How Rules Work</h3>
-<ul>
-  <li>Rules are applied <strong>in order</strong> &mdash; the first matching rule wins</li>
-  <li>Matching is <strong>case-insensitive</strong> and uses substring matching</li>
-  <li>Rules only apply to <strong>uncategorized</strong> transactions (they won't override manual edits or previous rules)</li>
-  <li>After adding new rules, run <code>./run.sh</code> to apply them</li>
-</ul>
+<h3><code>backup</code></h3>
+<p>Create a zip archive of all your data.</p>
+<pre><code>python bank_ingest.py backup                   # save to backups/ (default)
+python bank_ingest.py backup --out ~/Desktop    # save to a custom location</code></pre>
 
 <hr>
 
 <!-- Cleaning Patterns -->
-<h2 id="cleaning">Cleaning Patterns</h2>
+<h2 id="cleaning">Cleaning Patterns (advanced)</h2>
 
 <p>When bank descriptions are imported, the parser cleans them up by stripping prefixes, noise words, and reference codes. These patterns are loaded from two external files so you can tweak them without touching Python code.</p>
 
@@ -501,22 +541,20 @@ LISBOA</code></pre>
   <li>Lines starting with <code>#</code> are comments</li>
 </ul>
 
-<h3><code>data/cleaning-patterns.csv</code> &mdash; Regex patterns (advanced)</h3>
+<h3><code>data/cleaning-patterns.csv</code> &mdash; Regex patterns</h3>
 
-<p>A CSV file for power users who need finer control over how descriptions are cleaned. Each row has a type, a regex pattern, and a description.</p>
+<p>A CSV file for power users who need finer control over how descriptions are cleaned.</p>
 
 <table>
   <thead><tr><th>Column</th><th>Description</th></tr></thead>
   <tbody>
     <tr><td><code>type</code></td><td><code>prefix</code> (stripped from the start) or <code>noise</code> (stripped anywhere)</td></tr>
-    <tr><td><code>pattern</code></td><td>A regular expression (compiled with case-insensitive flag)</td></tr>
+    <tr><td><code>pattern</code></td><td>A regular expression</td></tr>
     <tr><td><code>description</code></td><td>Human-readable explanation of what the pattern does</td></tr>
   </tbody>
 </table>
 
 <p><strong>Important:</strong> If your regex pattern contains commas (e.g. <code>{8,12}</code>), wrap the entire row in quotes.</p>
-
-<p>You normally won't need to edit this file unless you're seeing unexpected cleaning results.</p>
 
 <hr>
 
@@ -533,10 +571,9 @@ LISBOA</code></pre>
   <li><strong>Raw CSVs</strong> (<code>raw/</code>) &mdash; Immutable bank exports, kept as-is for reference</li>
   <li><strong>Account holders</strong> (<code>data/account-holders.csv</code>) &mdash; Maps card last-4 digits to owner names</li>
   <li><strong>Rules</strong> (<code>data/rules.csv</code>) &mdash; Defines how transactions get categorized</li>
-  <li><strong>SQLite database</strong> (<code>data/ledger.sqlite</code>) &mdash; The single source of truth for all transactions, deduplicated and normalized</li>
-  <li><strong>ODS report</strong> (<code>expense-report.ods</code>) &mdash; A generated spreadsheet for viewing, analysis, and manual edits</li>
+  <li><strong>SQLite database</strong> (<code>data/ledger.sqlite</code>) &mdash; The single source of truth for all transactions</li>
+  <li><strong>ODS report</strong> (<code>expense-report.ods</code>) &mdash; A generated spreadsheet for viewing and analysis</li>
 </ul>
-<p>Python handles all the &ldquo;intelligence&rdquo; (parsing, cleaning, deduplication, categorization). The spreadsheet is purely for presentation and custom analysis.</p>
 
 <hr>
 
@@ -560,10 +597,13 @@ LISBOA</code></pre>
 &#9474;   &#9500;&#9472;&#9472; parser.py           # UTF-16 CSV parser + auto-rename
 &#9474;   &#9500;&#9472;&#9472; db.py               # SQLite storage and queries
 &#9474;   &#9500;&#9472;&#9472; rules.py            # Rule &amp; card management + categorization
-&#9474;   &#9500;&#9472;&#9472; ods.py              # ODS report generation + sync-back
+&#9474;   &#9500;&#9472;&#9472; ods.py              # ODS report orchestration + sync-back
+&#9474;   &#9500;&#9472;&#9472; ods_sheets.py       # ODS sheet builders (styles, cells, all sheets)
 &#9474;   &#9500;&#9472;&#9472; export.py           # CSV export
+&#9474;   &#9500;&#9472;&#9472; backup.py           # Backup utilities (zip archives)
 &#9474;   &#9492;&#9472;&#9472; constants.py        # Shared configuration
-&#9500;&#9472;&#9472; tests/                  # Test suite (99 tests)
+&#9500;&#9472;&#9472; backups/                # Backup archives (auto + manual)
+&#9500;&#9472;&#9472; tests/                  # Test suite (115 tests)
 &#9500;&#9472;&#9472; install.sh              # First-time setup
 &#9500;&#9472;&#9472; run.sh                  # Import + report (everyday use)
 &#9500;&#9472;&#9472; update.sh               # Pull latest from GitHub
@@ -591,6 +631,7 @@ LISBOA</code></pre>
     <tr><td><code>python bank_ingest.py rules add &lt;pattern&gt; &lt;category&gt;</code></td><td>Add a rule</td></tr>
     <tr><td><code>python bank_ingest.py rules remove &lt;pattern&gt;</code></td><td>Remove a rule</td></tr>
     <tr><td><code>python bank_ingest.py reclean</code></td><td>Re-clean all descriptions and regenerate report</td></tr>
+    <tr><td><code>python bank_ingest.py backup</code></td><td>Create a zip backup of all data</td></tr>
   </tbody>
 </table>
 
@@ -616,7 +657,7 @@ LISBOA</code></pre>
 <pre><code>source .venv/bin/activate
 python -m pytest tests/ -v</code></pre>
 
-<p>99 tests covering the parser, database, rules engine, export, and end-to-end workflows. Runs in ~0.5 seconds using synthetic UTF-16 CSV fixtures (no real bank data needed).</p>
+<p>115 tests covering the parser, database, rules engine, export, backup, and end-to-end workflows. Runs in under a second using synthetic UTF-16 CSV fixtures (no real bank data needed).</p>
 
 <hr>
 
@@ -629,14 +670,15 @@ python -m pytest tests/ -v</code></pre>
   <thead><tr><th>Ignored</th><th>Why</th></tr></thead>
   <tbody>
     <tr><td><code>raw/</code></td><td>Raw bank statement CSVs &mdash; contain account numbers and transaction details</td></tr>
-    <tr><td><code>data/</code></td><td>SQLite database, config files, and CSV exports &mdash; contain all your transactions and personal data (rules, card mappings, merchant notes, cleaning patterns)</td></tr>
+    <tr><td><code>data/</code></td><td>SQLite database, config files, and CSV exports &mdash; contain all your transactions and personal data</td></tr>
     <tr><td><code>expense-report.ods</code></td><td>The generated report &mdash; contains all your financial data</td></tr>
+    <tr><td><code>backups/</code></td><td>Zip archives of all the above</td></tr>
   </tbody>
 </table>
 
 <p><strong>Only code and documentation are committed.</strong> When you first clone the repo on a new machine, run <code>./install.sh</code> to recreate the directory structure and starter config files.</p>
 
-<p>If you want to back up your personal data files, do so separately (e.g. a private cloud folder, encrypted archive, etc.) &mdash; <strong>never commit them to Git</strong>.</p>
+<p>For offsite backup, copy the <code>backups/</code> folder to a private cloud folder or encrypted archive &mdash; <strong>never commit data files to Git</strong>.</p>
 
 <hr>
 

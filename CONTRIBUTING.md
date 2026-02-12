@@ -105,15 +105,27 @@ Rule and card-holder management, plus the categorization engine.
 
 ### `expense_tracker/ods.py`
 
-ODS report generation and sync-back. The largest module (~1000 lines), using `odfpy` to create OpenDocument Spreadsheets.
+ODS report orchestration and sync-back. Uses `odfpy` to create/update OpenDocument Spreadsheets. Sheet builders have been extracted to `ods_sheets.py` for maintainability.
 
 **Key functions:**
 - `generate_ods(db_path, rules_path, ods_path, desc_notes_path)` — Main entry point. On first run, generates all sheets. On subsequent runs, replaces only Intro/Data/Rules and preserves everything else.
 - `sync_from_ods(db_path, ods_path, desc_notes_path)` — Reads manual edits from the ODS Data sheet back into the DB (category, subcategory, notes) and into `description-notes.csv` (merchant notes).
 
+### `expense_tracker/ods_sheets.py`
+
+All ODS sheet builders, styles, and cell helpers. Split from `ods.py` for maintainability.
+
+**Key exports:**
+- `setup_styles(doc)` — Registers cell and column styles (header, categorized, uncategorized, etc.)
+- `make_cell(value, style_name, value_type, formula)` — Creates a typed ODF cell element
+- `make_header_row(headers)` — Creates a styled header row
+- `build_data_sheet` / `build_rules_sheet` / `build_intro_sheet` — Return Table elements (used for insertion in update mode)
+- `write_*_sheet(doc, ...)` — Each adds a sheet directly to the document (used in first-run mode)
+- Sheets: Intro, Data, Rules, Dashboard (with top merchants + uncategorized preview), Monthly Summary, Monthly Trend, Category Breakdown, Subcategory Breakdown, Tags, Recurring Merchants
+
 **Hybrid regeneration strategy:**
 - **Always rebuilt:** Intro, Data, Rules — these reflect the current state of the DB
-- **First run only:** Dashboard, Monthly Summary, Monthly Trend, Category Breakdown, Subcategory Breakdown, Tags — generated with starter formulas, then never touched again
+- **First run only:** Dashboard, Monthly Summary, Monthly Trend, Category Breakdown, Subcategory Breakdown, Tags, Recurring Merchants — generated with starter formulas/data, then never touched again
 - **Never touched:** Any sheets the user adds manually
 
 This means users can customize the analysis sheets (change formulas, add charts, reformat) without losing their work. The `--fresh` flag forces a full regeneration by deleting the ODS first.
@@ -124,11 +136,30 @@ This means users can customize the analysis sheets (change formulas, add charts,
 
 Simple CSV export — reads all transactions from the DB and writes a UTF-8 CSV using `DATA_COLUMNS`/`DATA_HEADERS` from constants.
 
+### `expense_tracker/backup.py`
+
+Backup utilities using Python's `zipfile` module (no external dependencies).
+
+**Key functions:**
+- `create_backup(backup_dir, label, raw_dir, data_dir, ods_path)` — Creates a zip archive of `data/`, `raw/`, and `expense-report.ods`. If `label` is given, it's used as the filename stem; otherwise a timestamp is generated.
+- `previous_month_backup_exists(backup_dir)` — Checks whether a `backup-YYYY-MM.zip` for the previous month already exists.
+- `create_monthly_backup(backup_dir, **kwargs)` — Convenience wrapper that calls `create_backup()` with the previous-month label.
+- `list_backups(backup_dir)` — Returns sorted list of `backup-*.zip` files.
+- `format_size(bytes)` — Human-readable file size string (e.g. "2.3 MB").
+
+**Naming convention:**
+- Monthly auto-backups: `backup-YYYY-MM.zip` (named after the previous month)
+- Manual / pre-destructive: `backup-YYYY-MM-DDThh-mm-ss.zip` (timestamped)
+
 ### `expense_tracker/cli.py`
 
 `argparse`-based CLI. Each subcommand has its own `cmd_*` function. The `auto` command is the default (used by `run.sh`) and orchestrates the full pipeline: discover → rename → ingest → sync → categorize → generate.
 
 **Pre-flight checks:** `_check_setup()` verifies that `odfpy` is installed and the `data/` directory exists, providing friendly error messages that point to `install.sh`.
+
+**Automatic backups:** The `auto` command creates a monthly backup for the previous month if one doesn't exist. The `report --fresh` and `reclean` commands create timestamped backups before destructive operations.
+
+**Output control:** Global `-q`/`--quiet` and `-v`/`--verbose` flags control verbosity. The `_info()` and `_detail()` helpers respect the verbosity level. Dry-run mode (`--dry-run` on `auto` and `ingest`) previews actions without making changes.
 
 ---
 
@@ -150,10 +181,11 @@ tests/
 ├── test_db.py           # 19 tests: schema, ingestion, dedup, reclean, queries
 ├── test_rules.py        # 17 tests: CRUD, loading, categorization logic
 ├── test_export.py       #  4 tests: CSV export
+├── test_backup.py       # 16 tests: zip creation, monthly checks, formatting
 └── test_integration.py  #  4 tests: end-to-end workflows
 ```
 
-**Total: 99 tests** (runs in ~0.5 seconds)
+**Total: 115 tests** (runs in under a second)
 
 ### Test design principles
 
@@ -226,9 +258,9 @@ Added for test isolation. Without it, `ingest()` would always read from `data/ac
 
 ### Adding a new analysis sheet
 
-1. Create a `_write_new_sheet(doc, transactions)` function in `ods.py`
-2. Call it from `generate_ods()` inside the `if is_first_run:` block
-3. Add it to the Intro sheet's instructions list
+1. Create a `write_new_sheet(doc, transactions)` function in `ods_sheets.py`
+2. Import it in `ods.py` and call it from `generate_ods()` inside the `if is_first_run:` block
+3. Add it to the Intro sheet's instructions list in `build_intro_sheet()` in `ods_sheets.py`
 4. Document it in both README files
 
 ### Adding a new CLI command
@@ -251,9 +283,11 @@ Added for test isolation. Without it, `ingest()` would always read from `data/ac
 | `expense_tracker/parser.py` | 380 | UTF-16 CSV parser, description cleaning, card/payment detection |
 | `expense_tracker/db.py` | 232 | SQLite schema, ingestion, dedup, reclean, queries |
 | `expense_tracker/rules.py` | 194 | Rule/card CRUD, rule loading, categorization engine |
-| `expense_tracker/ods.py` | 1015 | ODS generation (9 sheets), sync-back, formula building |
+| `expense_tracker/ods.py` | ~280 | ODS orchestration (generate/update), sync-back, description notes |
+| `expense_tracker/ods_sheets.py` | ~700 | ODS sheet builders: styles, cell helpers, 10 sheet generators |
 | `expense_tracker/export.py` | 29 | Simple CSV export |
-| `expense_tracker/cli.py` | 472 | argparse CLI with 7 subcommands |
+| `expense_tracker/backup.py` | 120 | Backup utilities — zip creation, monthly checks, size formatting |
+| `expense_tracker/cli.py` | ~530 | argparse CLI with 8 subcommands (including backup) |
 | `install.sh` | 163 | First-time setup (venv, deps, directories, starter configs) |
 | `run.sh` | ~20 | Everyday script — activates venv, runs `bank_ingest.py auto` |
 | `update.sh` | ~30 | Git pull + re-run install if needed |
@@ -263,6 +297,7 @@ Added for test isolation. Without it, `ingest()` would always read from `data/ac
 | `tests/test_db.py` | 200 | Database unit tests (19 tests) |
 | `tests/test_rules.py` | 180 | Rules unit tests (17 tests) |
 | `tests/test_export.py` | 50 | Export unit tests (4 tests) |
+| `tests/test_backup.py` | 200 | Backup unit tests (16 tests) |
 | `tests/test_integration.py` | 120 | End-to-end integration tests (4 tests) |
 
 ---

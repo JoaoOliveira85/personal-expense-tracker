@@ -80,8 +80,8 @@ ok "All packages installed"
 
 # ── 4. Create directories ────────────────────────────────────────────────
 echo
-mkdir -p raw data
-ok "Directories ready (raw/, data/)"
+mkdir -p raw data backups
+ok "Directories ready (raw/, data/, backups/)"
 
 # ── 5. Starter config files ──────────────────────────────────────────────
 if [ ! -f "data/rules.csv" ]; then
