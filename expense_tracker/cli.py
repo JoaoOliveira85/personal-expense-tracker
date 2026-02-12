@@ -23,6 +23,7 @@ from .rules import (
 )
 from .ods import generate_ods, sync_from_ods
 from .export import export_csv
+from .pdf_report import generate_monthly_pdf, previous_month_label, DEFAULT_REPORTS
 
 
 # ---------------------------------------------------------------------------
@@ -382,6 +383,20 @@ def cmd_backup(args):
         print(f"  ({len(existing)} backups in {args.out}/)")
 
 
+def cmd_pdf(args):
+    """Handle the 'pdf' subcommand: generate a monthly PDF report."""
+    _check_setup()
+    month = args.month or previous_month_label()
+    # Let generate_monthly_pdf use its own default (reports/) when --out is not given
+    pdf_path = generate_monthly_pdf(
+        db_path=args.db,
+        month=month,
+        output_path=args.out,
+        desc_notes_path=args.desc_notes,
+    )
+    print(f"PDF report saved to {pdf_path}")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(
         description="Expense tracking pipeline for UTF-16 CSV bank statements."
@@ -604,6 +619,28 @@ def main() -> None:
         help=f"ODS report file path (default: {DEFAULT_ODS})",
     )
     ap_backup.set_defaults(func=cmd_backup)
+
+    # -- pdf --
+    ap_pdf = sub.add_parser(
+        "pdf", help="Generate a single-page monthly PDF summary report"
+    )
+    ap_pdf.add_argument(
+        "--month", type=str, default=None,
+        help="Month to report on (YYYY-MM format, default: previous month)",
+    )
+    ap_pdf.add_argument(
+        "--db", type=Path, default=DEFAULT_DB,
+        help=f"SQLite database path (default: {DEFAULT_DB})",
+    )
+    ap_pdf.add_argument(
+        "--out", type=Path, default=None,
+        help="Output PDF file path (default: reports/report-YYYY-MM.pdf)",
+    )
+    ap_pdf.add_argument(
+        "--desc-notes", type=Path, default=DEFAULT_DESC_NOTES,
+        help=f"Merchant notes CSV (default: {DEFAULT_DESC_NOTES})",
+    )
+    ap_pdf.set_defaults(func=cmd_pdf)
 
     args = ap.parse_args()
 

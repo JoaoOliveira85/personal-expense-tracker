@@ -17,6 +17,7 @@ DEFAULT_NOISE_WORDS = Path("data/noise-words.txt")
 DEFAULT_CLEANING_PATTERNS = Path("data/cleaning-patterns.csv")
 DEFAULT_DESC_NOTES = Path("data/description-notes.csv")
 DEFAULT_BACKUPS = Path("backups")
+DEFAULT_REPORTS = Path("reports")
 
 # ---------------------------------------------------------------------------
 # Day-of-week names (Python weekday() index -> abbreviation)

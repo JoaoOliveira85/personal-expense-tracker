@@ -35,6 +35,7 @@ expense-tracking/
 │   ├── noise-words.txt     # Words to strip from descriptions (editable)
 │   ├── cleaning-patterns.csv # Regex patterns for description cleaning
 │   └── description-notes.csv # Merchant notes (editable, per-merchant)
+├── reports/                # Monthly PDF summaries
 ├── expense-report.ods      # Generated report (open in LibreOffice)
 ├── bank_ingest.py          # Main entry point (convenience wrapper)
 ├── expense_tracker/        # Python package (the actual code)
@@ -46,15 +47,17 @@ expense-tracking/
 │   ├── ods_sheets.py       # ODS sheet builders (styles, cells, all sheets)
 │   ├── export.py           # CSV export
 │   ├── backup.py           # Backup utilities (zip archives)
+│   ├── pdf_report.py       # Monthly PDF report generator
 │   └── constants.py        # Shared configuration
 ├── backups/                # Backup archives (auto + manual)
-├── tests/                  # Test suite (115 tests)
+├── tests/                  # Test suite (148 tests)
 │   ├── conftest.py         # Shared fixtures + synthetic CSV builder
 │   ├── test_parser.py      # Parser tests (39)
 │   ├── test_db.py          # Database tests (19)
 │   ├── test_rules.py       # Rules tests (17)
 │   ├── test_export.py      # Export tests (4)
 │   ├── test_backup.py      # Backup tests (16)
+│   ├── test_pdf_report.py  # PDF report tests (26)
 │   └── test_integration.py # End-to-end tests (4)
 ├── install.sh              # First-time setup script
 ├── run.sh                  # Import new data + regenerate report
@@ -243,6 +246,26 @@ The zip file is named with a timestamp (e.g. `backup-2026-02-11T14-30-00.zip`) a
 - `data/` — SQLite database, rules, account holders, cleaning patterns, merchant notes
 - `raw/` — original bank CSV files
 - `expense-report.ods` — the generated report
+
+### `pdf`
+
+Generate a single-page PDF summary for a given month — a quick bird's-eye view of where money went.
+
+```bash
+python bank_ingest.py pdf                      # previous month (default)
+python bank_ingest.py pdf --month 2026-01      # specific month
+python bank_ingest.py pdf --out ~/Desktop/jan.pdf  # custom output path
+```
+
+The PDF includes:
+- **Summary**: total income, expenses, and net balance
+- **Spending by category**: amounts, percentages, variation vs previous month, and variation vs category average
+- **Top 10 merchants**: who you spent the most with
+- **#Tag summary**: totals for any tags used in Notes or Merchant Notes
+- **Essential spending**: quick totals for Housing, Utilities, Subscriptions, Insurance, Health, Childcare, and Transport
+- **Uncategorized alert**: how many transactions still need categorizing
+
+Output defaults to `reports/report-YYYY-MM.pdf`.
 
 ---
 
@@ -509,6 +532,7 @@ The Python script handles all the "intelligence" (parsing, cleaning, deduplicati
 | `python bank_ingest.py rules remove <pattern>` | Remove a rule |
 | `python bank_ingest.py reclean` | Re-clean all descriptions and regenerate report |
 | `python bank_ingest.py backup` | Create a zip backup of all data |
+| `python bank_ingest.py pdf` | Generate a monthly PDF summary report |
 
 ---
 
@@ -523,7 +547,7 @@ source .venv/bin/activate
 python -m pytest tests/ -v
 ```
 
-115 tests covering the parser, database, rules engine, export, backup, and end-to-end workflows. Runs in under a second using synthetic UTF-16 CSV fixtures (no real bank data needed).
+148 tests covering the parser, database, rules engine, export, backup, PDF report, and end-to-end workflows. Runs in under a second using synthetic UTF-16 CSV fixtures (no real bank data needed).
 
 ---
 
@@ -536,6 +560,7 @@ This project includes a `.gitignore` that keeps all personal/financial data out 
 | `raw/` | Raw bank statement CSVs — contain account numbers and transaction details |
 | `data/` | SQLite database, config files, and CSV exports — contain all your transactions and personal data (rules, card mappings, merchant notes, cleaning patterns) |
 | `expense-report.ods` | The generated report — contains all your financial data |
+| `reports/` | Monthly PDF summaries — contain financial data |
 | `backups/` | Zip archives of all the above — also contain financial data |
 
 **Only code and documentation are committed.** When you first clone the repo on a new machine, run `./install.sh` to recreate the directory structure and starter config files.

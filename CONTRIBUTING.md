@@ -136,6 +136,18 @@ This means users can customize the analysis sheets (change formulas, add charts,
 
 Simple CSV export — reads all transactions from the DB and writes a UTF-8 CSV using `DATA_COLUMNS`/`DATA_HEADERS` from constants.
 
+### `expense_tracker/pdf_report.py`
+
+Monthly PDF report generator using `fpdf2`. Produces a single-page A4 summary for a given month.
+
+**Key functions:**
+- `generate_monthly_pdf(db_path, month, output_path, desc_notes_path)` — Main entry point. Fetches transactions for the given month, computes stats, and renders a PDF.
+- `_compute_stats(transactions, merchant_notes)` — Computes all summary statistics: income/expenses, category breakdown, top merchants, tag totals, uncategorized count.
+- `previous_month_label()` — Returns the YYYY-MM label for the previous month.
+- `_setup_fonts(pdf)` — Tries to register a system Unicode font; falls back to built-in Helvetica.
+
+**PDF layout:** Title bar, 3 summary boxes (income/expenses/net), two-column layout with categories on the left and merchants + tags on the right, optional per-person breakdown at the bottom.
+
 ### `expense_tracker/backup.py`
 
 Backup utilities using Python's `zipfile` module (no external dependencies).
@@ -182,10 +194,11 @@ tests/
 ├── test_rules.py        # 17 tests: CRUD, loading, categorization logic
 ├── test_export.py       #  4 tests: CSV export
 ├── test_backup.py       # 16 tests: zip creation, monthly checks, formatting
+├── test_pdf_report.py   # 26 tests: stats computation, tag extraction, PDF generation
 └── test_integration.py  #  4 tests: end-to-end workflows
 ```
 
-**Total: 115 tests** (runs in under a second)
+**Total: 148 tests** (runs in under a second)
 
 ### Test design principles
 
@@ -298,6 +311,7 @@ Added for test isolation. Without it, `ingest()` would always read from `data/ac
 | `tests/test_rules.py` | 180 | Rules unit tests (17 tests) |
 | `tests/test_export.py` | 50 | Export unit tests (4 tests) |
 | `tests/test_backup.py` | 200 | Backup unit tests (16 tests) |
+| `tests/test_pdf_report.py` | 280 | PDF report unit tests (33 tests) |
 | `tests/test_integration.py` | 120 | End-to-end integration tests (4 tests) |
 
 ---

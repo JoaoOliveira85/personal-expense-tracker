@@ -1,0 +1,380 @@
+"""Tests for the PDF report generator."""
+from __future__ import annotations
+
+import sqlite3
+from pathlib import Path
+
+import pytest
+
+from expense_tracker.pdf_report import (
+    _compute_stats,
+    _extract_tags,
+    _fmt_eur,
+    _prev_month,
+    generate_monthly_pdf,
+    month_display_name,
+    previous_month_label,
+    ESSENTIAL_CATEGORIES,
+)
+
+
+# ---------------------------------------------------------------------------
+# Helper to build transaction dicts for testing
+# ---------------------------------------------------------------------------
+
+
+def _tx(
+    desc: str = "TEST MERCHANT",
+    amount: float = 10.0,
+    direction: str = "out",
+    category: str = "",
+    notes: str = "",
+    who: str = "Joint",
+    month: str = "2026-01",
+) -> dict:
+    return {
+        "date_posted": f"{month}-15",
+        "description_clean": desc,
+        "amount_signed": -amount if direction == "out" else amount,
+        "amount_abs": amount,
+        "direction": direction,
+        "category": category,
+        "subcategory": "",
+        "payment_type": "card",
+        "who": who,
+        "notes": notes,
+    }
+
+
+# ---------------------------------------------------------------------------
+# _extract_tags
+# ---------------------------------------------------------------------------
+
+
+class TestExtractTags:
+    def test_basic_tags(self):
+        assert _extract_tags("#gift #shared dinner") == ["#gift", "#shared"]
+
+    def test_no_tags(self):
+        assert _extract_tags("just a regular note") == []
+
+    def test_empty_string(self):
+        assert _extract_tags("") == []
+
+    def test_none(self):
+        assert _extract_tags(None) == []
+
+    def test_hash_alone_ignored(self):
+        assert _extract_tags("# not a tag") == []
+
+    def test_tags_with_dashes(self):
+        assert _extract_tags("#one-off purchase") == ["#one-off"]
+
+
+# ---------------------------------------------------------------------------
+# _fmt_eur
+# ---------------------------------------------------------------------------
+
+
+class TestFmtEur:
+    def test_basic(self):
+        result = _fmt_eur(1234.56)
+        assert "1,234.56" in result
+        assert "EUR" in result
+
+    def test_zero(self):
+        result = _fmt_eur(0.0)
+        assert "0.00" in result
+
+    def test_large_number(self):
+        result = _fmt_eur(1234567.89)
+        assert "1,234,567.89" in result
+
+
+# ---------------------------------------------------------------------------
+# month_display_name
+# ---------------------------------------------------------------------------
+
+
+class TestMonthDisplayName:
+    def test_january(self):
+        assert month_display_name("2026-01") == "January 2026"
+
+    def test_december(self):
+        assert month_display_name("2025-12") == "December 2025"
+
+
+# ---------------------------------------------------------------------------
+# previous_month_label
+# ---------------------------------------------------------------------------
+
+
+class TestPreviousMonthLabel:
+    def test_format(self):
+        label = previous_month_label()
+        # Should be YYYY-MM format
+        assert len(label) == 7
+        assert label[4] == "-"
+        year, month = label.split("-")
+        assert 2020 <= int(year) <= 2100
+        assert 1 <= int(month) <= 12
+
+
+# ---------------------------------------------------------------------------
+# _compute_stats
+# ---------------------------------------------------------------------------
+
+
+class TestComputeStats:
+    def test_empty_transactions(self):
+        stats = _compute_stats([])
+        assert stats["total_income"] == 0
+        assert stats["total_expenses"] == 0
+        assert stats["net_balance"] == 0
+        assert stats["tx_count"] == 0
+        assert stats["by_category"] == []
+        assert stats["top_merchants"] == []
+        assert stats["uncategorized_count"] == 0
+
+    def test_income_and_expenses(self):
+        txns = [
+            _tx(amount=100, direction="out", category="Groceries"),
+            _tx(amount=50, direction="out", category="Health"),
+            _tx(amount=2000, direction="in"),
+        ]
+        stats = _compute_stats(txns)
+        assert stats["total_income"] == 2000
+        assert stats["total_expenses"] == 150
+        assert stats["net_balance"] == 1850
+        assert stats["tx_count"] == 3
+
+    def test_category_breakdown(self):
+        txns = [
+            _tx(amount=100, direction="out", category="Groceries"),
+            _tx(amount=80, direction="out", category="Groceries"),
+            _tx(amount=50, direction="out", category="Health"),
+        ]
+        stats = _compute_stats(txns)
+        # Sorted by amount descending; tuple is (cat, amt, pct, count, prev_diff, avg_diff)
+        assert stats["by_category"][0][0] == "Groceries"
+        assert stats["by_category"][0][1] == 180  # total
+        assert stats["by_category"][0][3] == 2    # count
+        assert stats["by_category"][0][4] is None  # no prev data
+        assert stats["by_category"][0][5] is None  # no avg data
+        assert stats["by_category"][1][0] == "Health"
+
+    def test_uncategorized_count(self):
+        txns = [
+            _tx(amount=100, direction="out", category=""),
+            _tx(amount=50, direction="out", category=""),
+            _tx(amount=30, direction="out", category="Groceries"),
+        ]
+        stats = _compute_stats(txns)
+        assert stats["uncategorized_count"] == 2
+        # Uncategorized should appear as a category too
+        cat_names = [c[0] for c in stats["by_category"]]
+        assert "Uncategorized" in cat_names
+
+    def test_top_merchants(self):
+        txns = [
+            _tx(desc="MERCHANT A", amount=500, direction="out"),
+            _tx(desc="MERCHANT B", amount=300, direction="out"),
+            _tx(desc="MERCHANT C", amount=100, direction="out"),
+        ]
+        stats = _compute_stats(txns)
+        assert len(stats["top_merchants"]) == 3
+        assert stats["top_merchants"][0][0] == "MERCHANT A"
+        assert stats["top_merchants"][0][1] == 500
+
+    def test_top_merchants_max_10(self):
+        txns = [
+            _tx(desc=f"MERCHANT {i}", amount=i * 10, direction="out")
+            for i in range(15)
+        ]
+        stats = _compute_stats(txns)
+        assert len(stats["top_merchants"]) == 10
+
+    def test_tag_totals(self):
+        txns = [
+            _tx(amount=100, direction="out", notes="#gift birthday"),
+            _tx(amount=50, direction="out", notes="#gift #shared"),
+            _tx(amount=200, direction="out", notes="no tags"),
+        ]
+        stats = _compute_stats(txns)
+        assert "#gift" in stats["tag_totals"]
+        assert stats["tag_totals"]["#gift"] == (150.0, 2)
+        assert "#shared" in stats["tag_totals"]
+        assert stats["tag_totals"]["#shared"] == (50.0, 1)
+
+    def test_merchant_note_tags(self):
+        txns = [
+            _tx(desc="CONTINENTE", amount=100, direction="out"),
+            _tx(desc="OTHER", amount=50, direction="out"),
+        ]
+        merchant_notes = {"CONTINENTE": "#recurring #essential"}
+        stats = _compute_stats(txns, merchant_notes)
+        assert "#recurring" in stats["tag_totals"]
+        assert stats["tag_totals"]["#recurring"] == (100.0, 1)
+
+    def test_income_not_in_category_breakdown(self):
+        txns = [
+            _tx(amount=2000, direction="in", category="Income"),
+            _tx(amount=100, direction="out", category="Groceries"),
+        ]
+        stats = _compute_stats(txns)
+        cat_names = [c[0] for c in stats["by_category"]]
+        assert "Income" not in cat_names  # only outgoing in categories
+        assert "Groceries" in cat_names
+
+    def test_variation_vs_previous_month(self):
+        txns = [
+            _tx(amount=200, direction="out", category="Groceries"),
+        ]
+        prev = {"Groceries": 150.0}
+        stats = _compute_stats(txns, prev_month_totals=prev)
+        cat = stats["by_category"][0]
+        assert cat[0] == "Groceries"
+        assert cat[4] == 50.0  # 200 - 150 = +50
+
+    def test_variation_vs_average(self):
+        txns = [
+            _tx(amount=200, direction="out", category="Groceries"),
+        ]
+        avgs = {"Groceries": 250.0}
+        stats = _compute_stats(txns, category_averages=avgs)
+        cat = stats["by_category"][0]
+        assert cat[0] == "Groceries"
+        assert cat[5] == -50.0  # 200 - 250 = -50
+
+    def test_essentials(self):
+        txns = [
+            _tx(amount=500, direction="out", category="Housing"),
+            _tx(amount=100, direction="out", category="Utilities"),
+            _tx(amount=50, direction="out", category="Shopping"),
+        ]
+        stats = _compute_stats(txns)
+        ess_cats = [e[0] for e in stats["essentials"]]
+        assert "Housing" in ess_cats
+        assert "Utilities" in ess_cats
+        assert "Shopping" not in ess_cats
+
+    def test_essentials_amounts(self):
+        txns = [
+            _tx(amount=500, direction="out", category="Housing"),
+            _tx(amount=200, direction="out", category="Housing"),
+            _tx(amount=30, direction="out", category="Insurance"),
+        ]
+        stats = _compute_stats(txns)
+        ess_dict = {e[0]: e[1] for e in stats["essentials"]}
+        assert ess_dict["Housing"] == 700
+        assert ess_dict["Insurance"] == 30
+
+
+# ---------------------------------------------------------------------------
+# _prev_month
+# ---------------------------------------------------------------------------
+
+
+class TestPrevMonth:
+    def test_normal(self):
+        assert _prev_month("2026-03") == "2026-02"
+
+    def test_january_wraps(self):
+        assert _prev_month("2026-01") == "2025-12"
+
+    def test_december(self):
+        assert _prev_month("2026-12") == "2026-11"
+
+
+# ---------------------------------------------------------------------------
+# generate_monthly_pdf (integration)
+# ---------------------------------------------------------------------------
+
+
+class TestGenerateMonthlyPdf:
+    def test_generates_pdf_file(self, populated_db, tmp_path):
+        output = tmp_path / "test-report.pdf"
+        desc_notes = tmp_path / "desc-notes.csv"
+        desc_notes.write_text(
+            "description_clean,merchant_note\n", encoding="utf-8"
+        )
+
+        result = generate_monthly_pdf(
+            db_path=populated_db,
+            month="2026-01",
+            output_path=output,
+            desc_notes_path=desc_notes,
+        )
+        assert result == output
+        assert output.exists()
+        assert output.stat().st_size > 0
+        # Basic PDF header check
+        header = output.read_bytes()[:5]
+        assert header == b"%PDF-"
+
+    def test_empty_month_generates_pdf(self, populated_db, tmp_path):
+        output = tmp_path / "empty-report.pdf"
+        desc_notes = tmp_path / "desc-notes.csv"
+        desc_notes.write_text(
+            "description_clean,merchant_note\n", encoding="utf-8"
+        )
+
+        result = generate_monthly_pdf(
+            db_path=populated_db,
+            month="2099-12",  # no data for this month
+            output_path=output,
+            desc_notes_path=desc_notes,
+        )
+        assert result == output
+        assert output.exists()
+        assert output.stat().st_size > 0
+
+    def test_default_output_path(self, populated_db, tmp_path, monkeypatch):
+        """When no output path given, defaults to reports/report-YYYY-MM.pdf."""
+        monkeypatch.chdir(tmp_path)
+        desc_notes = tmp_path / "desc-notes.csv"
+        desc_notes.write_text(
+            "description_clean,merchant_note\n", encoding="utf-8"
+        )
+
+        result = generate_monthly_pdf(
+            db_path=populated_db,
+            month="2026-01",
+            desc_notes_path=desc_notes,
+        )
+        assert result.name == "report-2026-01.pdf"
+        assert result.parent.name == "reports"
+        assert result.exists()
+
+    def test_with_merchant_notes_and_tags(self, populated_db, tmp_path):
+        output = tmp_path / "tagged-report.pdf"
+        desc_notes = tmp_path / "desc-notes.csv"
+        desc_notes.write_text(
+            "description_clean,merchant_note\n"
+            "CONTINENTE,#recurring weekly groceries\n",
+            encoding="utf-8",
+        )
+
+        result = generate_monthly_pdf(
+            db_path=populated_db,
+            month="2026-01",
+            output_path=output,
+            desc_notes_path=desc_notes,
+        )
+        assert result == output
+        assert output.exists()
+
+    def test_creates_parent_directory(self, populated_db, tmp_path):
+        output = tmp_path / "subdir" / "nested" / "report.pdf"
+        desc_notes = tmp_path / "desc-notes.csv"
+        desc_notes.write_text(
+            "description_clean,merchant_note\n", encoding="utf-8"
+        )
+
+        result = generate_monthly_pdf(
+            db_path=populated_db,
+            month="2026-01",
+            output_path=output,
+            desc_notes_path=desc_notes,
+        )
+        assert output.exists()
