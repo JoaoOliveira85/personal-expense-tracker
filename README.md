@@ -2,6 +2,8 @@
 
 A personal expense tracking pipeline for **UTF-16 CSV** bank statements. It parses CSV exports from the bank, stores them in a local SQLite database, applies categorization rules, and generates an ODS spreadsheet report you can open in LibreOffice or Google Sheets.
 
+> Built with [Cursor](https://cursor.com) + **Claude 4.6 Opus** (Anthropic). See [CONTRIBUTING.md](CONTRIBUTING.md) for architecture details and developer documentation.
+
 ---
 
 ## Quick Start
@@ -43,10 +45,19 @@ expense-tracking/
 │   ├── ods.py              # ODS report generation + sync-back
 │   ├── export.py           # CSV export
 │   └── constants.py        # Shared configuration
+├── tests/                  # Test suite (99 tests)
+│   ├── conftest.py         # Shared fixtures + synthetic CSV builder
+│   ├── test_parser.py      # Parser tests (39)
+│   ├── test_db.py          # Database tests (19)
+│   ├── test_rules.py       # Rules tests (17)
+│   ├── test_export.py      # Export tests (4)
+│   └── test_integration.py # End-to-end tests (4)
 ├── install.sh              # First-time setup script
 ├── run.sh                  # Import new data + regenerate report
 ├── update.sh               # Pull latest code from GitHub
-└── requirements.txt        # Python dependencies
+├── requirements.txt        # Python dependencies
+├── pytest.ini              # Test configuration
+└── CONTRIBUTING.md         # Developer docs (architecture, decisions, extending)
 ```
 
 ---
@@ -431,6 +442,21 @@ The Python script handles all the "intelligence" (parsing, cleaning, deduplicati
 | `python bank_ingest.py rules add <pattern> <category>` | Add a rule |
 | `python bank_ingest.py rules remove <pattern>` | Remove a rule |
 | `python bank_ingest.py reclean` | Re-clean all descriptions and regenerate report |
+
+---
+
+## Development
+
+For architecture details, design decisions, module reference, and how to extend the project, see **[CONTRIBUTING.md](CONTRIBUTING.md)**.
+
+### Running Tests
+
+```bash
+source .venv/bin/activate
+python -m pytest tests/ -v
+```
+
+99 tests covering the parser, database, rules engine, export, and end-to-end workflows. Runs in ~0.5 seconds using synthetic UTF-16 CSV fixtures (no real bank data needed).
 
 ---
 

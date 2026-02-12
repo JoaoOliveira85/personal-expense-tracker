@@ -141,6 +141,7 @@
 
 <h1>Expense Tracker</h1>
 <p>Personal expense tracking pipeline for UTF-16 CSV bank statements.</p>
+<p style="color: var(--muted); font-size: 0.9rem;">Built with <a href="https://cursor.com">Cursor</a> + <strong>Claude 4.6 Opus</strong> (Anthropic). See <a href="CONTRIBUTING.md">CONTRIBUTING.md</a> for developer docs.</p>
 
 <!-- Quick Start -->
 <div class="quick-start">
@@ -171,6 +172,7 @@
     <li><a href="#architecture">Data Architecture</a></li>
     <li><a href="#structure">Project Structure</a></li>
     <li><a href="#commands">All Commands at a Glance</a></li>
+    <li><a href="#development">Development</a></li>
     <li><a href="#requirements">Requirements</a></li>
     <li><a href="#troubleshooting">Troubleshooting</a></li>
   </ul>
@@ -561,10 +563,13 @@ LISBOA</code></pre>
 &#9474;   &#9500;&#9472;&#9472; ods.py              # ODS report generation + sync-back
 &#9474;   &#9500;&#9472;&#9472; export.py           # CSV export
 &#9474;   &#9492;&#9472;&#9472; constants.py        # Shared configuration
+&#9500;&#9472;&#9472; tests/                  # Test suite (99 tests)
 &#9500;&#9472;&#9472; install.sh              # First-time setup
 &#9500;&#9472;&#9472; run.sh                  # Import + report (everyday use)
 &#9500;&#9472;&#9472; update.sh               # Pull latest from GitHub
-&#9492;&#9472;&#9472; requirements.txt        # Python dependencies</code></pre>
+&#9500;&#9472;&#9472; requirements.txt        # Python dependencies
+&#9500;&#9472;&#9472; pytest.ini              # Test configuration
+&#9492;&#9472;&#9472; CONTRIBUTING.md         # Developer docs</code></pre>
 
 <hr>
 
@@ -599,6 +604,19 @@ LISBOA</code></pre>
   <li><strong>macOS or Linux</strong> (the shell scripts use bash)</li>
   <li><strong>LibreOffice</strong> or <strong>Google Sheets</strong> (to view the ODS report)</li>
 </ul>
+
+<hr>
+
+<!-- Development -->
+<h2 id="development">Development</h2>
+
+<p>For architecture details, design decisions, module reference, and how to extend the project, see <strong><a href="CONTRIBUTING.md">CONTRIBUTING.md</a></strong>.</p>
+
+<h3>Running Tests</h3>
+<pre><code>source .venv/bin/activate
+python -m pytest tests/ -v</code></pre>
+
+<p>99 tests covering the parser, database, rules engine, export, and end-to-end workflows. Runs in ~0.5 seconds using synthetic UTF-16 CSV fixtures (no real bank data needed).</p>
 
 <hr>
 
