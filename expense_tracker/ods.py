@@ -238,6 +238,7 @@ def generate_ods(
         _write_monthly_trend_sheet(doc, transactions)
         _write_category_breakdown_sheet(doc, transactions)
         _write_subcategory_breakdown_sheet(doc, transactions)
+        _write_tags_sheet(doc, transactions)
     else:
         doc = load_ods(str(ods_path))
         _setup_styles(doc)
@@ -851,6 +852,92 @@ def _write_subcategory_breakdown_sheet(doc, transactions):
     doc.spreadsheet.addElement(table)
 
 
+def _write_tags_sheet(doc, transactions):
+    """Generate a Tags analysis sheet for #tag tracking in Notes / Merchant Note."""
+    from odf.table import Table, TableColumn, TableRow
+
+    table = Table(name="Tags")
+
+    for _ in range(4):
+        table.addElement(TableColumn(stylename="col_medium"))
+
+    # -- Title --
+    title_row = TableRow()
+    for _ in range(4):
+        title_row.addElement(_make_cell("", style_name="section_header"))
+    # Overwrite first cell with title
+    title_row.childNodes[0].addElement(
+        __import__("odf.text", fromlist=["P"]).P(text="TAGS ANALYSIS")
+    )
+    table.addElement(title_row)
+
+    table.addElement(TableRow())  # blank
+
+    # -- Instructions --
+    for text in [
+        "Use #tags in the Notes (R) or Merchant Note (S) columns to tag transactions.",
+        "Type your tags below \u2014 formulas count matches and sum amounts automatically.",
+        "Examples: #recurring, #reimbursable, #gift, #shared, #splurge",
+    ]:
+        row = TableRow()
+        row.addElement(_make_cell(text, style_name="normal"))
+        table.addElement(row)
+
+    table.addElement(TableRow())  # blank
+
+    # -- Header (row 7) --
+    table.addElement(_make_header_row(
+        ["Tag", "# Transactions", "Total Spent", "% of Total Spend"]
+    ))
+
+    n = len(transactions) + 1  # last Data row (1-indexed)
+
+    # Pre-filled example tags + empty formula slots
+    tags = ["#recurring", "#reimbursable", "#splurge", "#shared",
+            "", "", "", "", "", ""]
+
+    data_start_row = 8  # rows 1-7 are title/instructions/blank/header
+
+    for i, tag in enumerate(tags):
+        row_num = data_start_row + i
+        row = TableRow()
+
+        # A: Tag
+        row.addElement(_make_cell(tag, style_name="normal"))
+
+        # B: # Transactions (unique rows where Notes OR Merchant Note contains the tag)
+        row.addElement(_make_cell("", style_name="normal", value_type="float", formula=(
+            f'of:=IF([.A{row_num}]="";"";'
+            f'SUMPRODUCT('
+            f'(ISNUMBER(SEARCH([.A{row_num}];[.Data.R2:.Data.R{n}]))'
+            f'+ISNUMBER(SEARCH([.A{row_num}];[.Data.S2:.Data.S{n}])))'
+            f'>0))'
+        )))
+
+        # C: Total Spent (outgoing only)
+        row.addElement(_make_cell("", style_name="normal", value_type="float", formula=(
+            f'of:=IF([.A{row_num}]="";"";'
+            f'SUMPRODUCT('
+            f'((ISNUMBER(SEARCH([.A{row_num}];[.Data.R2:.Data.R{n}]))'
+            f'+ISNUMBER(SEARCH([.A{row_num}];[.Data.S2:.Data.S{n}])))'
+            f'>0)'
+            f'*([.Data.G2:.Data.G{n}]="out")'
+            f'*[.Data.F2:.Data.F{n}]))'
+        )))
+
+        # D: % of Total Spend
+        row.addElement(_make_cell("", style_name="normal", value_type="float", formula=(
+            f'of:=IF(OR([.A{row_num}]="";[.C{row_num}]=0);"";'
+            f'[.C{row_num}]/'
+            f'SUMPRODUCT(([.Data.G2:.Data.G{n}]="out")'
+            f'*[.Data.F2:.Data.F{n}])*100)'
+        )))
+
+        table.addElement(row)
+
+    doc.spreadsheet.addElement(table)
+
+
 def _build_intro_sheet(doc):
     """Build the Intro sheet table element."""
     from odf.table import Table, TableColumn, TableRow
@@ -863,19 +950,26 @@ def _build_intro_sheet(doc):
         "",
         "SHEETS OVERVIEW:",
         "  Intro - This page (auto-generated)",
-        "  Data - All transactions (auto-generated, but you CAN edit Category, Subcategory, and Notes!)",
+        "  Data - All transactions (auto-generated, but you CAN edit Category, Subcategory, Notes & Merchant Note!)",
         "  Rules - Active categorization rules (auto-generated, DO NOT EDIT)",
         "  Dashboard - Key summary figures at a glance (YOUR sheet - edit freely!)",
         "  Monthly Summary - Spending by month and category (YOUR sheet - edit freely!)",
         "  Monthly Trend - Income vs expenses over time (YOUR sheet - edit freely!)",
         "  Category Breakdown - Totals per category (YOUR sheet - edit freely!)",
         "  Subcategory Breakdown - Detailed breakdown within categories (YOUR sheet - edit freely!)",
+        "  Tags - Track spending by #tags in Notes / Merchant Note (YOUR sheet - edit freely!)",
         "",
         "MANUAL CATEGORIZATION:",
-        "  You can manually edit the Category, Subcategory, and Notes columns in the Data sheet.",
+        "  You can manually edit the Category, Subcategory, Notes, and Merchant Note columns in the Data sheet.",
         "  When you next run ./run.sh, your manual edits are synced back to the database",
         "  BEFORE the sheet is regenerated -- so they persist across runs!",
         "  (This is great for one-off expenses that don't match any rule.)",
+        "",
+        "#TAGS:",
+        "  Add #tags anywhere in the Notes (R) or Merchant Note (S) columns, e.g.:",
+        "    #recurring  #reimbursable  #gift  #shared  #splurge",
+        "  The Tags sheet automatically counts and sums tagged transactions.",
+        "  Merchant Notes apply the same tags to ALL transactions from that merchant.",
         "",
         "EVERYDAY WORKFLOW:",
         "  1. Download bank CSV from UTF-16 CSV -> save to raw/ folder",
@@ -904,6 +998,7 @@ def _build_intro_sheet(doc):
         "  M: Status       N: Account     O: Balance    P: Source File",
         "  Q: ID (transaction ID - do not edit, used for sync)",
         "  R: Notes (free text - your annotations, synced back to DB)",
+        "  S: Merchant Note (shared note for all transactions from same merchant)",
     ]
 
     for line in instructions:

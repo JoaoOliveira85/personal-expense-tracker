@@ -163,6 +163,7 @@
     <li><a href="#scripts">Shell Scripts</a></li>
     <li><a href="#cli">Python CLI Reference</a></li>
     <li><a href="#merchant-notes">Merchant Notes</a></li>
+    <li><a href="#tags">Using #Tags</a></li>
     <li><a href="#cards">Account Holders</a></li>
     <li><a href="#ods">The ODS Report</a></li>
     <li><a href="#rules">Categorization Rules</a></li>
@@ -321,6 +322,42 @@ CONTINENTE,Main weekly grocery shop</code></pre>
 
 <hr>
 
+<!-- Tags -->
+<h2 id="tags">Using #Tags</h2>
+
+<p>Add <strong>#tags</strong> anywhere in the <strong>Notes</strong> (R) or <strong>Merchant Note</strong> (S) columns to label transactions for tracking. Tags are just words starting with <code>#</code> &mdash; no special setup required.</p>
+
+<h3>Examples</h3>
+<table>
+  <thead><tr><th>Column</th><th>Value</th><th>Effect</th></tr></thead>
+  <tbody>
+    <tr><td>Notes (R)</td><td><code>Birthday dinner #gift #shared</code></td><td>Tags this single transaction</td></tr>
+    <tr><td>Merchant Note (S)</td><td><code>#recurring #essential</code></td><td>Tags <strong>all</strong> transactions from this merchant</td></tr>
+  </tbody>
+</table>
+
+<p>Some useful tag ideas: <code>#recurring</code>, <code>#reimbursable</code>, <code>#gift</code>, <code>#shared</code>, <code>#splurge</code>, <code>#essential</code>, <code>#one-off</code></p>
+
+<h3>The Tags sheet</h3>
+<p>The starter <strong>Tags</strong> sheet (generated on first run) automatically counts and sums tagged transactions. It comes with a few example tags &mdash; just replace them with your own or add more in the empty rows below.</p>
+
+<table>
+  <thead><tr><th>Column</th><th>What it shows</th></tr></thead>
+  <tbody>
+    <tr><td>Tag</td><td>The #tag to search for (e.g. <code>#recurring</code>)</td></tr>
+    <tr><td># Transactions</td><td>Number of transactions containing the tag (in either Notes or Merchant Note)</td></tr>
+    <tr><td>Total Spent</td><td>Sum of amounts for tagged outgoing transactions</td></tr>
+    <tr><td>% of Total Spend</td><td>What percentage of your total spending this tag represents</td></tr>
+  </tbody>
+</table>
+
+<div class="tip">
+  <strong>Custom formulas:</strong> You can also build your own tag formulas in custom sheets. For example, to count all transactions tagged <code>#gift</code>:<br>
+  <code>=COUNTIF(Data.R:R, "*#gift*") + COUNTIF(Data.S:S, "*#gift*")</code>
+</div>
+
+<hr>
+
 <!-- Account Holders -->
 <h2 id="cards">Account Holders (<code>data/account-holders.csv</code>)</h2>
 
@@ -382,6 +419,10 @@ python bank_ingest.py cards               # list all</code></pre>
     <tr>
       <td><strong>Subcategory Breakdown</strong></td><td>First run only</td>
       <td>Detailed breakdown within each category (e.g. &ldquo;Eating Out / Restaurant&rdquo; vs &ldquo;Eating Out / Cafe&rdquo;).</td>
+    </tr>
+    <tr>
+      <td><strong>Tags</strong></td><td>First run only</td>
+      <td>Track spending by #tags used in the Notes or Merchant Note columns. Pre-filled with example tags and empty slots &mdash; just type a tag and the formulas do the rest.</td>
     </tr>
     <tr>
       <td><em>Your custom sheets</em></td><td>Never touched</td>

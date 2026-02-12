@@ -265,6 +265,7 @@ Open this file in **LibreOffice Calc** or upload it to **Google Sheets**.
 | **Monthly Trend** | First run only | Income vs expenses vs net per month, with a running balance column. |
 | **Category Breakdown** | First run only | Total spent, % of total, avg/month, and transaction count per category. |
 | **Subcategory Breakdown** | First run only | Detailed breakdown within each category (e.g. "Eating Out / Restaurant" vs "Eating Out / Cafe"). |
+| **Tags** | First run only | Track spending by #tags used in the Notes or Merchant Note columns. Pre-filled with example tags and empty slots — just type a tag and the formulas do the rest. |
 | *Your custom sheets* | Never touched | Add as many sheets as you want. The script will never modify or remove them. |
 
 ### Manual Categorization & Notes
@@ -279,6 +280,42 @@ You can also use the **Notes** column (R) to add personal annotations to any tra
 The **Merchant Note** column (S) works differently: a note here applies to **all** transactions with the same merchant. Write it once, see it everywhere. See the [Merchant Notes](#merchant-notes-description-notescsv) section for details.
 
 For recurring patterns, adding a rule is better. For one-off expenses, editing in the ODS is fine.
+
+### Using #Tags
+
+You can add **#tags** anywhere in the **Notes** (R) or **Merchant Note** (S) columns to label transactions for tracking. Tags are just words starting with `#` — no special setup required.
+
+#### Examples
+
+| Column | Value | Effect |
+|--------|-------|--------|
+| Notes (R) | `Birthday dinner #gift #shared` | Tags this single transaction |
+| Merchant Note (S) | `#recurring #essential` | Tags **all** transactions from this merchant |
+
+Some useful tag ideas: `#recurring`, `#reimbursable`, `#gift`, `#shared`, `#splurge`, `#essential`, `#one-off`
+
+#### The Tags sheet
+
+The starter **Tags** sheet (generated on first run) automatically counts and sums tagged transactions. It comes with a few example tags — just replace them with your own or add more in the empty rows below.
+
+| Column | What it shows |
+|--------|---------------|
+| Tag | The #tag to search for (e.g. `#recurring`) |
+| # Transactions | Number of transactions containing the tag (in either Notes or Merchant Note) |
+| Total Spent | Sum of amounts for tagged outgoing transactions |
+| % of Total Spend | What percentage of your total spending this tag represents |
+
+You can also build your own tag formulas in custom sheets. For example, to count all transactions tagged `#gift`:
+
+```
+=COUNTIF(Data.R:R, "*#gift*") + COUNTIF(Data.S:S, "*#gift*")
+```
+
+Or to sum the amounts of tagged outgoing transactions:
+
+```
+=SUMPRODUCT((ISNUMBER(SEARCH("#gift", Data.R2:R1000))+ISNUMBER(SEARCH("#gift", Data.S2:S1000))>0)*(Data.G2:G1000="out")*Data.F2:F1000)
+```
 
 ---
 
