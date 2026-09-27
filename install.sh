@@ -3,19 +3,38 @@
 # install.sh — set up everything needed to run the expense tracker.
 #
 # Usage:
-#   ./install.sh
+#   ./install.sh                  # install from current branch
+#   ./install.sh --branch main    # checkout a specific branch first
+#   ./install.sh -b integration   # short form
 #
 # What it does:
-#   1. Checks that Python 3.9+ is available
-#   2. Creates a virtual environment (.venv) if it doesn't exist
-#   3. Installs/upgrades Python dependencies from requirements.txt
-#   4. Creates the raw/ and data/ directories if missing
-#   5. Creates a starter rules.csv if one doesn't exist
-#   6. Makes run.sh executable
+#   1. Optionally checks out a specific git branch
+#   2. Checks that Python 3.9+ is available
+#   3. Creates a virtual environment (.venv) if it doesn't exist
+#   4. Installs/upgrades Python dependencies from requirements.txt
+#   5. Creates the raw/ and data/ directories if missing
+#   6. Creates a starter rules.csv if one doesn't exist
+#   7. Makes run.sh executable
 #
 
 set -e
 cd "$(dirname "$0")"
+
+# ── Parse arguments ──────────────────────────────────────────────────────
+BRANCH=""
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -b|--branch)
+            BRANCH="$2"
+            shift 2
+            ;;
+        *)
+            echo "Unknown option: $1"
+            echo "Usage: ./install.sh [--branch <branch-name>]"
+            exit 1
+            ;;
+    esac
+done
 
 # ── Colours (disable if not a terminal) ──────────────────────────────────
 if [ -t 1 ]; then
@@ -30,6 +49,26 @@ fi
 ok()   { echo -e "${GREEN}✓${NC} $1"; }
 warn() { echo -e "${YELLOW}⚠${NC} $1"; }
 fail() { echo -e "${RED}✗${NC} $1"; exit 1; }
+
+# ── 0. Checkout branch (if requested) ────────────────────────────────────
+if [ -n "$BRANCH" ]; then
+    if ! command -v git &>/dev/null; then
+        fail "git is not installed — cannot switch branches."
+    fi
+    if ! git rev-parse --is-inside-work-tree &>/dev/null; then
+        fail "Not a git repository — cannot switch branches."
+    fi
+    CURRENT=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
+    if [ "$CURRENT" = "$BRANCH" ]; then
+        ok "Already on branch '$BRANCH'"
+    else
+        echo "Switching to branch '$BRANCH'..."
+        git fetch origin "$BRANCH" --quiet 2>/dev/null || true
+        git checkout "$BRANCH" --quiet
+        ok "Switched to branch '$BRANCH'"
+    fi
+    echo
+fi
 
 # ── 1. Check Python ──────────────────────────────────────────────────────
 echo "Checking dependencies..."
@@ -71,17 +110,22 @@ fi
 # Activate it
 source .venv/bin/activate
 
+VENV_PY="$(pwd)/.venv/bin/python"
+
 # ── 3. Install dependencies ──────────────────────────────────────────────
 echo
 echo "Installing Python packages..."
-pip install --upgrade pip --quiet
-pip install -r requirements.txt --quiet
+"$VENV_PY" -m pip install --upgrade pip --quiet
+"$VENV_PY" -m pip install -r requirements.txt --quiet
+
+# ── 3b. Create scripts directory if needed ───────────────────────────────
+mkdir -p scripts
 ok "All packages installed"
 
 # ── 4. Create directories ────────────────────────────────────────────────
 echo
-mkdir -p raw data backups reports
-ok "Directories ready (raw/, data/, backups/, reports/)"
+mkdir -p raw data data/advisor backups reports
+ok "Directories ready (raw/, data/, data/advisor/, backups/, reports/)"
 
 # ── 5. Starter config files ──────────────────────────────────────────────
 if [ ! -f "data/rules.csv" ]; then
@@ -148,15 +192,15 @@ else
 fi
 
 # ── 6. Make scripts executable ───────────────────────────────────────────
-chmod +x run.sh install.sh
-ok "run.sh and install.sh are executable"
+chmod +x run.sh install.sh update.sh 2>/dev/null || true
+ok "Shell scripts are executable"
 
 # ── Done ─────────────────────────────────────────────────────────────────
 echo
 echo -e "${GREEN}All done!${NC}"
 echo
 echo "To get started:"
-echo "  1. Drop your bank CSV files into the raw/ folder"
-echo "  2. Run ./run.sh (or: source .venv/bin/activate && python bank_ingest.py)"
-echo "  3. Open expense-report.ods in LibreOffice or Google Sheets"
+echo "  1. Run ./run.sh to launch the GUI (opens at http://localhost:8501)"
+echo "  2. Use the Import page to upload bank CSV/PDF files"
+echo "  3. Or use the CLI:  ./run.sh auto  (after dropping files in raw/)"
 echo

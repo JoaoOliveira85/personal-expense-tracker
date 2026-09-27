@@ -9,10 +9,10 @@ This document covers the architecture, design decisions, and internals of the Ex
 The system follows a **three-layer pipeline** architecture:
 
 ```
-┌──────────────┐     ┌──────────────┐     ┌──────────────┐     ┌──────────────┐
-│  Raw CSVs    │────>│   Parser     │────>│   SQLite DB  │────>│  ODS Report  │
-│  (raw/)      │     │  (parser.py) │     │  (ledger.db) │     │  (odfpy)     │
-└──────────────┘     └──────────────┘     └──────────────┘     └──────────────┘
+┌──────────────┐     ┌──────────────┐     ┌──────────────┐     ┌──────────────┐     ┌──────────────┐
+│  Raw CSVs    │────>│ Auto-detect  │────>│ Bank Parser  │────>│   SQLite DB  │────>│  ODS Report  │
+│  (raw/)      │     │ (parsers/)   │     │ (UTF-16/UTF8/...)│     │  (ledger.db) │     │  (odfpy)     │
+└──────────────┘     └──────────────┘     └──────────────┘     └──────────────┘     └──────────────┘
                            │                     │                     │
                      ┌─────┴──────┐        ┌─────┴──────┐       ┌─────┴──────┐
                      │ noise-     │        │ rules.csv  │       │ Manual     │
@@ -24,7 +24,7 @@ The system follows a **three-layer pipeline** architecture:
 
 ### Data flow
 
-1. **Ingest**: Raw UTF-16 bank CSVs are parsed, cleaned, and inserted into SQLite with SHA-1 deduplication
+1. **Ingest**: Raw bank CSVs are auto-detected (or explicitly specified), parsed by the appropriate bank parser, cleaned, and inserted into SQLite with SHA-1 deduplication
 2. **Categorize**: Rules from `data/rules.csv` are applied to uncategorized transactions (first match wins)
 3. **Sync back**: Before regenerating the report, manual edits (category, subcategory, notes, merchant notes) are read from the existing ODS and written back to the DB or `description-notes.csv`
 4. **Generate**: The ODS report is created/updated using `odfpy` — Intro/Data/Rules sheets are always rebuilt, analysis sheets are generated only on the first run and then preserved
@@ -52,9 +52,32 @@ Centralizes all default paths and column definitions. Every other module imports
 
 **If you add a new column:** Update `DATA_COLUMNS`, `DATA_HEADERS`, and add a `COL_*` constant if it needs sync-back. Also update `_build_data_sheet()` in `ods.py` (column styles) and `fetch_all_transactions()` in `db.py` (SELECT query).
 
-### `expense_tracker/parser.py`
+### `expense_tracker/parsers/` — Multi-bank parser framework
 
-Handles parsing UTF-16 CSV "Saldos e Movimentos" CSV exports. This is the most bank-specific module — if you ever need to support a different bank, you'd add a new parser alongside this one.
+A plugin-based parser architecture that supports multiple bank statement formats. Each bank gets its own parser module that implements the `BankParser` protocol.
+
+#### `expense_tracker/parsers/__init__.py`
+
+Defines the core framework: the `BankParser` protocol, the parser registry, and the auto-detection/dispatch logic.
+
+**Key exports:**
+- `BankParser` — A `Protocol` class defining the interface for all bank parsers. Methods: `name`, `bank_id`, `can_parse(path)`, `parse(path, cards_path)`, `extract_date_range(path)`.
+- `register_parser(parser)` — Register a `BankParser` instance in the global registry.
+- `get_registered_parsers()` — Returns all registered parsers as a dict of `{bank_id: parser}`.
+- `detect_parser(path)` — Auto-detects which parser can handle a file by calling `can_parse()` on each registered parser.
+- `parse_statement(path, cards_path, bank_id)` — Unified entry point. If `bank_id` is given, uses that parser; otherwise auto-detects. Raises `ValueError` if no parser matches.
+
+#### `expense_tracker/parsers/utf16_csv.py`
+
+Implements `BankParser` for UTF-16 CSV files. Wraps the existing logic in `expense_tracker.parser` (UTF-16 LE, semicolons, Portuguese dates/numbers).
+
+#### `expense_tracker/parsers/utf8_csv.py`
+
+Implements `BankParser` for UTF-8 CSV CSV files. Handles UTF8's specific format: UTF-8 encoding, different header patterns, separate debit/credit columns.
+
+### `expense_tracker/parser.py` (legacy)
+
+The original UTF-16 CSV parser. Still used internally by `parsers/utf16_csv.py` — all the parsing logic lives here. If you're adding a new bank, you don't need to touch this file; create a new module in `parsers/` instead.
 
 **Key functions:**
 - `parse_utf16_csv(path, cards_path)` — Main entry point. Reads UTF-16 LE CSV, finds the header row, parses each transaction line, detects payment types, cleans descriptions, identifies card holders.
@@ -85,7 +108,7 @@ SQLite storage layer. Handles schema creation, migrations, ingestion, and querie
 - `tx_id(row)` — Generates a 16-character hex hash (SHA-1) for deduplication. The hash key includes account, dates, description, amount, and balance.
 - `ensure_schema(conn)` — Creates the `transactions` table if it doesn't exist.
 - `migrate_schema(conn)` — Adds columns that may be missing from an older schema (for forward compatibility).
-- `ingest(db_path, csv_paths, cards_path)` — Parses CSV files and inserts rows with `INSERT OR IGNORE` for deduplication.
+- `ingest(db_path, paths, cards_path, bank_id)` — Parses files using the multi-bank parser framework (auto-detection or explicit `bank_id`) and inserts rows with `INSERT OR IGNORE` for deduplication. Falls back to the legacy UTF-16 parser for backward compatibility.
 - `reclean_descriptions(db_path)` — Re-runs `clean_description()` on all rows and updates only those that changed.
 - `fetch_all_transactions(conn)` — Returns all transactions as a list of dicts, sorted by date descending. Adds a computed `status` field.
 
@@ -163,6 +186,84 @@ Backup utilities using Python's `zipfile` module (no external dependencies).
 - Monthly auto-backups: `backup-YYYY-MM.zip` (named after the previous month)
 - Manual / pre-destructive: `backup-YYYY-MM-DDThh-mm-ss.zip` (timestamped)
 
+### `expense_tracker/starter_rules.py`
+
+A curated collection of ~100 categorization rules tailored for Portuguese merchants and services. These cover supermarkets (Continente, Pingo Doce, Lidl, etc.), utilities (EDP, Galp), telecoms (NOS, MEO, Vodafone), transport (CP, VIVA, Uber), health, insurance, eating out, subscriptions, taxes, and bank fees.
+
+**Key exports:**
+- `STARTER_RULES` — The master list of `(pattern, match_field, category, subcategory, payment_type)` tuples
+- `get_starter_rules()` — Returns the list as dicts (matching the `rules.csv` format)
+- `import_starter_rules(rules_path, dry_run=False)` — Appends starter rules to an existing `rules.csv`, skipping any patterns that already exist (case-insensitive). Returns `(added_count, skipped_count)`.
+
+### `expense_tracker/suggest.py`
+
+Analyzes transaction data to detect patterns and suggest categorization rules. Uses frequency analysis, text similarity (via `difflib.SequenceMatcher`), and temporal analysis to find uncategorized merchants that could benefit from rules.
+
+**Key functions:**
+- `analyze_patterns(db_path, min_months_recurring, similarity_threshold, min_count_frequent)` — Main entry point. Returns a dict with three lists: `recurring`, `similar_merchants`, and `frequent`.
+- `detect_recurring(transactions, min_months)` — Finds uncategorized merchants appearing in N+ distinct months.
+- `detect_similar_merchants(transactions, threshold)` — Clusters merchant descriptions by text similarity to spot variants of the same merchant.
+- `detect_frequent_merchants(transactions, min_count)` — Finds uncategorized merchants by raw transaction count.
+- `format_suggestions(results)` — Formats the analysis results as human-readable text.
+- `accept_suggestion(results, key, rules_path)` — Accepts a suggestion by type:index (e.g. `recurring:0`) and appends it as a new rule.
+
+**Internal helpers:**
+- `_merchant_stats(transactions)` — Computes per-merchant frequency, totals, average, stddev, and date range.
+- `_similarity(a, b)` — Text similarity ratio (0-1) using `SequenceMatcher`.
+- `_cluster_by_name(names, threshold)` — Groups similar strings into clusters.
+- `_extract_common_prefix(names)` — Finds the longest common prefix of a list of strings.
+
+### `expense_tracker/pdf_parser.py`
+
+Parses UTF-16 CSV monthly PDF bank statements using `pdfplumber`. The PDF parser extracts transaction tables from each page, detects column mappings, and produces the same `list[dict]` output format as the CSV parser.
+
+**Key functions:**
+- `parse_pdf_statement(path, cards_path)` — Main entry point. Extracts tables from the PDF, identifies transaction rows, parses dates/amounts, and cleans descriptions (reuses `clean_description`, `detect_card`, `detect_payment_type` from `parser.py`).
+- `extract_pdf_date_range(path)` — Extracts the statement date range from the PDF text (used for auto-renaming).
+- `_parse_date(text)` / `_parse_amount(text)` — Helpers for Portuguese date and number formats.
+- `_find_column_mapping(header_cells)` — Auto-detects column positions in the extracted table.
+
+**PDF format handling:**
+- Uses `pdfplumber` to extract tables page by page
+- Handles Portuguese date/number formats (dd/mm/YYYY, comma decimals)
+- Auto-detects header rows and column layout
+- Skips summary/balance rows and non-transaction data
+
+### `expense_tracker/email_fetch.py`
+
+Handles fetching bank statement attachments from email via IMAP. Uses only Python standard library modules (`imaplib`, `email`).
+
+**Key functions:**
+- `load_email_config(path)` — Loads and validates `data/email-config.json` (IMAP host, email, password, bank senders).
+- `create_email_config(path, ...)` — Creates the config file interactively or programmatically.
+- `fetch_statements(config, output_dir, days_back, dry_run)` — Connects to the IMAP server, searches for emails from known bank senders with relevant subjects, downloads PDF/CSV attachments to `raw/`, skipping files that already exist. Returns list of downloaded paths.
+
+**Internal helpers:**
+- `_decode_header_value(raw)` — Decodes RFC 2047 encoded email headers.
+- `_matches_bank_sender(from_addr, senders)` — Checks if an email's From address matches any configured bank sender.
+- `_is_statement_attachment(filename)` — Checks if a filename looks like a bank statement (PDF/CSV with relevant keywords).
+- `_matches_subject(subject)` — Filters emails by subject line (looking for "extrato", "movimentos", "statement", etc.).
+
+**Security note:** The email config file (`data/email-config.json`) is gitignored. It stores IMAP credentials in plain text — users should use app-specific passwords where possible.
+
+### `expense_tracker/gui.py`
+
+A Streamlit-based web interface that provides graphical access to the expense tracker's core functionality. The GUI is launched as a subprocess by the CLI (`gui` command) and shares the same SQLite database.
+
+**Pages:**
+- **Dashboard** — Overview charts: spending by category (pie), monthly trend (bar), key figures (total income/expenses/net, uncategorized count).
+- **Transactions** — Full transaction table with filters for date range, category, subcategory, payment type, and amount range. Supports search by description.
+- **Categorize** — Bulk categorization workflow: groups uncategorized transactions by merchant, lets you assign a category to all at once, and optionally creates a rule for future imports.
+- **Rules** — View all categorization rules in a table, add new rules, or remove existing ones.
+- **Import** — File uploader for CSV/PDF files. Uploads are saved to `raw/` and ingested into the database.
+- **Tools** — Email configuration (setup/update IMAP settings), fetch from email, sync ODS back to DB, download ODS and PDF reports, create backups, export CSV, import Portuguese starter rules.
+- **Manual** — Renders all project documentation (README, DEPLOYMENT, CONTRIBUTING) in tabbed view with section search. Docs are always in sync with the source markdown files.
+
+**Key implementation details:**
+- Uses `@st.cache_data(ttl=5)` for data loading to balance freshness with performance.
+- Calls existing backend functions (`fetch_all_transactions`, `ingest`, `add_rule`, `remove_rule`, `categorize_transactions`) — no business logic is duplicated.
+- The `cmd_gui` function in `cli.py` launches Streamlit via `subprocess.run`.
+
 ### `expense_tracker/cli.py`
 
 `argparse`-based CLI. Each subcommand has its own `cmd_*` function. The `auto` command is the default (used by `run.sh`) and orchestrates the full pipeline: discover → rename → ingest → sync → categorize → generate.
@@ -195,10 +296,16 @@ tests/
 ├── test_export.py       #  4 tests: CSV export
 ├── test_backup.py       # 16 tests: zip creation, monthly checks, formatting
 ├── test_pdf_report.py   # 26 tests: stats computation, tag extraction, PDF generation
-└── test_integration.py  #  4 tests: end-to-end workflows
+├── test_integration.py  #  4 tests: end-to-end workflows
+├── test_starter_rules.py # 14 tests: starter rules data integrity + import logic
+├── test_suggest.py      # 28 tests: pattern detection, clustering, suggestions
+├── test_pdf_parser.py   # 34 tests: PDF parsing, date/amount helpers, column detection
+├── test_email_fetch.py  # 26 tests: email config, IMAP fetch, attachment filtering
+├── test_gui.py          #  6 tests: GUI data loading, module structure
+└── test_parsers.py      # 29 tests: parser registry, auto-detection, UTF-16 + UTF8 parsing
 ```
 
-**Total: 148 tests** (runs in under a second)
+**Total: 285 tests** (runs in under a second)
 
 ### Test design principles
 
@@ -245,6 +352,14 @@ Analysis sheets (Dashboard, Monthly Summary, etc.) contain starter formulas that
 
 The `tx_id()` hash includes enough fields (account, dates, description, amount, balance) to make collisions extremely unlikely for real bank data. `INSERT OR IGNORE` makes re-importing idempotent — the same file can be imported multiple times safely.
 
+### Why a Protocol-based parser architecture?
+
+The `BankParser` protocol (in `parsers/__init__.py`) defines the interface that all bank parsers must implement. This was chosen over an abstract base class (ABC) because:
+- **Duck typing**: Existing code doesn't need to inherit from anything — any class with the right methods works.
+- **Plugin-friendly**: New parsers just implement the protocol and register themselves. No changes to existing code needed.
+- **Auto-detection**: Each parser implements `can_parse()` so the system can automatically identify which bank a file belongs to.
+- **Backward compatibility**: The original `parser.py` continues to work unchanged; `parsers/utf16_csv.py` wraps it.
+
 ### Why the `cards_path` parameter on `ingest()`?
 
 Added for test isolation. Without it, `ingest()` would always read from `data/account-holders.csv`, making tests depend on project-level config files. The parameter defaults to `None` (which falls back to the default path) so existing callers don't need to change.
@@ -255,9 +370,19 @@ Added for test isolation. Without it, `ingest()` would always read from `data/ac
 
 ### Adding a new bank parser
 
-1. Create `expense_tracker/parser_newbank.py` with a `parse_newbank_csv(path, cards_path)` function that returns the same `list[dict]` format as `parse_utf16_csv()`
-2. Update `db.py:ingest()` to detect the bank format and call the right parser
-3. Add tests in `tests/test_parser_newbank.py`
+The project uses a plugin architecture — adding a new bank requires no changes to existing code.
+
+1. Create `expense_tracker/parsers/newbank.py` with a class implementing the `BankParser` protocol:
+   - `name` (property) — Human-readable name (e.g. "Novo Banco")
+   - `bank_id` (property) — Short ID (e.g. "nb")
+   - `can_parse(path)` — Return `True` if the file looks like this bank's format (check encoding, headers, etc.)
+   - `parse(path, cards_path)` — Parse the file and return `list[dict]` with the standard fields (`date`, `description_raw`, `amount`, etc.)
+   - `extract_date_range(path)` — Return `(start_date, end_date)` from the file
+2. Register the parser in `expense_tracker/parsers/__init__.py` by importing and calling `register_parser(NewBankParser())`
+3. Add tests in `tests/test_parsers.py` or a dedicated test file
+4. Run `python bank_ingest.py banks` to verify it shows up
+
+The parser will automatically work with `ingest` (auto-detected or via `--bank newbank`).
 
 ### Adding a new Data sheet column
 
@@ -293,16 +418,28 @@ Added for test isolation. Without it, `ingest()` would always read from `data/ac
 | `expense_tracker/__init__.py` | 1 | Package marker |
 | `expense_tracker/__main__.py` | 4 | Allows `python -m expense_tracker` |
 | `expense_tracker/constants.py` | 83 | Default paths, column definitions, column indices |
-| `expense_tracker/parser.py` | 380 | UTF-16 CSV parser, description cleaning, card/payment detection |
+| `expense_tracker/parsers/__init__.py` | ~120 | BankParser protocol, registry, auto-detection, unified parse_statement |
+| `expense_tracker/parsers/utf16_csv.py` | ~60 | BankParser implementation for UTF-16 CSV (wraps parser.py) |
+| `expense_tracker/parsers/utf8_csv.py` | ~180 | BankParser implementation for UTF-8 CSV |
+| `expense_tracker/parser.py` | 380 | (legacy) UTF-16 CSV parser, description cleaning, card/payment detection |
+| `expense_tracker/pdf_parser.py` | ~250 | PDF statement parser using pdfplumber |
 | `expense_tracker/db.py` | 232 | SQLite schema, ingestion, dedup, reclean, queries |
 | `expense_tracker/rules.py` | 194 | Rule/card CRUD, rule loading, categorization engine |
 | `expense_tracker/ods.py` | ~280 | ODS orchestration (generate/update), sync-back, description notes |
 | `expense_tracker/ods_sheets.py` | ~700 | ODS sheet builders: styles, cell helpers, 10 sheet generators |
 | `expense_tracker/export.py` | 29 | Simple CSV export |
 | `expense_tracker/backup.py` | 120 | Backup utilities — zip creation, monthly checks, size formatting |
-| `expense_tracker/cli.py` | ~530 | argparse CLI with 8 subcommands (including backup) |
-| `install.sh` | 163 | First-time setup (venv, deps, directories, starter configs) |
-| `run.sh` | ~20 | Everyday script — activates venv, runs `bank_ingest.py auto` |
+| `expense_tracker/starter_rules.py` | ~120 | Curated Portuguese starter rules (~100 rules) + import logic |
+| `expense_tracker/suggest.py` | ~300 | Pattern detection: recurring, similar, frequent merchants |
+| `expense_tracker/email_fetch.py` | ~200 | Email statement fetcher (IMAP, attachment download) |
+| `expense_tracker/gui.py` | ~850 | Streamlit web interface (7 pages: Dashboard, Transactions, Categorize, Rules, Import, Tools, Manual) |
+| `expense_tracker/cli.py` | ~700 | argparse CLI with 13 subcommands |
+| `Dockerfile` | ~30 | Docker image definition (Python 3.12 slim, deps, GUI entrypoint) |
+| `docker-compose.yml` | ~40 | Orchestrates GUI + cron services with bind mounts |
+| `cron/daily-sync.sh` | ~80 | Automated daily fetch + ingest + report generation script |
+| `DEPLOYMENT.md` | ~540 | Docker & home server (NUC) deployment guide |
+| `install.sh` | ~200 | First-time setup (venv, deps, directories, starter configs, supports --branch) |
+| `run.sh` | ~20 | Everyday script — activates venv, launches GUI (or forwards CLI commands) |
 | `update.sh` | ~30 | Git pull + re-run install if needed |
 | `pytest.ini` | 3 | pytest configuration |
 | `tests/conftest.py` | 100 | Shared fixtures and synthetic UTF-16 CSV builder |
@@ -313,6 +450,12 @@ Added for test isolation. Without it, `ingest()` would always read from `data/ac
 | `tests/test_backup.py` | 200 | Backup unit tests (16 tests) |
 | `tests/test_pdf_report.py` | 280 | PDF report unit tests (33 tests) |
 | `tests/test_integration.py` | 120 | End-to-end integration tests (4 tests) |
+| `tests/test_starter_rules.py` | ~180 | Starter rules tests (14 tests) |
+| `tests/test_suggest.py` | ~300 | Pattern detection tests (28 tests) |
+| `tests/test_pdf_parser.py` | ~350 | PDF parser unit + integration tests (34 tests) |
+| `tests/test_email_fetch.py` | ~280 | Email fetch tests (26 tests) |
+| `tests/test_gui.py` | ~60 | GUI module tests (6 tests) |
+| `tests/test_parsers.py` | ~350 | Multi-bank parser tests: registry, auto-detect, UTF-16 + UTF8 (29 tests) |
 
 ---
 
@@ -321,6 +464,9 @@ Added for test isolation. Without it, `ingest()` would always read from `data/ac
 | Package | Version | Why |
 |---------|---------|-----|
 | `odfpy` | >=1.4.1 | ODS file creation and reading (OpenDocument Spreadsheets) |
+| `pdfplumber` | >=0.10 | PDF table extraction for bank statement parsing |
+| `streamlit` | >=1.30 | Web interface framework for the GUI |
+| `pandas` | >=2.0 | Data manipulation for the GUI (used by Streamlit) |
 | `pytest` | >=7.0 | Test framework (dev dependency) |
 
 Everything else is Python standard library: `sqlite3`, `csv`, `re`, `hashlib`, `pathlib`, `datetime`, `argparse`.

@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Iterable
 
 from .parser import parse_utf16_csv
+from .parsers import parse_statement, detect_parser
 
 
 # ---------------------------------------------------------------------------
@@ -92,12 +93,26 @@ def migrate_schema(conn: sqlite3.Connection) -> None:
 # ---------------------------------------------------------------------------
 
 
+def _parse_file(path: Path, cards_path: Path) -> list[dict]:
+    """Route to the correct parser based on file extension."""
+    suffix = path.suffix.lower()
+    if suffix == ".pdf":
+        from .pdf_parser import parse_pdf_statement
+        return parse_pdf_statement(path, cards_path=cards_path)
+    else:
+        return parse_utf16_csv(path, cards_path=cards_path)
+
+
 def ingest(
     db_path: Path,
-    csv_paths: Iterable[Path],
+    file_paths: Iterable[Path],
     cards_path: Path | None = None,
+    bank_id: str | None = None,
 ) -> None:
-    """Parse bank CSV files and insert into SQLite with deduplication."""
+    """Parse bank statement files (CSV or PDF) and insert into SQLite with deduplication.
+
+    Supports auto-detection of the bank format. Use bank_id to override.
+    """
     from .constants import DEFAULT_CARDS
 
     if cards_path is None:
@@ -112,9 +127,14 @@ def ingest(
 
         total_parsed = 0
         total_inserted = 0
-        paths = list(csv_paths)
+        paths = list(file_paths)
         for p in paths:
-            rows = parse_utf16_csv(p, cards_path=cards_path)
+            # Try multi-bank parser first, fall back to legacy UTF-16 parser / PDF
+            try:
+                rows = parse_statement(p, cards_path=cards_path, bank_id=bank_id)
+            except ValueError:
+                # Fall back to extension-based detection (CSV vs PDF)
+                rows = _parse_file(p, cards_path)
             total_parsed += len(rows)
             for r in rows:
                 r["transaction_id"] = tx_id(r)

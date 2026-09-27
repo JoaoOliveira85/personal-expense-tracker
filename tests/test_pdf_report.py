@@ -10,9 +10,12 @@ from expense_tracker.pdf_report import (
     _compute_stats,
     _extract_tags,
     _fmt_eur,
+    _next_month,
+    _parse_report_month,
     _prev_month,
     generate_monthly_pdf,
     month_display_name,
+    months_to_generate,
     previous_month_label,
     ESSENTIAL_CATEGORIES,
 )
@@ -284,6 +287,65 @@ class TestPrevMonth:
 
     def test_december(self):
         assert _prev_month("2026-12") == "2026-11"
+
+
+# ---------------------------------------------------------------------------
+# _next_month / months_to_generate
+# ---------------------------------------------------------------------------
+
+
+class TestNextMonth:
+    def test_normal(self):
+        assert _next_month("2026-02") == "2026-03"
+
+    def test_december_wraps(self):
+        assert _next_month("2026-12") == "2027-01"
+
+
+class TestParseReportMonth:
+    def test_valid(self):
+        assert _parse_report_month("report-2026-03.pdf") == "2026-03"
+
+    def test_invalid(self):
+        assert _parse_report_month("summary-2026-03.pdf") is None
+        assert _parse_report_month("report-2026-13.pdf") is None
+
+
+class TestMonthsToGenerate:
+    def test_no_reports_defaults_to_through_month(self, tmp_path: Path):
+        assert months_to_generate(tmp_path, "2026-06") == ["2026-06"]
+
+    def test_fills_gap_after_latest_prior_report(self, tmp_path: Path):
+        reports = tmp_path / "reports"
+        reports.mkdir()
+        (reports / "report-2026-02.pdf").write_bytes(b"%PDF-1.4")
+
+        assert months_to_generate(reports, "2026-06") == [
+            "2026-03",
+            "2026-04",
+            "2026-05",
+            "2026-06",
+        ]
+
+    def test_skips_existing_and_fills_only_missing(self, tmp_path: Path):
+        reports = tmp_path / "reports"
+        reports.mkdir()
+        (reports / "report-2026-02.pdf").write_bytes(b"%PDF-1.4")
+        (reports / "report-2026-06.pdf").write_bytes(b"%PDF-1.4")
+
+        assert months_to_generate(reports, "2026-06") == [
+            "2026-03",
+            "2026-04",
+            "2026-05",
+        ]
+
+    def test_all_present_refreshes_through_month(self, tmp_path: Path):
+        reports = tmp_path / "reports"
+        reports.mkdir()
+        for month in ("2026-03", "2026-04", "2026-05", "2026-06"):
+            (reports / f"report-{month}.pdf").write_bytes(b"%PDF-1.4")
+
+        assert months_to_generate(reports, "2026-06") == ["2026-06"]
 
 
 # ---------------------------------------------------------------------------

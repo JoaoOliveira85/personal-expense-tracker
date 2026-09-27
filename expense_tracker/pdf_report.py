@@ -4,6 +4,8 @@ Monthly PDF report generator.
 Produces a single-page A4 summary for a given month, pulling data from the
 SQLite database.  The report is designed as a quick bird's-eye view that
 highlights where money went so the user can then dive deeper in the ODS.
+
+If an advisor response exists for the month, it's appended as additional pages.
 """
 from __future__ import annotations
 
@@ -12,7 +14,7 @@ from collections import defaultdict
 from datetime import date, timedelta
 from pathlib import Path
 
-from .constants import DEFAULT_DB, DEFAULT_DESC_NOTES, DEFAULT_REPORTS
+from .constants import DEFAULT_DB, DEFAULT_DESC_NOTES, DEFAULT_REPORTS, DEFAULT_ADVISOR_DIR
 
 
 # ---------------------------------------------------------------------------
@@ -214,6 +216,96 @@ def _prev_month(month: str) -> str:
     if m == 1:
         return f"{year - 1}-12"
     return f"{year}-{m - 1:02d}"
+
+
+def _next_month(month: str) -> str:
+    """Given a YYYY-MM string, return the next month's YYYY-MM."""
+    parts = month.split("-")
+    year, m = int(parts[0]), int(parts[1])
+    if m == 12:
+        return f"{year + 1}-01"
+    return f"{year}-{m + 1:02d}"
+
+
+def _parse_report_month(filename: str) -> str | None:
+    """Extract YYYY-MM from a report-YYYY-MM.pdf filename."""
+    if not filename.startswith("report-") or not filename.endswith(".pdf"):
+        return None
+    month = filename[len("report-") : -len(".pdf")]
+    parts = month.split("-")
+    if len(parts) != 2:
+        return None
+    try:
+        year, m = int(parts[0]), int(parts[1])
+    except ValueError:
+        return None
+    if 1 <= m <= 12:
+        return month
+    return None
+
+
+def existing_report_months(reports_dir: Path = DEFAULT_REPORTS) -> set[str]:
+    """Return the set of YYYY-MM months that already have report PDFs."""
+    if not reports_dir.exists():
+        return set()
+    months: set[str] = set()
+    for pdf_file in reports_dir.glob("report-*.pdf"):
+        month = _parse_report_month(pdf_file.name)
+        if month:
+            months.add(month)
+    return months
+
+
+def months_to_generate(
+    reports_dir: Path = DEFAULT_REPORTS,
+    through_month: str | None = None,
+) -> list[str]:
+    """Return months that need PDF reports up to through_month.
+
+    Fills gaps after the most recent report that is strictly before
+    through_month.  If every month in that range already has a report,
+    returns through_month so the previous month can be refreshed.
+    """
+    if through_month is None:
+        through_month = previous_month_label()
+
+    existing = existing_report_months(reports_dir)
+    if not existing:
+        return [through_month]
+
+    prior = [m for m in existing if m < through_month]
+    if not prior:
+        return [through_month]
+
+    anchor = max(prior)
+    months: list[str] = []
+    current = _next_month(anchor)
+    while current <= through_month:
+        if current not in existing:
+            months.append(current)
+        current = _next_month(current)
+
+    return months if months else [through_month]
+
+
+def generate_missing_monthly_pdfs(
+    db_path: Path = DEFAULT_DB,
+    reports_dir: Path = DEFAULT_REPORTS,
+    through_month: str | None = None,
+    desc_notes_path: Path = DEFAULT_DESC_NOTES,
+) -> list[Path]:
+    """Generate PDF reports for all missing months up to through_month."""
+    generated: list[Path] = []
+    for month in months_to_generate(reports_dir, through_month):
+        generated.append(
+            generate_monthly_pdf(
+                db_path=db_path,
+                month=month,
+                output_path=reports_dir / f"report-{month}.pdf",
+                desc_notes_path=desc_notes_path,
+            )
+        )
+    return generated
 
 
 def previous_month_label() -> str:
@@ -641,7 +733,126 @@ def generate_monthly_pdf(
             new_x=XPos.RIGHT, new_y=YPos.TOP, align="C",
         )
 
+    # --- Advisor Notes (if response exists) ---
+    advisor_response_path = DEFAULT_ADVISOR_DIR / f"response-{month}.md"
+    if advisor_response_path.exists():
+        _add_advisor_pages(pdf, advisor_response_path, f, margin, usable_w)
+
     # Save
     output_path.parent.mkdir(parents=True, exist_ok=True)
     pdf.output(str(output_path))
     return output_path
+
+
+def _add_advisor_pages(
+    pdf,
+    response_path: Path,
+    font: str,
+    margin: float,
+    usable_w: float,
+) -> None:
+    """Add advisor response as additional pages to the PDF."""
+    from fpdf.enums import XPos, YPos
+    
+    response_text = response_path.read_text(encoding="utf-8")
+    if not response_text.strip():
+        return
+    
+    page_w = 210
+    page_h = 297
+    
+    # Add a new page for advisor notes
+    pdf.add_page()
+    
+    # Header
+    pdf.set_fill_color(*_CLR_ACCENT)
+    pdf.rect(0, 0, page_w, 20, "F")
+    pdf.set_font(font, "B", 14)
+    pdf.set_text_color(*_CLR_WHITE)
+    pdf.set_xy(margin, 6)
+    pdf.cell(usable_w, 8, "Financial Advisor Notes", new_x=XPos.RIGHT, new_y=YPos.TOP)
+    
+    y = 28
+    
+    # Parse and render markdown-ish content
+    pdf.set_text_color(*_CLR_DARK)
+    
+    lines = response_text.split("\n")
+    for line in lines:
+        # Check if we need a new page
+        if y > page_h - 20:
+            pdf.add_page()
+            y = 15
+        
+        stripped = line.strip()
+        
+        # Headers
+        if stripped.startswith("### "):
+            pdf.set_font(font, "B", 10)
+            pdf.set_text_color(*_CLR_ACCENT)
+            pdf.set_xy(margin, y)
+            pdf.multi_cell(usable_w, 5, stripped[4:], new_x=XPos.LEFT, new_y=YPos.NEXT)
+            y = pdf.get_y() + 2
+            pdf.set_text_color(*_CLR_DARK)
+        elif stripped.startswith("## "):
+            y += 3
+            pdf.set_font(font, "B", 12)
+            pdf.set_text_color(*_CLR_ACCENT)
+            pdf.set_xy(margin, y)
+            pdf.multi_cell(usable_w, 6, stripped[3:], new_x=XPos.LEFT, new_y=YPos.NEXT)
+            y = pdf.get_y() + 3
+            pdf.set_text_color(*_CLR_DARK)
+        elif stripped.startswith("# "):
+            y += 4
+            pdf.set_font(font, "B", 14)
+            pdf.set_text_color(*_CLR_ACCENT)
+            pdf.set_xy(margin, y)
+            pdf.multi_cell(usable_w, 7, stripped[2:], new_x=XPos.LEFT, new_y=YPos.NEXT)
+            y = pdf.get_y() + 4
+            pdf.set_text_color(*_CLR_DARK)
+        # Bullet points
+        elif stripped.startswith("- ") or stripped.startswith("* "):
+            pdf.set_font(font, "", 9)
+            pdf.set_xy(margin + 4, y)
+            pdf.cell(4, 4, "•", new_x=XPos.RIGHT, new_y=YPos.TOP)
+            pdf.set_xy(margin + 10, y)
+            pdf.multi_cell(usable_w - 10, 4, stripped[2:], new_x=XPos.LEFT, new_y=YPos.NEXT)
+            y = pdf.get_y() + 1
+        # Numbered lists
+        elif len(stripped) > 2 and stripped[0].isdigit() and stripped[1] in ".)":
+            pdf.set_font(font, "", 9)
+            pdf.set_xy(margin + 4, y)
+            pdf.cell(6, 4, stripped[:2], new_x=XPos.RIGHT, new_y=YPos.TOP)
+            pdf.set_xy(margin + 12, y)
+            pdf.multi_cell(usable_w - 12, 4, stripped[2:].strip(), new_x=XPos.LEFT, new_y=YPos.NEXT)
+            y = pdf.get_y() + 1
+        # Bold text (simple **text** handling)
+        elif stripped.startswith("**") and "**" in stripped[2:]:
+            pdf.set_font(font, "B", 9)
+            # Extract bold portion
+            end_idx = stripped.index("**", 2)
+            bold_text = stripped[2:end_idx]
+            rest = stripped[end_idx + 2:].lstrip(": ")
+            pdf.set_xy(margin, y)
+            pdf.cell(pdf.get_string_width(bold_text) + 2, 4, bold_text, new_x=XPos.RIGHT, new_y=YPos.TOP)
+            if rest:
+                pdf.set_font(font, "", 9)
+                pdf.multi_cell(usable_w - pdf.get_x() + margin, 4, ": " + rest if rest else "", new_x=XPos.LEFT, new_y=YPos.NEXT)
+                y = pdf.get_y() + 1
+            else:
+                y += 5
+        # Horizontal rule
+        elif stripped in ("---", "***", "___"):
+            y += 3
+            pdf.set_draw_color(*_CLR_MUTED)
+            pdf.line(margin, y, margin + usable_w, y)
+            y += 5
+        # Empty line
+        elif not stripped:
+            y += 3
+        # Regular text
+        else:
+            pdf.set_font(font, "", 9)
+            pdf.set_xy(margin, y)
+            pdf.multi_cell(usable_w, 4, stripped, new_x=XPos.LEFT, new_y=YPos.NEXT)
+            y = pdf.get_y() + 1

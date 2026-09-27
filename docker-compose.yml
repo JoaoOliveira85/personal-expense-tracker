@@ -1,0 +1,38 @@
+services:
+  # ── Always-on GUI ───────────────────────────────────────────────
+  gui:
+    build: .
+    container_name: expense-tracker-gui
+    restart: unless-stopped
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./data:/app/data
+      - ./raw:/app/raw
+      - ./reports:/app/reports
+      - ./backups:/app/backups
+      - ./expense-report.ods:/app/expense-report.ods
+    environment:
+      - TZ=Europe/Lisbon
+
+  # ── Scheduled daily sync ────────────────────────────────────────
+  cron:
+    build: .
+    container_name: expense-tracker-cron
+    restart: unless-stopped
+    entrypoint: ["/bin/bash", "/app/cron/daily-sync.sh"]
+    volumes:
+      - ./data:/app/data
+      - ./raw:/app/raw
+      - ./reports:/app/reports
+      - ./backups:/app/backups
+      - ./expense-report.ods:/app/expense-report.ods
+      - ./cron:/app/cron:ro
+      # Optional: mount a shared cloud sync folder for reports
+      # - /path/to/cloud-sync/folder:/app/shared
+    environment:
+      - TZ=Europe/Lisbon
+      - SYNC_HOUR=8
+      - SYNC_MINUTE=0
+      # Optional: copy reports to a shared folder after sync
+      # - SHARED_FOLDER=/app/shared

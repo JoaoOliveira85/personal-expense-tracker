@@ -1,6 +1,6 @@
 # Expense Tracker
 
-A personal expense tracking pipeline for **UTF-16 CSV** bank statements. It parses CSV exports from the bank, stores them in a local SQLite database, applies categorization rules, and generates an ODS spreadsheet report you can open in LibreOffice or Google Sheets.
+A personal expense tracking pipeline for Portuguese bank statements. It parses CSV exports from supported banks (currently **UTF-16 CSV** and **UTF-8 CSV**), stores them in a local SQLite database, applies categorization rules, and generates an ODS spreadsheet report you can open in LibreOffice or Google Sheets. New banks can be added via a plugin architecture.
 
 > Built with [Cursor](https://cursor.com) + **Claude 4.6 Opus** (Anthropic). See [CONTRIBUTING.md](CONTRIBUTING.md) for architecture details and developer documentation.
 
@@ -9,15 +9,25 @@ A personal expense tracking pipeline for **UTF-16 CSV** bank statements. It pars
 ## Quick Start
 
 ```bash
-# 1. First-time setup
+# 1. First-time setup (optionally specify a branch with --branch <name>)
 ./install.sh
 
-# 2. Drop your bank CSV(s) into the raw/ folder
-
-# 3. Import and generate the report
+# 2. Launch the GUI
 ./run.sh
 
-# 4. Open expense-report.ods in LibreOffice or Google Sheets
+# 3. Use the Import page to upload bank CSV/PDF files, or drop them in raw/
+
+# 4. View your expenses in the Dashboard, categorize with one click, and
+#    download the ODS or PDF reports from the Tools page
+```
+
+Or if you prefer the CLI workflow:
+
+```bash
+# Drop your bank CSV(s) or PDF(s) into raw/, then:
+./run.sh auto
+
+# Open expense-report.ods in LibreOffice or Google Sheets
 ```
 
 ---
@@ -26,10 +36,11 @@ A personal expense tracking pipeline for **UTF-16 CSV** bank statements. It pars
 
 ```
 expense-tracking/
-├── raw/                    # Drop bank CSVs here (e.g. EXPORT_0_1022026.csv)
+├── raw/                    # Drop bank CSVs/PDFs here (e.g. EXPORT_0_1022026.csv)
 ├── data/
 │   ├── ledger.sqlite       # Source of truth — all transactions
 │   ├── ledger.csv          # Optional CSV export
+│   ├── email-config.json   # Email fetch settings (gitignored, created via --setup)
 │   ├── rules.csv           # Categorization rules (editable)
 │   ├── account-holders.csv # Card-to-owner mappings (editable)
 │   ├── noise-words.txt     # Words to strip from descriptions (editable)
@@ -40,7 +51,12 @@ expense-tracking/
 ├── bank_ingest.py          # Main entry point (convenience wrapper)
 ├── expense_tracker/        # Python package (the actual code)
 │   ├── cli.py              # Command-line interface
-│   ├── parser.py           # UTF-16 CSV parser + auto-rename
+│   ├── parser.py           # UTF-16 CSV parser + auto-rename (legacy, still used internally)
+│   ├── pdf_parser.py       # PDF statement parser
+│   ├── parsers/            # Multi-bank parser framework
+│   │   ├── __init__.py     # BankParser protocol, registry, auto-detection
+│   │   ├── utf16_csv.py # UTF-16 CSV parser
+│   │   └── utf8.py          # UTF-8 CSV parser
 │   ├── db.py               # SQLite storage and queries
 │   ├── rules.py            # Rule & card management + categorization
 │   ├── ods.py              # ODS report orchestration + sync-back
@@ -48,9 +64,15 @@ expense-tracking/
 │   ├── export.py           # CSV export
 │   ├── backup.py           # Backup utilities (zip archives)
 │   ├── pdf_report.py       # Monthly PDF report generator
+│   ├── starter_rules.py    # Portuguese starter rules pack (~100 curated rules)
+│   ├── suggest.py          # Automatic category pattern detection
+│   ├── email_fetch.py      # Email statement fetcher (IMAP)
+│   ├── gui.py              # Streamlit web interface
 │   └── constants.py        # Shared configuration
 ├── backups/                # Backup archives (auto + manual)
-├── tests/                  # Test suite (148 tests)
+├── cron/                   # Automation scripts for Docker/server deployment
+│   └── daily-sync.sh       # Scheduled fetch + ingest + report generation
+├── tests/                  # Test suite (285 tests)
 │   ├── conftest.py         # Shared fixtures + synthetic CSV builder
 │   ├── test_parser.py      # Parser tests (39)
 │   ├── test_db.py          # Database tests (19)
@@ -58,10 +80,19 @@ expense-tracking/
 │   ├── test_export.py      # Export tests (4)
 │   ├── test_backup.py      # Backup tests (16)
 │   ├── test_pdf_report.py  # PDF report tests (26)
-│   └── test_integration.py # End-to-end tests (4)
-├── install.sh              # First-time setup script
-├── run.sh                  # Import new data + regenerate report
+│   ├── test_integration.py # End-to-end tests (4)
+│   ├── test_starter_rules.py # Starter rules tests (14)
+│   ├── test_suggest.py     # Pattern detection tests (28)
+│   ├── test_pdf_parser.py  # PDF parser tests (34)
+│   ├── test_email_fetch.py # Email fetch tests (26)
+│   ├── test_gui.py         # GUI module tests (6)
+│   └── test_parsers.py     # Multi-bank parser tests (29)
+├── install.sh              # First-time setup script (supports --branch)
+├── run.sh                  # Launch the GUI (or pass CLI commands)
 ├── update.sh               # Pull latest code from GitHub
+├── Dockerfile              # Container image for deployment
+├── docker-compose.yml      # Orchestrates GUI + cron services
+├── DEPLOYMENT.md           # Docker & home server deployment guide
 ├── requirements.txt        # Python dependencies
 ├── pytest.ini              # Test configuration
 └── CONTRIBUTING.md         # Developer docs (architecture, decisions, extending)
@@ -76,32 +107,44 @@ expense-tracking/
 Run this once when you first clone the project (or on a new computer).
 
 ```bash
-./install.sh
+./install.sh                    # install from the current branch
+./install.sh --branch main      # checkout a specific branch first
+./install.sh -b integration     # short form
 ```
 
+| Flag | Description |
+|------|-------------|
+| `-b` / `--branch` | Git branch to checkout before installing (e.g. `main`, `integration`) |
+
 What it does:
-1. Checks that Python 3.9+ is installed
-2. Creates a virtual environment (`.venv/`)
-3. Installs Python dependencies (`odfpy`)
-4. Creates the `raw/`, `data/`, and `backups/` directories
-5. Creates starter config files (`rules.csv`, `account-holders.csv`, etc.) in `data/` if they don't exist
-6. Makes the shell scripts executable
+1. Optionally checks out the specified git branch (if `--branch` is given)
+2. Checks that Python 3.9+ is installed
+3. Creates a virtual environment (`.venv/`)
+4. Installs Python dependencies (`odfpy`)
+5. Creates the `raw/`, `data/`, and `backups/` directories
+6. Creates starter config files (`rules.csv`, `account-holders.csv`, etc.) in `data/` if they don't exist
+7. Makes the shell scripts executable
 
-### `run.sh` — Import Data & Generate Report
+### `run.sh` — Launch the GUI
 
-The everyday script. Your wife can double-click this (or run it from Terminal).
+The everyday script. Launches the web-based GUI in your browser. You can also pass CLI commands directly.
 
 ```bash
-./run.sh
+./run.sh                # launch the GUI (default)
+./run.sh auto           # run the CLI auto command (ingest + report)
+./run.sh pdf            # generate a PDF report
+./run.sh <any-command>  # pass any command to bank_ingest.py
 ```
 
-What it does:
-1. Scans `raw/` for any new CSV files not yet imported
-2. Auto-renames them (e.g. `EXPORT_0_1022026.csv` → `2026-01.csv`)
-3. Imports new transactions into the SQLite database
-4. Syncs any manual category edits from the ODS back into the database
-5. Applies categorization rules from `data/rules.csv`
-6. Regenerates the `expense-report.ods` report
+By default (no arguments), it launches the Streamlit GUI at `http://localhost:8501`. The GUI provides:
+- Dashboard with spending charts and summaries
+- Transaction browser with filters
+- Bulk categorization by merchant
+- Rule management
+- File import via drag-and-drop
+- Tools: email setup, fetch from email, sync/regenerate, download reports, backup, export, and more
+
+If you pass arguments, they're forwarded to `bank_ingest.py` (e.g. `./run.sh auto` runs the auto ingest pipeline).
 
 ### `update.sh` — Pull Latest Code from GitHub
 
@@ -148,16 +191,24 @@ Use `--dry-run` to preview what would happen without making any changes.
 
 ### `ingest`
 
-Manually import specific CSV files.
+Manually import specific CSV or PDF files. The bank format is auto-detected for CSVs, or you can specify it explicitly.
 
 ```bash
 python bank_ingest.py ingest raw/EXPORT_0_1022026.csv
-python bank_ingest.py ingest raw/*.csv
+python bank_ingest.py ingest raw/statement-jan.pdf           # PDF statements supported too
+python bank_ingest.py ingest raw/*.csv raw/*.pdf
+python bank_ingest.py ingest --bank utf8 raw/export-b.csv   # force UTF8 parser
 python bank_ingest.py ingest --no-rename raw/some-file.csv   # skip auto-rename
 python bank_ingest.py ingest --dry-run raw/EXPORT_0_1022026.csv  # preview only
 ```
 
-The `ingest` command auto-renames files based on the date range inside the CSV (e.g. `EXPORT_0_1022026.csv` → `2026-01.csv`). Use `--no-rename` to skip this.
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--bank` | *(auto-detect)* | Bank format to use: `utf16`, `utf8`, etc. Run `banks` to see all options. |
+| `--no-rename` | — | Skip auto-renaming files based on date range |
+| `--dry-run` | — | Preview what would happen, change nothing |
+
+The `ingest` command auto-renames files based on the date range inside the CSV or PDF (e.g. `EXPORT_0_1022026.csv` → `2026-01.csv`). Use `--no-rename` to skip this.
 
 ### `report`
 
@@ -198,7 +249,19 @@ python bank_ingest.py rules add CONTINENTE Groceries                 # add a sim
 python bank_ingest.py rules add FARMACIA Health --sub Pharmacy --payment card  # with subcategory
 python bank_ingest.py rules add "TRF P/ Renda" Housing --sub Rent --field description_raw
 python bank_ingest.py rules remove CONTINENTE                        # remove a rule by pattern
+python bank_ingest.py rules import-starter                           # import Portuguese starter rules
+python bank_ingest.py rules import-starter --dry-run                 # preview what would be imported
 ```
+
+#### Portuguese Starter Rules
+
+The project ships with a curated pack of ~100 rules for common Portuguese merchants and services — supermarkets, utilities, telecoms, fuel, transport, health, insurance, eating out, subscriptions, shopping, taxes, bank fees, and more.
+
+```bash
+python bank_ingest.py rules import-starter
+```
+
+Rules are appended to your existing `data/rules.csv`. Any patterns that already exist (case-insensitive) are skipped, so it's safe to run multiple times. Use `--dry-run` to preview what would be added.
 
 | Flag | Default | Description |
 |------|---------|-------------|
@@ -266,6 +329,120 @@ The PDF includes:
 - **Uncategorized alert**: how many transactions still need categorizing
 
 Output defaults to `reports/report-YYYY-MM.pdf`.
+
+### `suggest`
+
+Analyze your transaction data to find patterns and suggest categorization rules. The system looks for three types of patterns:
+
+1. **Recurring merchants** — merchants that appear in 3+ different months (likely subscriptions or regular bills)
+2. **Similar merchants** — groups of descriptions that look like the same merchant (e.g. "CONTINENTE PORTO" and "CONTINENTE LISBOA")
+3. **Frequent merchants** — uncategorized merchants that appear 5+ times (good candidates for new rules)
+
+```bash
+python bank_ingest.py suggest                        # analyze with default thresholds
+python bank_ingest.py suggest --min-months 2         # lower recurring threshold
+python bank_ingest.py suggest --similarity 0.7       # stricter text similarity
+python bank_ingest.py suggest --min-count 3          # lower frequency threshold
+python bank_ingest.py suggest --accept recurring:0   # accept a suggestion as a new rule
+```
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--db` | `data/ledger.sqlite` | Database path |
+| `--min-months` | `3` | Minimum distinct months for recurring detection |
+| `--similarity` | `0.65` | Text similarity threshold (0-1) for grouping |
+| `--min-count` | `5` | Minimum transaction count for frequent merchants |
+| `--accept` | — | Accept a suggestion by type:index (e.g. `recurring:0`) |
+
+The output groups suggestions by type and shows transaction counts, total amounts, and recommended categories. You can then add the suggested rules manually or use `--accept` to create them automatically.
+
+### `fetch`
+
+Download bank statements from email via IMAP. Your bank likely sends monthly statement PDFs by email — this command fetches them automatically.
+
+```bash
+python bank_ingest.py fetch --setup          # interactive setup wizard (first time)
+python bank_ingest.py fetch                  # fetch new statements and auto-ingest
+python bank_ingest.py fetch --days 90        # look back 90 days (default: 60)
+python bank_ingest.py fetch --no-ingest      # download only, don't import to DB
+python bank_ingest.py fetch --dry-run        # preview what would be downloaded
+```
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--setup` | — | Run interactive configuration wizard |
+| `--config` | `data/email-config.json` | Path to email config file |
+| `--raw` | `raw/` | Directory to save downloaded attachments |
+| `--db` | `data/ledger.sqlite` | Database for auto-ingestion |
+| `--days` | `60` | How many days back to search |
+| `--no-ingest` | — | Download files but don't import them |
+| `--dry-run` | — | Preview only, don't download anything |
+
+#### Setup
+
+Run `fetch --setup` to create `data/email-config.json` interactively. You'll need:
+- Your email server (IMAP host, e.g. `imap.gmail.com`)
+- Your email address and password (or app-specific password)
+- The sender address your bank uses (pre-filled with UTF-16 CSV's default)
+
+The config file is gitignored. For Gmail, you'll need an [App Password](https://myaccount.google.com/apppasswords).
+
+### `gui`
+
+Launch a web-based graphical interface for everyday operations. The GUI complements the CLI — it's especially useful for browsing transactions, bulk categorization, viewing charts, and performing common tasks without touching the terminal.
+
+```bash
+python bank_ingest.py gui                    # launch on default port 8501
+python bank_ingest.py gui --port 8080        # use a custom port
+./run.sh                                     # same as above (default behavior)
+```
+
+The GUI opens in your browser and provides seven pages:
+
+| Page | What it does |
+|------|-------------|
+| **Dashboard** | Overview with spending charts, category breakdown, monthly trends |
+| **Transactions** | Filterable/searchable transaction table with date range, category, and amount filters |
+| **Categorize** | Bulk categorization by merchant — select a category for all transactions from the same merchant, optionally create a rule |
+| **Rules** | View, add, and remove categorization rules |
+| **Import** | Upload CSV/PDF files directly through the browser and ingest them |
+| **Tools** | Email configuration, fetch from email, sync ODS, download reports (ODS & PDF), create backups, export CSV, import starter rules |
+| **Manual** | Full project documentation (User Guide, Deployment Guide, Developer Guide) with section search |
+
+#### Tools Page
+
+The **Tools** page provides a one-stop shop for common operations:
+
+| Tool | Description |
+|------|-------------|
+| **Email Configuration** | Set up or update IMAP settings for automatic statement fetching (host, email, app password, folder) |
+| **Fetch from Email** | Connect to your email and download new bank statement attachments, with optional auto-ingest |
+| **Sync & Regenerate** | Sync manual ODS edits back to the database, re-apply rules, and regenerate the report |
+| **Download Reports** | Download the ODS spreadsheet and monthly PDF reports directly from the browser |
+| **Generate PDF** | Generate a PDF summary for the previous month |
+| **Backup** | Create a zip archive of all data with one click |
+| **Export Data** | Export all transactions as a UTF-8 CSV and download it |
+| **Starter Rules** | Import ~100 curated Portuguese categorization rules |
+
+The GUI uses [Streamlit](https://streamlit.io/) and reads/writes to the same SQLite database as the CLI. Changes made in the GUI are immediately visible in the CLI and vice versa.
+
+### `banks`
+
+List all supported bank statement formats and their parser IDs.
+
+```bash
+python bank_ingest.py banks
+```
+
+Example output:
+
+```
+Supported bank formats:
+  utf16  — UTF-16 CSV
+  utf8  — UTF-8 CSV
+```
+
+Use the parser ID with `ingest --bank <id>` to force a specific parser, or omit `--bank` to let the system auto-detect the format.
 
 ---
 
@@ -490,14 +667,14 @@ Each backup zip contains all personal data:
 ## Data Architecture
 
 ```
-Bank CSV (raw/)  →  Python parser  →  SQLite (data/ledger.sqlite)  →  ODS report
+Bank CSV/PDF (raw/)  →  Auto-detect bank  →  Bank parser  →  SQLite (data/ledger.sqlite)  →  ODS report
                          ↑                    ↑                            |
               data/account-holders.csv   data/rules.csv                    |
                                               ↑                            |
                                               └── manual edits synced back ┘
 ```
 
-- **Raw CSVs** (`raw/`) — immutable bank exports, kept as-is for reference
+- **Raw files** (`raw/`) — immutable bank exports (CSV or PDF), kept as-is for reference. Auto-detection identifies the bank format when parsing CSV files.
 - **Account holders** (`data/account-holders.csv`) — maps card last-4 digits to owner names
 - **Rules** (`data/rules.csv`) — defines how transactions get categorized
 - **SQLite database** (`data/ledger.sqlite`) — the single source of truth for all transactions, deduplicated and normalized
@@ -507,11 +684,48 @@ The Python script handles all the "intelligence" (parsing, cleaning, deduplicati
 
 ---
 
+## Docker & Server Deployment
+
+The expense tracker can run as a containerized service on a home server (NUC, Raspberry Pi, etc.) with:
+
+- **Always-on GUI** — accessible from any device on your local network at `http://<server-ip>:8501`
+- **Scheduled daily sync** — fetches statements from email, ingests, categorizes, and regenerates reports automatically
+- **Shared reports** — ODS and PDF synced to a cloud folder (iCloud, Dropbox, Google Drive, Syncthing, etc.)
+
+### Quick Start with Docker
+
+```bash
+# 1. Clone and set up
+git clone -b integration https://github.com/<your-user>/expense-tracking.git
+cd expense-tracking
+./install.sh
+
+# 2. (Optional) Configure email for automated fetching
+source .venv/bin/activate && python bank_ingest.py fetch --setup
+
+# 3. Create the ODS file (Docker needs a file, not a directory)
+touch expense-report.ods
+
+# 4. Build and start
+docker compose up -d --build
+```
+
+The setup uses two containers:
+- **gui** — the Streamlit web interface (always running, port 8501)
+- **cron** — daily sync that fetches email, ingests, categorizes, and regenerates reports
+
+All data lives on the host via bind mounts, so it persists across container rebuilds and is easy to back up.
+
+For the full guide — including adding to an existing docker-compose, systemd setup, cloud folder sync, and troubleshooting — see **[DEPLOYMENT.md](DEPLOYMENT.md)**.
+
+---
+
 ## Requirements
 
 - **Python 3.9+**
 - **macOS or Linux** (the shell scripts use bash)
 - **LibreOffice** or **Google Sheets** (to view the ODS report)
+- **Docker** (optional, for containerized deployment)
 
 ---
 
@@ -519,9 +733,11 @@ The Python script handles all the "intelligence" (parsing, cleaning, deduplicati
 
 | Command | Description |
 |---------|-------------|
+| `./run.sh` | Launch the GUI (default) |
+| `./run.sh auto` | Run auto ingest + report via CLI |
 | `python bank_ingest.py` | Auto-detect, import, and report (default) |
 | `python bank_ingest.py auto` | Same as above |
-| `python bank_ingest.py ingest <files>` | Import specific CSV files |
+| `python bank_ingest.py ingest <files>` | Import specific CSV or PDF files (auto-detects bank) |
 | `python bank_ingest.py report` | Regenerate the ODS report |
 | `python bank_ingest.py export` | Export to UTF-8 CSV |
 | `python bank_ingest.py cards` | List card holders |
@@ -530,9 +746,15 @@ The Python script handles all the "intelligence" (parsing, cleaning, deduplicati
 | `python bank_ingest.py rules` | List categorization rules |
 | `python bank_ingest.py rules add <pattern> <category>` | Add a rule |
 | `python bank_ingest.py rules remove <pattern>` | Remove a rule |
+| `python bank_ingest.py rules import-starter` | Import Portuguese starter rules (~100 rules) |
 | `python bank_ingest.py reclean` | Re-clean all descriptions and regenerate report |
 | `python bank_ingest.py backup` | Create a zip backup of all data |
 | `python bank_ingest.py pdf` | Generate a monthly PDF summary report |
+| `python bank_ingest.py suggest` | Analyze patterns and suggest categorization rules |
+| `python bank_ingest.py fetch` | Download bank statements from email (IMAP) |
+| `python bank_ingest.py fetch --setup` | Configure email settings interactively |
+| `python bank_ingest.py gui` | Launch the Streamlit web interface |
+| `python bank_ingest.py banks` | List supported bank statement formats |
 
 ---
 
@@ -547,7 +769,7 @@ source .venv/bin/activate
 python -m pytest tests/ -v
 ```
 
-148 tests covering the parser, database, rules engine, export, backup, PDF report, and end-to-end workflows. Runs in under a second using synthetic UTF-16 CSV fixtures (no real bank data needed).
+285 tests covering the CSV parser, PDF parser, multi-bank parsers, database, rules engine, starter rules, pattern detection, email fetch, GUI, export, backup, PDF report, and end-to-end workflows. Runs in under a second using synthetic fixtures (no real bank data needed).
 
 ---
 
@@ -558,7 +780,7 @@ This project includes a `.gitignore` that keeps all personal/financial data out 
 | Ignored | Why |
 |---------|-----|
 | `raw/` | Raw bank statement CSVs — contain account numbers and transaction details |
-| `data/` | SQLite database, config files, and CSV exports — contain all your transactions and personal data (rules, card mappings, merchant notes, cleaning patterns) |
+| `data/` | SQLite database, config files, email credentials, and CSV exports — contain all your transactions, personal data, and email login (rules, card mappings, merchant notes, cleaning patterns, email-config.json) |
 | `expense-report.ods` | The generated report — contains all your financial data |
 | `reports/` | Monthly PDF summaries — contain financial data |
 | `backups/` | Zip archives of all the above — also contain financial data |
@@ -571,9 +793,11 @@ The system creates automatic and manual backups in `backups/` (see the [Backups]
 
 ## Troubleshooting
 
-**"No new files to ingest"** — All CSV files in `raw/` have already been imported. Drop a new one and run again.
+**"No new files to ingest"** — All CSV/PDF files in `raw/` have already been imported. Drop a new one and run again.
 
-**"Could not find date range"** — The CSV file doesn't have the expected UTF-16 header format. Use `ingest --no-rename` to import it with its original filename.
+**"Could not find date range"** — The CSV/PDF file doesn't have a recognized bank header format. Use `ingest --no-rename` to import it with its original filename, or use `--bank <id>` to specify the parser explicitly.
+
+**"No parser found for file"** — The auto-detection couldn't identify the bank format. Run `python bank_ingest.py banks` to see supported formats, then use `ingest --bank <id>` to specify the parser.
 
 **"File already exists with range..."** — You're trying to import a CSV for a month that's already been imported with the same or wider date range. If you need to re-import, delete the existing file from `raw/` first.
 

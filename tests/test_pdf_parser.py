@@ -1,0 +1,321 @@
+"""Tests for expense_tracker.pdf_parser."""
+from __future__ import annotations
+
+from datetime import date
+from pathlib import Path
+
+import pytest
+
+from expense_tracker.parser import reset_cleaning_cache, _get_cleaning_patterns
+from expense_tracker.pdf_parser import (
+    _parse_date,
+    _parse_amount,
+    _is_header_row,
+    _find_column_mapping,
+    _extract_text_date_range,
+    parse_pdf_statement,
+    extract_pdf_date_range,
+)
+
+
+# ---------------------------------------------------------------------------
+# Synthetic PDF builder using fpdf2
+# ---------------------------------------------------------------------------
+
+
+def _make_pdf_statement(
+    path: Path,
+    rows: list[tuple[str, str, str, str, str, str]],
+    date_from: str = "01-01-2026",
+    date_to: str = "31-01-2026",
+    header_labels: tuple[str, ...] = (
+        "Data Lançamento", "Data Valor", "Descrição", "Montante", "Tipo", "Saldo",
+    ),
+) -> Path:
+    """
+    Create a synthetic PDF statement with a transaction table.
+
+    Each row is (date_posted, date_value, description, amount, type, balance).
+    """
+    from fpdf import FPDF
+
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Helvetica", size=10)
+
+    # Header with date range
+    pdf.cell(0, 10, f"Extrato de Conta - {date_from} a {date_to}", new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(0, 8, "Conta: 123456789", new_x="LMARGIN", new_y="NEXT")
+    pdf.ln(5)
+
+    # Transaction table
+    col_widths = [28, 28, 60, 25, 20, 25]
+    line_height = 7
+
+    # Header row
+    pdf.set_font("Helvetica", "B", 9)
+    for i, label in enumerate(header_labels):
+        pdf.cell(col_widths[i], line_height, label, border=1)
+    pdf.ln()
+
+    # Data rows
+    pdf.set_font("Helvetica", size=9)
+    for row in rows:
+        for i, cell in enumerate(row):
+            w = col_widths[i] if i < len(col_widths) else 25
+            pdf.cell(w, line_height, cell, border=1)
+        pdf.ln()
+
+    pdf.output(str(path))
+    return path
+
+
+# Reusable sample rows matching conftest.py SAMPLE_ROWS
+SAMPLE_PDF_ROWS = [
+    ("15-01-2026", "15-01-2026", "COMPRA 1234 CONTINENTE PORTO", "-45,50", "Compra", "1234,56"),
+    ("14-01-2026", "14-01-2026", "COMPRA 5678 FARMACIA DA GARE", "-12,80", "Compra", "1280,06"),
+    ("13-01-2026", "13-01-2026", "DD VODAFONE PORTU", "-35,99", "Debito", "1292,86"),
+    ("12-01-2026", "12-01-2026", "TRF. P/O EXEMPLO", "-150,00", "Transf.", "1328,85"),
+    ("10-01-2026", "10-01-2026", "TRANSFERENCIA - SALARIO", "2500,00", "Credito", "1478,85"),
+]
+
+
+# ---------------------------------------------------------------------------
+# Fixtures
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def pdf_statement(tmp_path):
+    """A synthetic PDF statement with 5 sample transactions."""
+    return _make_pdf_statement(
+        tmp_path / "statement.pdf",
+        SAMPLE_PDF_ROWS,
+    )
+
+
+@pytest.fixture
+def cards_csv(tmp_path):
+    p = tmp_path / "account-holders.csv"
+    p.write_text("card_last4,name\n1234,Alice\n5678,Bob\n", encoding="utf-8")
+    return p
+
+
+@pytest.fixture(autouse=True)
+def _setup_cleaning(tmp_path):
+    noise = tmp_path / "noise-words.txt"
+    noise.write_text("CONTACTLESS\nPT\nPORTO\n", encoding="utf-8")
+    patterns = tmp_path / "cleaning-patterns.csv"
+    patterns.write_text(
+        'type,pattern,description\n'
+        'prefix,COMPRA\\s+\\d{4}\\s*,Card purchase prefix\n'
+        'prefix,DD\\s+,Direct debit prefix\n',
+        encoding="utf-8",
+    )
+    reset_cleaning_cache()
+    _get_cleaning_patterns(noise, patterns)
+    yield
+    reset_cleaning_cache()
+
+
+# ---------------------------------------------------------------------------
+# Unit tests: helpers
+# ---------------------------------------------------------------------------
+
+
+class TestParseDate:
+    def test_dash_format(self):
+        assert _parse_date("15-01-2026") == date(2026, 1, 15)
+
+    def test_slash_format(self):
+        assert _parse_date("15/01/2026") == date(2026, 1, 15)
+
+    def test_dot_format(self):
+        assert _parse_date("15.01.2026") == date(2026, 1, 15)
+
+    def test_invalid_returns_none(self):
+        assert _parse_date("not-a-date") is None
+
+    def test_empty_returns_none(self):
+        assert _parse_date("") is None
+
+
+class TestParseAmount:
+    def test_negative_comma_decimal(self):
+        assert _parse_amount("-45,50") == -45.50
+
+    def test_positive_comma_decimal(self):
+        assert _parse_amount("2500,00") == 2500.00
+
+    def test_thousands_separator(self):
+        assert _parse_amount("1.234,56") == 1234.56
+
+    def test_empty_returns_none(self):
+        assert _parse_amount("") is None
+
+    def test_none_returns_none(self):
+        assert _parse_amount(None) is None
+
+    def test_invalid_returns_none(self):
+        assert _parse_amount("abc") is None
+
+
+class TestIsHeaderRow:
+    def test_utf16_header(self):
+        assert _is_header_row(
+            ["Data Lançamento", "Data Valor", "Descrição", "Montante", "Tipo", "Saldo"]
+        )
+
+    def test_partial_header(self):
+        assert _is_header_row(["Data", "Descrição", "Montante"])
+
+    def test_non_header(self):
+        assert not _is_header_row(["15-01-2026", "15-01-2026", "CONTINENTE"])
+
+    def test_empty_row(self):
+        assert not _is_header_row([])
+
+
+class TestFindColumnMapping:
+    def test_standard_utf16_headers(self):
+        headers = ["Data Lançamento", "Data Valor", "Descrição", "Montante", "Tipo", "Saldo"]
+        mapping = _find_column_mapping(headers)
+        assert mapping["date_posted"] == 0
+        assert mapping["date_value"] == 1
+        assert mapping["description"] == 2
+        assert mapping["amount"] == 3
+        assert mapping["type"] == 4
+        assert mapping["balance"] == 5
+
+    def test_debit_credit_columns(self):
+        headers = ["Data", "Descrição", "Débito", "Crédito", "Saldo"]
+        mapping = _find_column_mapping(headers)
+        assert "debit" in mapping
+        assert "credit" in mapping
+
+
+class TestExtractTextDateRange:
+    def test_standard_range(self):
+        text = "Extrato de Conta - 01-01-2026 a 31-01-2026\nConta: 123"
+        d1, d2 = _extract_text_date_range(text)
+        assert d1 == date(2026, 1, 1)
+        assert d2 == date(2026, 1, 31)
+
+    def test_range_with_ate(self):
+        text = "Periodo: 01/02/2026 até 28/02/2026"
+        d1, d2 = _extract_text_date_range(text)
+        assert d1 == date(2026, 2, 1)
+        assert d2 == date(2026, 2, 28)
+
+    def test_no_range_returns_none(self):
+        d1, d2 = _extract_text_date_range("No dates here")
+        assert d1 is None
+        assert d2 is None
+
+
+# ---------------------------------------------------------------------------
+# Integration tests: full PDF parsing
+# ---------------------------------------------------------------------------
+
+
+class TestParsePdfStatement:
+    def test_parses_all_rows(self, pdf_statement, cards_csv):
+        rows = parse_pdf_statement(pdf_statement, cards_path=cards_csv)
+        assert len(rows) == 5
+
+    def test_dates_parsed(self, pdf_statement, cards_csv):
+        rows = parse_pdf_statement(pdf_statement, cards_path=cards_csv)
+        assert rows[0]["date_posted"] == "2026-01-15"
+        assert rows[0]["date_value"] == "2026-01-15"
+
+    def test_amounts_parsed(self, pdf_statement, cards_csv):
+        rows = parse_pdf_statement(pdf_statement, cards_path=cards_csv)
+        amounts = {r["description_raw"]: r["amount_signed"] for r in rows}
+        # CONTINENTE should be -45.50
+        continente = [r for r in rows if "CONTINENTE" in r["description_raw"]][0]
+        assert continente["amount_signed"] == -45.50
+
+    def test_income_direction(self, pdf_statement, cards_csv):
+        rows = parse_pdf_statement(pdf_statement, cards_path=cards_csv)
+        salary = [r for r in rows if "SALARIO" in r["description_raw"]][0]
+        assert salary["direction"] == "in"
+        assert salary["amount_signed"] == 2500.00
+
+    def test_expense_direction(self, pdf_statement, cards_csv):
+        rows = parse_pdf_statement(pdf_statement, cards_path=cards_csv)
+        expense = [r for r in rows if "CONTINENTE" in r["description_raw"]][0]
+        assert expense["direction"] == "out"
+
+    def test_payment_types_detected(self, pdf_statement, cards_csv):
+        rows = parse_pdf_statement(pdf_statement, cards_path=cards_csv)
+        types = {r["description_raw"]: r["payment_type"] for r in rows}
+        continente = [r for r in rows if "CONTINENTE" in r["description_raw"]][0]
+        assert continente["payment_type"] == "card"
+        dd = [r for r in rows if "VODAFONE" in r["description_raw"]][0]
+        assert dd["payment_type"] == "direct_debit"
+
+    def test_description_cleaned(self, pdf_statement, cards_csv):
+        rows = parse_pdf_statement(pdf_statement, cards_path=cards_csv)
+        continente = [r for r in rows if "CONTINENTE" in r["description_raw"]][0]
+        # After cleaning, the card prefix and noise words should be stripped
+        assert "COMPRA 1234" not in continente["description_clean"]
+        assert "CONTINENTE" in continente["description_clean"]
+
+    def test_source_file_set(self, pdf_statement, cards_csv):
+        rows = parse_pdf_statement(pdf_statement, cards_path=cards_csv)
+        assert all(r["source_file"] == "statement.pdf" for r in rows)
+
+    def test_month_and_dow_populated(self, pdf_statement, cards_csv):
+        rows = parse_pdf_statement(pdf_statement, cards_path=cards_csv)
+        for r in rows:
+            assert r["month"]
+            assert r["day_of_week"]
+
+    def test_card_detected(self, pdf_statement, cards_csv):
+        rows = parse_pdf_statement(pdf_statement, cards_path=cards_csv)
+        continente = [r for r in rows if "CONTINENTE" in r["description_raw"]][0]
+        assert continente["card_last4"] == "1234"
+        assert continente["who"] == "Alice"
+
+    def test_empty_pdf_returns_empty(self, tmp_path, cards_csv):
+        """A PDF with no transaction table should return empty list."""
+        from fpdf import FPDF
+        pdf = FPDF()
+        pdf.add_page()
+        pdf.set_font("Helvetica", size=10)
+        pdf.cell(0, 10, "This is not a bank statement")
+        path = tmp_path / "empty.pdf"
+        pdf.output(str(path))
+        rows = parse_pdf_statement(path, cards_path=cards_csv)
+        assert rows == []
+
+
+class TestExtractPdfDateRange:
+    def test_extracts_from_text(self, pdf_statement):
+        d1, d2 = extract_pdf_date_range(pdf_statement)
+        assert d1 == date(2026, 1, 1)
+        assert d2 == date(2026, 1, 31)
+
+    def test_falls_back_to_transaction_dates(self, tmp_path, cards_csv):
+        """When no explicit date range is in the text, use min/max transaction dates."""
+        path = _make_pdf_statement(
+            tmp_path / "no-range.pdf",
+            SAMPLE_PDF_ROWS,
+            date_from="",  # No date range in header
+            date_to="",
+        )
+        # This should fall back to transaction dates
+        d1, d2 = extract_pdf_date_range(path)
+        assert d1 == date(2026, 1, 10)  # earliest transaction
+        assert d2 == date(2026, 1, 15)  # latest transaction
+
+    def test_empty_pdf_raises(self, tmp_path):
+        from fpdf import FPDF
+        pdf = FPDF()
+        pdf.add_page()
+        pdf.set_font("Helvetica", size=10)
+        pdf.cell(0, 10, "Nothing here")
+        path = tmp_path / "empty.pdf"
+        pdf.output(str(path))
+        with pytest.raises(ValueError, match="Could not find"):
+            extract_pdf_date_range(path)
