@@ -27,6 +27,15 @@ DEFAULT_ADVISOR_DIR = Path("data/advisor")
 DOW_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
 # ---------------------------------------------------------------------------
+# Refunds
+# ---------------------------------------------------------------------------
+
+# Categories whose incoming money is real income or a move between accounts.
+# An incoming transaction in any other category is a refund: it reduces that
+# category's spending instead of counting as income.
+NON_SPENDING_CATEGORIES = ("Income", "Transfers")
+
+# ---------------------------------------------------------------------------
 # Data sheet column definitions
 # ---------------------------------------------------------------------------
 

@@ -14,6 +14,8 @@ from expense_tracker.db import (
     ingested_source_files,
     reclean_descriptions,
     fetch_all_transactions,
+    is_refund,
+    spend_amount,
 )
 from expense_tracker.parser import reset_cleaning_cache, _get_cleaning_patterns
 from tests.conftest import make_utf16_csv, SAMPLE_ROWS
@@ -273,8 +275,60 @@ class TestFetchAllTransactions:
         # All should be uncategorized initially
         assert all(t["status"] == "uncategorized" for t in txs)
 
+    def test_spend_field(self, populated_db):
+        conn = sqlite3.connect(str(populated_db))
+        migrate_schema(conn)
+        conn.execute(
+            "UPDATE transactions SET direction = 'in', category = 'Health' "
+            "WHERE description_raw LIKE '%FARMACIA%'"
+        )
+        txs = fetch_all_transactions(conn)
+        conn.close()
+        by_desc = {t["description_raw"]: t["spend"] for t in txs}
+        assert by_desc["COMPRA 1234 CONTINENTE PORTO"] == 45.50
+        assert by_desc["COMPRA 5678 FARMACIA DA GARE 1000-001 LISBOA"] == -12.80
+        assert by_desc["TRANSFERENCIA - SALARIO"] == 0
+
     def test_empty_db(self, test_db):
         conn = sqlite3.connect(str(test_db))
         txs = fetch_all_transactions(conn)
         conn.close()
         assert txs == []
+
+
+# ---------------------------------------------------------------------------
+# Refunds
+# ---------------------------------------------------------------------------
+
+
+def _t(direction: str, category: str | None, amount: float = 10.0) -> dict:
+    return {"direction": direction, "category": category, "amount_abs": amount}
+
+
+class TestRefunds:
+    @pytest.mark.parametrize(
+        "tx, expected",
+        [
+            (_t("in", "Health"), True),
+            (_t("in", "Income"), False),
+            (_t("in", "Transfers"), False),
+            (_t("in", ""), False),
+            (_t("in", None), False),
+            (_t("out", "Health"), False),
+        ],
+    )
+    def test_is_refund(self, tx, expected):
+        assert is_refund(tx) is expected
+
+    @pytest.mark.parametrize(
+        "tx, expected",
+        [
+            (_t("out", "Health", 30), 30),
+            (_t("out", "", 30), 30),
+            (_t("in", "Health", 30), -30),
+            (_t("in", "Income", 30), 0),
+            (_t("in", "", 30), 0),
+        ],
+    )
+    def test_spend_amount(self, tx, expected):
+        assert spend_amount(tx) == expected

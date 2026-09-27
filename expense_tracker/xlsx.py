@@ -12,9 +12,39 @@ import sqlite3
 from collections import defaultdict
 from pathlib import Path
 
-from .constants import DEFAULT_DB, DEFAULT_DESC_NOTES, DATA_COLUMNS, DATA_HEADERS
-from .db import migrate_schema, fetch_all_transactions
+from .constants import (
+    DEFAULT_DB,
+    DEFAULT_DESC_NOTES,
+    DATA_COLUMNS,
+    DATA_HEADERS,
+    NON_SPENDING_CATEGORIES,
+)
+from .db import migrate_schema, fetch_all_transactions, is_refund
 from .rules import load_rules
+
+# SUMIFS criteria selecting refunds (see db.is_refund)
+_REFUNDS = 'Data!G:G,"in",Data!H:H,"<>"' + "".join(
+    f',Data!H:H,"<>{c}"' for c in NON_SPENDING_CATEGORIES
+)
+
+
+def _spend(criteria: str = "") -> str:
+    """SUMIFS spending net of refunds; `criteria` is e.g. 'Data!B:B,"2026-01",'."""
+    return f'SUMIFS(Data!F:F,{criteria}Data!G:G,"out")-SUMIFS(Data!F:F,{criteria}{_REFUNDS})'
+
+
+def _income(criteria: str = "") -> str:
+    """SUMIFS incoming money that is not a refund."""
+    return f'SUMIFS(Data!F:F,{criteria}Data!G:G,"in")-SUMIFS(Data!F:F,{criteria}{_REFUNDS})'
+
+
+def _category_spend(cat: str, criteria: str = "") -> str:
+    """SUMIFS spending in one category net of its refunds."""
+    criteria = f'{criteria}Data!H:H,"{cat}",'
+    out = f'SUMIFS(Data!F:F,{criteria}Data!G:G,"out")'
+    if cat in NON_SPENDING_CATEGORIES:
+        return out
+    return f'{out}-SUMIFS(Data!F:F,{criteria}Data!G:G,"in")'
 
 # openpyxl imports - will fail gracefully if not installed
 try:
@@ -271,13 +301,13 @@ def _write_dashboard_sheet(ws, transactions: list[dict], styles: dict, n: int) -
     
     # Total Income
     ws.cell(row=row, column=1, value="Total Income")
-    ws.cell(row=row, column=2, value=f'=SUMIF(Data!G:G,"in",Data!F:F)')
+    ws.cell(row=row, column=2, value="=" + _income())
     ws.cell(row=row, column=2).number_format = '#,##0.00'
     row += 1
     
     # Total Expenses
     ws.cell(row=row, column=1, value="Total Expenses")
-    ws.cell(row=row, column=2, value=f'=SUMIF(Data!G:G,"out",Data!F:F)')
+    ws.cell(row=row, column=2, value="=" + _spend())
     ws.cell(row=row, column=2).number_format = '#,##0.00'
     row += 1
     
@@ -306,7 +336,7 @@ def _write_dashboard_sheet(ws, transactions: list[dict], styles: dict, n: int) -
     # Top Categories
     categories = sorted(set(
         tx["category"] for tx in transactions
-        if tx.get("category") and tx["direction"] == "out"
+        if tx.get("category") and (tx["direction"] == "out" or is_refund(tx))
     ))
     
     for col, header in enumerate(["Top Categories", "Total Spent", "# Transactions"], start=1):
@@ -317,7 +347,7 @@ def _write_dashboard_sheet(ws, transactions: list[dict], styles: dict, n: int) -
     
     for cat in categories[:10]:
         ws.cell(row=row, column=1, value=cat)
-        ws.cell(row=row, column=2, value=f'=SUMIFS(Data!F:F,Data!H:H,"{cat}",Data!G:G,"out")')
+        ws.cell(row=row, column=2, value="=" + _category_spend(cat))
         ws.cell(row=row, column=2).number_format = '#,##0.00'
         ws.cell(row=row, column=3, value=f'=COUNTIFS(Data!H:H,"{cat}",Data!G:G,"out")')
         row += 1
@@ -356,7 +386,7 @@ def _write_monthly_summary_sheet(ws, transactions: list[dict], styles: dict, n: 
     months = sorted(set(tx["month"] for tx in transactions if tx["month"]))
     categories = sorted(set(
         tx["category"] for tx in transactions
-        if tx.get("category") and tx["direction"] == "out"
+        if tx.get("category") and (tx["direction"] == "out" or is_refund(tx))
     ))
     
     if not categories:
@@ -381,7 +411,7 @@ def _write_monthly_summary_sheet(ws, transactions: list[dict], styles: dict, n: 
         
         for col_idx, cat in enumerate(categories, start=2):
             cell = ws.cell(row=row_idx, column=col_idx)
-            cell.value = f'=SUMIFS(Data!F:F,Data!B:B,"{month}",Data!H:H,"{cat}",Data!G:G,"out")'
+            cell.value = "=" + _category_spend(cat, f'Data!B:B,"{month}",')
             cell.number_format = '#,##0.00'
             cell.border = styles['thin_border']
         
@@ -423,13 +453,13 @@ def _write_monthly_trend_sheet(ws, transactions: list[dict], styles: dict, n: in
         
         # Income
         cell = ws.cell(row=row_idx, column=2)
-        cell.value = f'=SUMIFS(Data!F:F,Data!B:B,"{month}",Data!G:G,"in")'
+        cell.value = "=" + _income(f'Data!B:B,"{month}",')
         cell.number_format = '#,##0.00'
         cell.border = styles['thin_border']
         
         # Expenses
         cell = ws.cell(row=row_idx, column=3)
-        cell.value = f'=SUMIFS(Data!F:F,Data!B:B,"{month}",Data!G:G,"out")'
+        cell.value = "=" + _spend(f'Data!B:B,"{month}",')
         cell.number_format = '#,##0.00'
         cell.border = styles['thin_border']
         
@@ -463,7 +493,7 @@ def _write_category_breakdown_sheet(ws, transactions: list[dict], styles: dict, 
     """Write category breakdown analysis."""
     categories = sorted(set(
         tx["category"] for tx in transactions
-        if tx.get("category") and tx["direction"] == "out"
+        if tx.get("category") and (tx["direction"] == "out" or is_refund(tx))
     ))
     n_months = len(set(tx["month"] for tx in transactions if tx["month"])) or 1
     
@@ -483,13 +513,13 @@ def _write_category_breakdown_sheet(ws, transactions: list[dict], styles: dict, 
         
         # Total Spent
         cell = ws.cell(row=row_idx, column=2)
-        cell.value = f'=SUMIFS(Data!F:F,Data!H:H,"{cat}",Data!G:G,"out")'
+        cell.value = "=" + _category_spend(cat)
         cell.number_format = '#,##0.00'
         cell.border = styles['thin_border']
         
         # % of Total
         cell = ws.cell(row=row_idx, column=3)
-        cell.value = f'=B{row_idx}/SUMIF(Data!G:G,"out",Data!F:F)*100'
+        cell.value = f"=B{row_idx}/({_spend()})*100"
         cell.number_format = '0.0"%"'
         cell.border = styles['thin_border']
         
@@ -521,7 +551,7 @@ def _write_subcategory_breakdown_sheet(ws, transactions: list[dict], styles: dic
     pairs = sorted(set(
         (tx["category"], tx.get("subcategory") or "")
         for tx in transactions
-        if tx.get("category") and tx["direction"] == "out"
+        if tx.get("category") and (tx["direction"] == "out" or is_refund(tx))
     ))
     
     headers = ["Category", "Subcategory", "Total Spent", "% of Category", "# Transactions"]
@@ -543,13 +573,13 @@ def _write_subcategory_breakdown_sheet(ws, transactions: list[dict], styles: dic
         if subcat:
             # Total Spent
             cell = ws.cell(row=row_idx, column=3)
-            cell.value = f'=SUMIFS(Data!F:F,Data!H:H,"{cat}",Data!I:I,"{subcat}",Data!G:G,"out")'
+            cell.value = "=" + _category_spend(cat, f'Data!I:I,"{subcat}",')
             cell.number_format = '#,##0.00'
             cell.border = styles['thin_border']
             
             # % of Category
             cell = ws.cell(row=row_idx, column=4)
-            cell.value = f'=C{row_idx}/SUMIFS(Data!F:F,Data!H:H,"{cat}",Data!G:G,"out")*100'
+            cell.value = f"=C{row_idx}/({_category_spend(cat)})*100"
             cell.number_format = '0.0"%"'
             cell.border = styles['thin_border']
             
@@ -560,12 +590,12 @@ def _write_subcategory_breakdown_sheet(ws, transactions: list[dict], styles: dic
         else:
             # No subcategory - match empty
             cell = ws.cell(row=row_idx, column=3)
-            cell.value = f'=SUMIFS(Data!F:F,Data!H:H,"{cat}",Data!I:I,"",Data!G:G,"out")'
+            cell.value = "=" + _category_spend(cat, 'Data!I:I,"",')
             cell.number_format = '#,##0.00'
             cell.border = styles['thin_border']
             
             cell = ws.cell(row=row_idx, column=4)
-            cell.value = f'=C{row_idx}/SUMIFS(Data!F:F,Data!H:H,"{cat}",Data!G:G,"out")*100'
+            cell.value = f"=C{row_idx}/({_category_spend(cat)})*100"
             cell.number_format = '0.0"%"'
             cell.border = styles['thin_border']
             

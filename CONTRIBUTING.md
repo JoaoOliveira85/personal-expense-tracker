@@ -166,7 +166,7 @@ Monthly PDF report generator using `fpdf2`. Produces a single-page A4 summary fo
 
 **Key functions:**
 - `generate_monthly_pdf(db_path, month, output_path, desc_notes_path)` — Main entry point. Fetches transactions for the given month, computes stats, and renders a PDF.
-- `_compute_stats(transactions, merchant_notes)` — Computes all summary statistics: income/expenses, category breakdown, top merchants, tag totals, uncategorized count.
+- `_compute_stats(transactions, merchant_notes)` — Computes all summary statistics: income/expenses, category breakdown, top merchants, tag totals, uncategorized count. Refunds (`db.is_refund`: incoming money in a category outside `NON_SPENDING_CATEGORIES`) are subtracted from their category and from expenses, not added to income. The same rule is implemented as `SPEND_SQL`/`REFUND_SQL` (advisor, PDF history), `_spend()`/`_income()` formula builders in `xlsx.py` and `ods_sheets.py`, and the `spend` field added by `fetch_all_transactions()` (GUI).
 - `previous_month_label()` — Returns the YYYY-MM label for the previous month.
 - `_setup_fonts(pdf)` — Tries to register a system Unicode font; falls back to built-in Helvetica.
 

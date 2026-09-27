@@ -15,6 +15,7 @@ from datetime import date, timedelta
 from pathlib import Path
 
 from .constants import DEFAULT_DB, DEFAULT_DESC_NOTES, DEFAULT_REPORTS, DEFAULT_ADVISOR_DIR
+from .db import REFUND_SQL, SPEND_SQL, is_refund
 
 
 # ---------------------------------------------------------------------------
@@ -58,10 +59,11 @@ def _fetch_historical_category_totals(
     Returns: { month: { category: total_amount } }
     """
     rows = conn.execute(
-        """
-        SELECT month, category, SUM(amount_abs) as total
+        f"""
+        SELECT month, category, SUM({SPEND_SQL}) as total
         FROM transactions
-        WHERE direction = 'out' AND category IS NOT NULL AND category != ''
+        WHERE category IS NOT NULL AND category != ''
+          AND (direction = 'out' OR {REFUND_SQL})
         GROUP BY month, category
         """,
     ).fetchall()
@@ -136,7 +138,11 @@ def _compute_stats(
         category = tx.get("category") or ""
         desc = tx.get("description_clean") or ""
 
-        if direction == "in":
+        if is_refund(tx):
+            # Refunds reduce their category's spending; they are not income
+            total_expenses -= amount
+            cat_amounts[category] -= amount
+        elif direction == "in":
             total_income += amount
         else:
             total_expenses += amount

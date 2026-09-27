@@ -8,6 +8,7 @@ import pytest
 
 from expense_tracker.pdf_report import (
     _compute_stats,
+    _fetch_historical_category_totals,
     _extract_tags,
     _fmt_eur,
     _next_month,
@@ -150,6 +151,25 @@ class TestComputeStats:
         assert stats["total_expenses"] == 150
         assert stats["net_balance"] == 1850
         assert stats["tx_count"] == 3
+
+    def test_refund_reduces_its_category_and_total_spending(self):
+        txns = [
+            _tx(amount=100, direction="out", category="Health"),
+            _tx(amount=30, direction="in", category="Health"),
+        ]
+        stats = _compute_stats(txns)
+        assert stats["by_category"][0][:2] == ("Health", 70)
+        assert stats["total_expenses"] == 70
+        assert stats["total_income"] == 0
+
+    def test_income_and_uncategorized_inflows_are_income(self):
+        txns = [
+            _tx(amount=1000, direction="in", category="Income"),
+            _tx(amount=50, direction="in"),
+        ]
+        stats = _compute_stats(txns)
+        assert stats["total_income"] == 1050
+        assert stats["by_category"] == []
 
     def test_category_breakdown(self):
         txns = [
@@ -440,3 +460,30 @@ class TestGenerateMonthlyPdf:
             desc_notes_path=desc_notes,
         )
         assert output.exists()
+
+
+# ---------------------------------------------------------------------------
+# _fetch_historical_category_totals
+# ---------------------------------------------------------------------------
+
+
+def _insert(conn, tid, month, direction, category, amount):
+    conn.execute(
+        "INSERT INTO transactions (transaction_id, date_posted, date_value, month, "
+        "day_of_week, description_raw, amount_signed, amount_abs, direction, "
+        "currency, account, category, source_file, imported_at) "
+        "VALUES (?, ?, ?, ?, 'Mon', 'X', ?, ?, ?, 'EUR', 'a', ?, 'f', 'now')",
+        (tid, f"{month}-01", f"{month}-01", month,
+         -amount if direction == "out" else amount, amount, direction, category),
+    )
+
+
+class TestHistoricalCategoryTotals:
+    def test_nets_refunds_against_category(self, test_db):
+        conn = sqlite3.connect(str(test_db))
+        _insert(conn, "1", "2026-01", "out", "Health", 100)
+        _insert(conn, "2", "2026-01", "in", "Health", 30)
+        _insert(conn, "3", "2026-01", "in", "Income", 2000)
+        totals = _fetch_historical_category_totals(conn)
+        conn.close()
+        assert totals == {"2026-01": {"Health": 70}}

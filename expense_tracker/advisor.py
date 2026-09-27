@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from .constants import DEFAULT_DB, DEFAULT_ADVISOR_DIR
+from .db import REFUND_SQL, SPEND_SQL
 from .pdf_report import previous_month_label, month_display_name, _prev_month
 
 
@@ -112,11 +113,12 @@ def _fetch_monthly_summary(
     conn.row_factory = sqlite3.Row
     
     # Get totals
-    row = conn.execute("""
+    row = conn.execute(f"""
         SELECT
             COUNT(*) as tx_count,
-            SUM(CASE WHEN direction = 'in' THEN amount_abs ELSE 0 END) as income,
-            SUM(CASE WHEN direction = 'out' THEN amount_abs ELSE 0 END) as expenses
+            SUM(CASE WHEN direction = 'in' AND NOT {REFUND_SQL}
+                THEN amount_abs ELSE 0 END) as income,
+            SUM({SPEND_SQL}) as expenses
         FROM transactions
         WHERE month = ?
     """, (month,)).fetchone()
@@ -125,14 +127,14 @@ def _fetch_monthly_summary(
         conn.row_factory = None
         return {}
     
-    # Get category breakdown (expenses only)
-    categories = conn.execute("""
+    # Get category breakdown (expenses net of refunds)
+    categories = conn.execute(f"""
         SELECT 
             COALESCE(category, 'Uncategorized') as category,
-            SUM(amount_abs) as total,
-            COUNT(*) as count
+            SUM({SPEND_SQL}) as total,
+            SUM(direction = 'out') as count
         FROM transactions
-        WHERE month = ? AND direction = 'out'
+        WHERE month = ? AND (direction = 'out' OR {REFUND_SQL})
         GROUP BY category
         ORDER BY total DESC
     """, (month,)).fetchall()
@@ -178,12 +180,13 @@ def _fetch_historical_summary(
     conn.row_factory = sqlite3.Row
     
     # Get overall totals
-    row = conn.execute("""
+    row = conn.execute(f"""
         SELECT
             COUNT(DISTINCT month) as month_count,
             COUNT(*) as tx_count,
-            SUM(CASE WHEN direction = 'in' THEN amount_abs ELSE 0 END) as total_income,
-            SUM(CASE WHEN direction = 'out' THEN amount_abs ELSE 0 END) as total_expenses,
+            SUM(CASE WHEN direction = 'in' AND NOT {REFUND_SQL}
+                THEN amount_abs ELSE 0 END) as total_income,
+            SUM({SPEND_SQL}) as total_expenses,
             MIN(month) as first_month,
             MAX(month) as last_month
         FROM transactions
@@ -194,15 +197,15 @@ def _fetch_historical_summary(
         conn.row_factory = None
         return {}
     
-    # Get average category spending
-    categories = conn.execute("""
+    # Get average category spending (net of refunds)
+    categories = conn.execute(f"""
         SELECT 
             COALESCE(category, 'Uncategorized') as category,
-            SUM(amount_abs) as total,
-            AVG(amount_abs) as avg_per_tx,
-            COUNT(*) as count
+            SUM({SPEND_SQL}) as total,
+            AVG(CASE WHEN direction = 'out' THEN amount_abs END) as avg_per_tx,
+            SUM(direction = 'out') as count
         FROM transactions
-        WHERE month < ? AND direction = 'out'
+        WHERE month < ? AND (direction = 'out' OR {REFUND_SQL})
         GROUP BY category
         ORDER BY total DESC
     """, (before_month,)).fetchall()

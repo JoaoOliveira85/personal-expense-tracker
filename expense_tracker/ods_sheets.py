@@ -8,12 +8,37 @@ from __future__ import annotations
 
 from collections import defaultdict
 
-from .constants import DATA_COLUMNS, DATA_HEADERS
+from .constants import DATA_COLUMNS, DATA_HEADERS, NON_SPENDING_CATEGORIES
+from .db import is_refund
 
 
 # ---------------------------------------------------------------------------
 # Styles
 # ---------------------------------------------------------------------------
+
+
+
+# ---------------------------------------------------------------------------
+# SUMPRODUCT factors for spending net of refunds (see db.is_refund)
+# ---------------------------------------------------------------------------
+
+
+def _refund(n: int) -> str:
+    """1 for refund rows, 0 otherwise."""
+    h = f"[.Data.H2:.Data.H{n}]"
+    return f'([.Data.G2:.Data.G{n}]="in")*({h}<>"")' + "".join(
+        f'*({h}<>"{c}")' for c in NON_SPENDING_CATEGORIES
+    )
+
+
+def _spend(n: int) -> str:
+    """+amount for outgoing rows, -amount for refunds, 0 otherwise."""
+    return f'(([.Data.G2:.Data.G{n}]="out")-{_refund(n)})*[.Data.F2:.Data.F{n}]'
+
+
+def _income(n: int) -> str:
+    """Amount of incoming rows that are not refunds."""
+    return f'(([.Data.G2:.Data.G{n}]="in")-{_refund(n)})*[.Data.F2:.Data.F{n}]'
 
 
 def setup_styles(doc):
@@ -191,7 +216,7 @@ def write_monthly_summary_sheet(doc, transactions):
     months = sorted(set(tx["month"] for tx in transactions if tx["month"]))
     categories = sorted(set(
         tx["category"] for tx in transactions
-        if tx.get("category") and tx["direction"] == "out"
+        if tx.get("category") and (tx["direction"] == "out" or is_refund(tx))
     ))
     if not categories:
         categories = ["(no categories yet)"]
@@ -213,8 +238,7 @@ def write_monthly_summary_sheet(doc, transactions):
                 f'of:=SUMPRODUCT('
                 f'([.Data.B2:.Data.B{n}]="{month}")'
                 f'*([.Data.H2:.Data.H{n}]="{cat}")'
-                f'*([.Data.G2:.Data.G{n}]="out")'
-                f'*[.Data.F2:.Data.F{n}])'
+                f'*{_spend(n)})'
             )
             row.addElement(make_cell("", style_name="normal", value_type="float", formula=formula))
 
@@ -261,7 +285,7 @@ def write_category_breakdown_sheet(doc, transactions):
 
     categories = sorted(set(
         tx["category"] for tx in transactions
-        if tx.get("category") and tx["direction"] == "out"
+        if tx.get("category") and (tx["direction"] == "out" or is_refund(tx))
     ))
     n_months = len(set(tx["month"] for tx in transactions if tx["month"])) or 1
     n = len(transactions) + 1
@@ -276,15 +300,13 @@ def write_category_breakdown_sheet(doc, transactions):
         row.addElement(make_cell("", style_name="normal", value_type="float", formula=(
             f'of:=SUMPRODUCT('
             f'([.Data.H2:.Data.H{n}]="{cat}")'
-            f'*([.Data.G2:.Data.G{n}]="out")'
-            f'*[.Data.F2:.Data.F{n}])'
+            f'*{_spend(n)})'
         )))
 
         # % of Total
         row.addElement(make_cell("", style_name="normal", value_type="float", formula=(
             f'of:=[.B{row_num}]/'
-            f'SUMPRODUCT(([.Data.G2:.Data.G{n}]="out")'
-            f'*[.Data.F2:.Data.F{n}])*100'
+            f'SUMPRODUCT({_spend(n)})*100'
         )))
 
         # Avg / Month
@@ -343,7 +365,7 @@ def write_dashboard_sheet(doc, transactions):
     row = TableRow()
     row.addElement(make_cell("Total Income", style_name="normal"))
     row.addElement(make_cell("", style_name="normal", value_type="float", formula=(
-        f'of:=SUMPRODUCT(([.Data.G2:.Data.G{n}]="in")*[.Data.F2:.Data.F{n}])'
+        f'of:=SUMPRODUCT({_income(n)})'
     )))
     row.addElement(make_cell("", style_name="normal"))
     table.addElement(row)
@@ -352,7 +374,7 @@ def write_dashboard_sheet(doc, transactions):
     row = TableRow()
     row.addElement(make_cell("Total Expenses", style_name="normal"))
     row.addElement(make_cell("", style_name="normal", value_type="float", formula=(
-        f'of:=SUMPRODUCT(([.Data.G2:.Data.G{n}]="out")*[.Data.F2:.Data.F{n}])'
+        f'of:=SUMPRODUCT({_spend(n)})'
     )))
     row.addElement(make_cell("", style_name="normal"))
     table.addElement(row)
@@ -394,7 +416,7 @@ def write_dashboard_sheet(doc, transactions):
     # --- Top categories ---
     categories = sorted(set(
         tx["category"] for tx in transactions
-        if tx.get("category") and tx["direction"] == "out"
+        if tx.get("category") and (tx["direction"] == "out" or is_refund(tx))
     ))
 
     table.addElement(make_header_row(["Top Categories", "Total Spent", "# Transactions"]))
@@ -405,8 +427,7 @@ def write_dashboard_sheet(doc, transactions):
         row.addElement(make_cell("", style_name="normal", value_type="float", formula=(
             f'of:=SUMPRODUCT('
             f'([.Data.H2:.Data.H{n}]="{cat}")'
-            f'*([.Data.G2:.Data.G{n}]="out")'
-            f'*[.Data.F2:.Data.F{n}])'
+            f'*{_spend(n)})'
         )))
         row.addElement(make_cell("", style_name="normal", value_type="float", formula=(
             f'of:=SUMPRODUCT('
@@ -500,16 +521,14 @@ def write_monthly_trend_sheet(doc, transactions):
         row.addElement(make_cell("", style_name="normal", value_type="float", formula=(
             f'of:=SUMPRODUCT('
             f'([.Data.B2:.Data.B{n}]="{month}")'
-            f'*([.Data.G2:.Data.G{n}]="in")'
-            f'*[.Data.F2:.Data.F{n}])'
+            f'*{_income(n)})'
         )))
 
         # Expenses
         row.addElement(make_cell("", style_name="normal", value_type="float", formula=(
             f'of:=SUMPRODUCT('
             f'([.Data.B2:.Data.B{n}]="{month}")'
-            f'*([.Data.G2:.Data.G{n}]="out")'
-            f'*[.Data.F2:.Data.F{n}])'
+            f'*{_spend(n)})'
         )))
 
         # Net (Income - Expenses)
@@ -557,7 +576,7 @@ def write_subcategory_breakdown_sheet(doc, transactions):
     pairs = sorted(set(
         (tx["category"], tx.get("subcategory") or "")
         for tx in transactions
-        if tx.get("category") and tx["direction"] == "out"
+        if tx.get("category") and (tx["direction"] == "out" or is_refund(tx))
     ))
 
     n = len(transactions) + 1
@@ -575,16 +594,14 @@ def write_subcategory_breakdown_sheet(doc, transactions):
                 f'of:=SUMPRODUCT('
                 f'([.Data.H2:.Data.H{n}]="{cat}")'
                 f'*([.Data.I2:.Data.I{n}]="{subcat}")'
-                f'*([.Data.G2:.Data.G{n}]="out")'
-                f'*[.Data.F2:.Data.F{n}])'
+                f'*{_spend(n)})'
             )))
 
             # % of Category
             row.addElement(make_cell("", style_name="normal", value_type="float", formula=(
                 f'of:=[.C{row_num}]/'
                 f'SUMPRODUCT(([.Data.H2:.Data.H{n}]="{cat}")'
-                f'*([.Data.G2:.Data.G{n}]="out")'
-                f'*[.Data.F2:.Data.F{n}])*100'
+                f'*{_spend(n)})*100'
             )))
 
             # # Transactions
@@ -600,15 +617,13 @@ def write_subcategory_breakdown_sheet(doc, transactions):
                 f'of:=SUMPRODUCT('
                 f'([.Data.H2:.Data.H{n}]="{cat}")'
                 f'*([.Data.I2:.Data.I{n}]="")'
-                f'*([.Data.G2:.Data.G{n}]="out")'
-                f'*[.Data.F2:.Data.F{n}])'
+                f'*{_spend(n)})'
             )))
 
             row.addElement(make_cell("", style_name="normal", value_type="float", formula=(
                 f'of:=[.C{row_num}]/'
                 f'SUMPRODUCT(([.Data.H2:.Data.H{n}]="{cat}")'
-                f'*([.Data.G2:.Data.G{n}]="out")'
-                f'*[.Data.F2:.Data.F{n}])*100'
+                f'*{_spend(n)})*100'
             )))
 
             row.addElement(make_cell("", style_name="normal", value_type="float", formula=(

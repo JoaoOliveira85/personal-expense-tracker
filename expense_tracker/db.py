@@ -7,6 +7,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Iterable
 
+from .constants import NON_SPENDING_CATEGORIES
 from .parser import parse_utf16_csv
 from .parsers import parse_statement, detect_parser
 
@@ -188,6 +189,41 @@ def ingest(
 
 
 # ---------------------------------------------------------------------------
+# Refunds
+# ---------------------------------------------------------------------------
+
+
+def is_refund(tx: dict) -> bool:
+    """Incoming money in a spending category (see NON_SPENDING_CATEGORIES)."""
+    category = tx.get("category") or ""
+    return (
+        tx.get("direction") == "in"
+        and bool(category)
+        and category not in NON_SPENDING_CATEGORIES
+    )
+
+
+def spend_amount(tx: dict) -> float:
+    """Contribution to spending: +amount out, -amount for a refund, else 0."""
+    if tx.get("direction") == "out":
+        return tx["amount_abs"]
+    return -tx["amount_abs"] if is_refund(tx) else 0.0
+
+
+_NON_SPENDING_SQL = ", ".join(f"'{c}'" for c in NON_SPENDING_CATEGORIES)
+
+# SQL counterparts of is_refund() / spend_amount() for aggregate queries.
+REFUND_SQL = (
+    "(direction = 'in' AND COALESCE(category, '') <> '' "
+    f"AND category NOT IN ({_NON_SPENDING_SQL}))"
+)
+SPEND_SQL = (
+    "CASE WHEN direction = 'out' THEN amount_abs "
+    f"WHEN {REFUND_SQL} THEN -amount_abs ELSE 0 END"
+)
+
+
+# ---------------------------------------------------------------------------
 # Queries
 # ---------------------------------------------------------------------------
 
@@ -264,5 +300,6 @@ def fetch_all_transactions(conn: sqlite3.Connection) -> list[dict]:
     for r in rows:
         d = dict(r)
         d["status"] = "categorized" if d.get("category") else "uncategorized"
+        d["spend"] = spend_amount(d)
         result.append(d)
     return result

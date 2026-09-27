@@ -126,10 +126,12 @@ if page == "Dashboard":
 
     # Summary metrics
     expenses = df[df["direction"] == "out"]
-    income = df[df["direction"] == "in"]
+    # Refunds (spend < 0) reduce spending instead of counting as income
+    spending = df[df["spend"] != 0]
+    income = df[(df["direction"] == "in") & (df["spend"] == 0)]
 
     col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Total Expenses", f"{expenses['amount_abs'].sum():,.2f} €")
+    col1.metric("Total Expenses", f"{df['spend'].sum():,.2f} €")
     col2.metric("Total Income", f"{income['amount_abs'].sum():,.2f} €")
     col3.metric("Net", f"{df['amount_signed'].sum():,.2f} €")
     col4.metric("Transactions", len(df))
@@ -151,9 +153,9 @@ if page == "Dashboard":
 
     with col_b:
         st.subheader("Monthly Spending")
-        if not expenses.empty:
+        if not spending.empty:
             monthly = (
-                expenses.groupby(expenses["date_posted"].dt.to_period("M"))["amount_abs"]
+                spending.groupby(spending["date_posted"].dt.to_period("M"))["spend"]
                 .sum()
                 .reset_index()
             )
@@ -167,10 +169,10 @@ if page == "Dashboard":
     col_c, col_d = st.columns(2)
     with col_c:
         st.subheader("Spending by Category")
-        categorized = expenses[expenses["category"].notna() & (expenses["category"] != "")]
+        categorized = spending[spending["category"].notna() & (spending["category"] != "")]
         if not categorized.empty:
             by_cat = (
-                categorized.groupby("category")["amount_abs"]
+                categorized.groupby("category")["spend"]
                 .sum()
                 .sort_values(ascending=True)
             )
