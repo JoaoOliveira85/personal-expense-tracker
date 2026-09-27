@@ -293,3 +293,29 @@ class TestMatchRuleWordBoundary:
     def test_description_rule_checks_clean_description(self, tmp_path):
         rules = _rules(tmp_path, "CONTINENTE,description,Groceries,,")
         assert _category(rules, "COMPRA 1234 XYZ", "CONTINENTE") == "Groceries"
+
+
+class TestMatchRuleSpecificity:
+    def test_longer_pattern_beats_earlier_shorter_one(self, tmp_path):
+        rules = _rules(
+            tmp_path,
+            "UBER,description,Transport,,",
+            "UBER EATS,description,Eating Out,,",
+        )
+        assert _category(rules, "COMPRA 1234 UBER EATS LISBOA") == "Eating Out"
+
+    def test_shorter_pattern_still_matches_on_its_own(self, tmp_path):
+        rules = _rules(
+            tmp_path,
+            "UBER,description,Transport,,",
+            "UBER EATS,description,Eating Out,,",
+        )
+        assert _category(rules, "COMPRA 1234 UBER TRIP") == "Transport"
+
+    def test_equal_length_patterns_fall_back_to_file_order(self, tmp_path):
+        rules = _rules(
+            tmp_path,
+            "LIDL,description,First,,",
+            "PORT,description,Second,,",
+        )
+        assert _category(rules, "COMPRA 1234 LIDL PORTO") == "First"

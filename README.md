@@ -597,7 +597,7 @@ TRF P/ Renda,description,Housing,Rent,transfer
 
 ### How Rules Work
 
-- Rules are applied **in order** — the first matching rule wins
+- When several rules match, the **longest pattern wins** (so `UBER EATS` beats `UBER` wherever each sits in the file); equal lengths fall back to file order
 - Matching is **case-insensitive** and a pattern must start at the beginning of a word: `PAO` matches "PAO QUENTE" and "PAOZINHO" but not "JAPAO"
 - End a pattern with a space (write it quoted, e.g. `"BP "`) to also require it to end on a word boundary: `"BP "` matches "BP" but not "BPI"
 - Rules only apply to **uncategorized** transactions (they won't override manual edits or previous rules)

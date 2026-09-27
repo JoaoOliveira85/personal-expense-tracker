@@ -25,7 +25,7 @@ The system follows a **three-layer pipeline** architecture:
 ### Data flow
 
 1. **Ingest**: Raw bank CSVs are auto-detected (or explicitly specified), parsed by the appropriate bank parser, cleaned, and inserted into SQLite with SHA-1 deduplication
-2. **Categorize**: Rules from `data/rules.csv` are applied to uncategorized transactions (first match wins)
+2. **Categorize**: Rules from `data/rules.csv` are applied to uncategorized transactions (longest matching pattern wins)
 3. **Sync back**: Before regenerating the report, manual edits (category, subcategory, notes, merchant notes) are read from the existing ODS and written back to the DB or `description-notes.csv`
 4. **Generate**: The ODS report is created/updated using `odfpy` — Intro/Data/Rules sheets are always rebuilt, analysis sheets are generated only on the first run and then preserved
 
@@ -122,7 +122,8 @@ Rule and card-holder management, plus the categorization engine.
 - `add_rule()` / `remove_rule()` — CRUD for `data/rules.csv`. Creates the file with headers if it doesn't exist.
 - `add_card()` / `remove_card()` — CRUD for `data/account-holders.csv`. `add_card` raises `ValueError` on duplicates.
 - `load_rules(path)` — Reads rules CSV, pre-computes upper-case patterns for matching.
-- `categorize_transactions(conn, rules)` — Applies rules to uncategorized transactions. First matching rule wins. Does NOT override existing categorizations.
+- `categorize_transactions(conn, rules)` — Applies rules to uncategorized transactions via `match_rule()`. Does NOT override existing categorizations.
+- `match_rule(rules, desc_raw, desc_clean)` — Returns the winning rule or `None`. Patterns are case-insensitive and must start at a word boundary (a trailing space also requires one at the end). The longest matching pattern wins; ties fall back to file order.
 
 **Matching behavior:** When `match_field` is `description` (default), the rule pattern is matched against **both** the raw and cleaned descriptions (concatenated). When `match_field` is `description_raw`, only the raw description is searched.
 

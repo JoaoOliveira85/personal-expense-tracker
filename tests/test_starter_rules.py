@@ -10,7 +10,7 @@ from expense_tracker.starter_rules import (
     get_starter_rules,
     import_starter_rules,
 )
-from expense_tracker.rules import load_rules, add_rule
+from expense_tracker.rules import load_rules, add_rule, match_rule
 
 
 # ---------------------------------------------------------------------------
@@ -129,3 +129,31 @@ class TestImportStarterRules:
         # Original rules should come first
         assert rules[0]["pattern"] == "MY_CUSTOM"
         assert rules[1]["pattern"] == "ANOTHER"
+
+
+# ---------------------------------------------------------------------------
+# Starter rules applied end-to-end (CSV round trip -> load_rules -> match_rule)
+# ---------------------------------------------------------------------------
+
+
+class TestStarterRulesMatching:
+    @pytest.fixture
+    def rules(self, tmp_path):
+        p = tmp_path / "rules.csv"
+        import_starter_rules(p)
+        return load_rules(p)
+
+    @pytest.mark.parametrize(
+        "description, expected",
+        [
+            ("COMISSAO LEVANTAMENTO NUMERARIO DEBITO", "Bank Fees"),
+            ("LEV ATM 1234 BPI Lisboa", "Cash"),
+            ("COMPRA 1234 UBER EATS LISBOA", "Eating Out"),
+            ("COMPRA 1234 BOLT FOOD LISBOA", "Eating Out"),
+            ("COMPRA 1234 BP LISBOA", "Transport"),
+            ("COMPRA 1234 SUSHI DO JAPAO LISBOA", None),
+        ],
+    )
+    def test_categorizes_real_world_descriptions(self, rules, description, expected):
+        rule = match_rule(rules, description, "")
+        assert (rule["category"] if rule else None) == expected

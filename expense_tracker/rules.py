@@ -116,7 +116,7 @@ def load_rules(rules_path: Path) -> list[dict]:
     Load categorization rules from a CSV file.
 
     Expected columns: pattern, match_field, category, subcategory, payment_type
-    First matching rule wins (file order = priority).
+    The longest matching pattern wins; file order breaks ties (see match_rule).
 
     Patterns match case-insensitively at the start of a word, so "PAO" matches
     "PAO QUENTE" and "PAOZINHO" but not "JAPAO". A trailing space in the
@@ -209,10 +209,15 @@ def categorize_transactions(conn: sqlite3.Connection, rules: list[dict]) -> int:
 def match_rule(
     rules: list[dict], desc_raw: str | None, desc_clean: str | None
 ) -> dict | None:
-    """Return the rule that categorizes a transaction, or None."""
+    """Return the rule that categorizes a transaction, or None.
+
+    The most specific (longest) matching pattern wins, so "UBER EATS" beats
+    "UBER" regardless of where each sits in the file. Ties go to file order.
+    """
     desc_raw_upper = (desc_raw or "").upper()
     desc_clean_upper = (desc_clean or "").upper()
 
+    best = None
     for rule in rules:
         if rule["match_field"] == "description_raw":
             target = desc_raw_upper
@@ -221,5 +226,6 @@ def match_rule(
             target = desc_raw_upper + " " + desc_clean_upper
 
         if rule["regex"].search(target):
-            return rule
-    return None
+            if best is None or len(rule["pattern"]) > len(best["pattern"]):
+                best = rule
+    return best

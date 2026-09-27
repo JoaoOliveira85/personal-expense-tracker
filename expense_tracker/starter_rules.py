@@ -20,7 +20,8 @@ from .rules import RULES_HEADER, load_rules
 # Guidelines:
 # - Patterns are case-insensitive and must start at a word boundary; a
 #   trailing space ("BP ") also requires a word boundary at the end
-# - More specific patterns should come before broader ones
+# - The longest matching pattern wins, so order within the list does not
+#   matter; add a more specific pattern to override a broad one
 # - payment_type is left empty unless strongly implied (e.g. DD = direct_debit)
 # - match_field is "description" (matches both raw and cleaned) unless the
 #   pattern only makes sense against the raw bank text
@@ -305,6 +306,7 @@ STARTER_RULES: list[tuple[str, str, str, str, str]] = [
     # BANK & FINANCIAL
     # ══════════════════════════════════════════════════════════════════════
     ("COMISSAO", "description_raw", "Bank Fees", "", "fee"),
+    ("COMISSAO LEVANTAMENTO", "description_raw", "Bank Fees", "ATM Fee", "fee"),
     ("COM.MAN.CONTA", "description_raw", "Bank Fees", "Maintenance", "fee"),
     ("CUSTO MANUTENCAO", "description_raw", "Bank Fees", "Maintenance", "fee"),
     ("CUSTO DE SERVICO", "description_raw", "Bank Fees", "Service Fee", "fee"),
