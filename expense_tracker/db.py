@@ -85,6 +85,20 @@ def migrate_schema(conn: sqlite3.Connection) -> None:
     for col, typedef in migrations:
         if col not in existing:
             conn.execute(f"ALTER TABLE transactions ADD COLUMN {col} {typedef}")
+
+    # Values last written to or read from the ODS report. sync_from_ods()
+    # compares against these rather than the live DB, so only cells the user
+    # actually changed count as edits.
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS ods_baseline (
+            transaction_id TEXT PRIMARY KEY,
+            category       TEXT NOT NULL,
+            subcategory    TEXT NOT NULL,
+            notes          TEXT NOT NULL
+        )
+        """
+    )
     conn.commit()
 
 

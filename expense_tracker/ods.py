@@ -70,6 +70,23 @@ def _save_description_notes(
             writer.writerow([key, notes[key]])
 
 
+def _load_baseline(conn: sqlite3.Connection) -> dict[str, tuple[str, str, str]]:
+    """Per-transaction (category, subcategory, notes) last seen in the ODS."""
+    rows = conn.execute(
+        "SELECT transaction_id, category, subcategory, notes FROM ods_baseline"
+    ).fetchall()
+    return {tid: (cat, sub, notes) for tid, cat, sub, notes in rows}
+
+
+def _save_baseline(
+    conn: sqlite3.Connection, values: list[tuple[str, str, str, str]]
+) -> None:
+    """Replace the baseline with (transaction_id, category, subcategory, notes)."""
+    conn.execute("DELETE FROM ods_baseline")
+    conn.executemany("INSERT OR REPLACE INTO ods_baseline VALUES (?, ?, ?, ?)", values)
+    conn.commit()
+
+
 def sync_from_ods(
     db_path: Path,
     ods_path: Path,
@@ -79,6 +96,10 @@ def sync_from_ods(
     Read the Data sheet from an existing ODS file and sync:
     1. category/subcategory/notes edits back into SQLite (per-transaction)
     2. merchant notes back to description-notes.csv (per-merchant)
+
+    A cell only counts as an edit if it differs from the value the ODS held
+    when it was last generated or synced, so a stale ODS never reverts newer
+    changes in the DB (rules re-applied from the GUI, xlsx-only reports).
 
     Returns the number of transactions updated in SQLite.
     """
@@ -177,7 +198,11 @@ def sync_from_ods(
     updated = 0
     try:
         migrate_schema(conn)
+        baseline = _load_baseline(conn)
         for tx_id, category, subcategory, notes in edits:
+            if baseline.get(tx_id) == (category, subcategory, notes):
+                continue
+
             existing = conn.execute(
                 "SELECT category, subcategory, notes FROM transactions "
                 "WHERE transaction_id = ?",
@@ -201,6 +226,7 @@ def sync_from_ods(
                 updated += 1
 
         conn.commit()
+        _save_baseline(conn, edits)
     finally:
         conn.close()
 
@@ -283,6 +309,23 @@ def generate_ods(
 
     ods_path.parent.mkdir(parents=True, exist_ok=True)
     doc.save(str(ods_path))
+
+    conn = sqlite3.connect(str(db_path))
+    try:
+        _save_baseline(
+            conn,
+            [
+                (
+                    tx["transaction_id"],
+                    (tx.get("category") or "").strip(),
+                    (tx.get("subcategory") or "").strip(),
+                    (tx.get("notes") or "").strip(),
+                )
+                for tx in transactions
+            ],
+        )
+    finally:
+        conn.close()
     print(f"ODS report saved to {ods_path}")
     if is_first_run:
         print("  (First run: generated starter analysis sheets with formulas)")

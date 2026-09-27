@@ -107,7 +107,7 @@ SQLite storage layer. Handles schema creation, migrations, ingestion, and querie
 **Key functions:**
 - `tx_id(row)` — Generates a 16-character hex hash (SHA-1) for deduplication. The hash key includes account, dates, description, amount, and balance.
 - `ensure_schema(conn)` — Creates the `transactions` table if it doesn't exist.
-- `migrate_schema(conn)` — Adds columns that may be missing from an older schema (for forward compatibility).
+- `migrate_schema(conn)` — Adds columns that may be missing from an older schema (for forward compatibility), and the `ods_baseline` table used by ODS sync-back.
 - `ingest(db_path, paths, cards_path, bank_id)` — Parses files using the multi-bank parser framework (auto-detection or explicit `bank_id`) and inserts rows with `INSERT OR IGNORE` for deduplication. Falls back to the legacy UTF-16 parser for backward compatibility.
 - `reclean_descriptions(db_path)` — Re-runs `clean_description()` on all rows and updates only those that changed.
 - `fetch_all_transactions(conn)` — Returns all transactions as a list of dicts, sorted by date descending. Adds a computed `status` field.
@@ -133,7 +133,7 @@ ODS report orchestration and sync-back. Uses `odfpy` to create/update OpenDocume
 
 **Key functions:**
 - `generate_ods(db_path, rules_path, ods_path, desc_notes_path)` — Main entry point. On first run, generates all sheets. On subsequent runs, replaces only Intro/Data/Rules and preserves everything else.
-- `sync_from_ods(db_path, ods_path, desc_notes_path)` — Reads manual edits from the ODS Data sheet back into the DB (category, subcategory, notes) and into `description-notes.csv` (merchant notes).
+- `sync_from_ods(db_path, ods_path, desc_notes_path)` — Reads manual edits from the ODS Data sheet back into the DB (category, subcategory, notes) and into `description-notes.csv` (merchant notes). A cell only counts as an edit if it differs from the `ods_baseline` value recorded when the ODS was last generated or synced, so a stale ODS never overwrites newer DB changes.
 
 ### `expense_tracker/ods_sheets.py`
 
