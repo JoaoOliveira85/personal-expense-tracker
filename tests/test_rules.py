@@ -319,3 +319,108 @@ class TestMatchRuleSpecificity:
             "PORT,description,Second,,",
         )
         assert _category(rules, "COMPRA 1234 LIDL PORTO") == "First"
+
+
+# ---------------------------------------------------------------------------
+# categorize_transactions — category provenance
+# ---------------------------------------------------------------------------
+
+
+def _row(conn: sqlite3.Connection, like: str) -> tuple:
+    return conn.execute(
+        "SELECT category, subcategory, category_source FROM transactions "
+        "WHERE description_raw LIKE ?",
+        (f"%{like}%",),
+    ).fetchone()
+
+
+class TestCategoryProvenance:
+    @pytest.fixture(autouse=True)
+    def _setup_cleaning(self, noise_words, cleaning_patterns):
+        reset_cleaning_cache()
+        _get_cleaning_patterns(noise_words, cleaning_patterns)
+        yield
+        reset_cleaning_cache()
+
+    @pytest.fixture
+    def conn(self, populated_db):
+        conn = sqlite3.connect(str(populated_db))
+        migrate_schema(conn)
+        yield conn
+        conn.close()
+
+    def test_rule_categorization_is_marked_as_rule(self, conn, tmp_path):
+        categorize_transactions(conn, _rules(tmp_path, "CONTINENTE,description,Groceries,,"))
+        assert _row(conn, "CONTINENTE") == ("Groceries", None, "rule")
+
+    def test_changed_rule_recategorizes_its_rows(self, conn, tmp_path):
+        categorize_transactions(conn, _rules(tmp_path, "CONTINENTE,description,Groceries,,"))
+        updated = categorize_transactions(
+            conn, _rules(tmp_path, "CONTINENTE,description,Food,Supermarket,")
+        )
+        assert updated == 1
+        assert _row(conn, "CONTINENTE") == ("Food", "Supermarket", "rule")
+
+    def test_removed_rule_uncategorizes_its_rows(self, conn, tmp_path):
+        categorize_transactions(
+            conn, _rules(tmp_path, "CONTINENTE,description,Groceries,Supermarket,")
+        )
+        categorize_transactions(conn, _rules(tmp_path, "FARMACIA,description,Health,,"))
+        assert _row(conn, "CONTINENTE") == (None, None, None)
+
+    def test_manual_category_is_never_overridden(self, conn, tmp_path):
+        conn.execute(
+            "UPDATE transactions SET category = 'Household', category_source = 'manual' "
+            "WHERE description_raw LIKE '%CONTINENTE%'"
+        )
+        categorize_transactions(conn, _rules(tmp_path, "CONTINENTE,description,Groceries,,"))
+        assert _row(conn, "CONTINENTE") == ("Household", None, "manual")
+
+    def test_unchanged_rows_are_not_counted(self, conn, tmp_path):
+        rules = _rules(tmp_path, "CONTINENTE,description,Groceries,,")
+        categorize_transactions(conn, rules)
+        assert categorize_transactions(conn, rules) == 0
+
+
+class TestLegacyCategoryAdoption:
+    """Rows categorized before category_source existed have no provenance."""
+
+    @pytest.fixture(autouse=True)
+    def _setup_cleaning(self, noise_words, cleaning_patterns):
+        reset_cleaning_cache()
+        _get_cleaning_patterns(noise_words, cleaning_patterns)
+        yield
+        reset_cleaning_cache()
+
+    @pytest.fixture
+    def conn(self, populated_db):
+        conn = sqlite3.connect(str(populated_db))
+        migrate_schema(conn)
+        yield conn
+        conn.close()
+
+    def _legacy(self, conn, like, category, subcategory=None):
+        conn.execute(
+            "UPDATE transactions SET category = ?, subcategory = ?, "
+            "category_source = NULL WHERE description_raw LIKE ?",
+            (category, subcategory, f"%{like}%"),
+        )
+
+    def test_category_the_old_matcher_produced_is_adopted_as_rule(self, conn, tmp_path):
+        # Old substring matching put "FARMACIA" under
+        # the "ARMA" rule; the new word-boundary matcher does not.
+        self._legacy(conn, "FARMACIA", "Bars")
+        categorize_transactions(conn, _rules(tmp_path, "ARMA,description,Bars,,"))
+        assert _row(conn, "FARMACIA") == (None, None, None)
+
+    def test_category_the_old_matcher_would_not_produce_is_manual(self, conn, tmp_path):
+        self._legacy(conn, "CONTINENTE", "Household")
+        categorize_transactions(conn, _rules(tmp_path, "CONTINENTE,description,Groceries,,"))
+        assert _row(conn, "CONTINENTE") == ("Household", None, "manual")
+
+    def test_manually_changed_subcategory_is_manual(self, conn, tmp_path):
+        self._legacy(conn, "CONTINENTE", "Groceries", "Bulk Buy")
+        categorize_transactions(
+            conn, _rules(tmp_path, "CONTINENTE,description,Groceries,Supermarket,")
+        )
+        assert _row(conn, "CONTINENTE") == ("Groceries", "Bulk Buy", "manual")

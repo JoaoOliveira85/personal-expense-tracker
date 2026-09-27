@@ -164,46 +164,105 @@ def _compile_pattern(pattern: str, whole_word: bool) -> re.Pattern[str]:
 
 def categorize_transactions(conn: sqlite3.Connection, rules: list[dict]) -> int:
     """
-    Apply rules to all uncategorized transactions in the database.
-    Returns the number of transactions updated.
+    Apply rules to every transaction whose category was not set by hand.
+
+    Rows categorized by a rule (category_source = 'rule') are re-evaluated, so
+    editing or removing a rule corrects them; one that no rule matches any
+    more becomes uncategorized again. Manual categories are never touched.
+
+    Returns the number of transactions whose category or subcategory changed.
     """
     if not rules:
+        # Also stops a missing rules file from wiping every rule category.
         return 0
+
+    _adopt_legacy_categories(conn, rules)
 
     rows = conn.execute(
         """
-        SELECT transaction_id, description_raw, description_clean, payment_type
+        SELECT transaction_id, description_raw, description_clean, payment_type,
+               category, subcategory
         FROM transactions
-        WHERE category IS NULL OR category = ''
+        WHERE category IS NULL OR category = '' OR category_source = 'rule'
         """
     ).fetchall()
 
     updated = 0
-    for tid, desc_raw, desc_clean, existing_ptype in rows:
+    for tid, desc_raw, desc_clean, existing_ptype, old_cat, old_sub in rows:
         rule = match_rule(rules, desc_raw, desc_clean)
         if rule is None:
+            if not old_cat:
+                continue
+            new_cat, new_sub, source = None, None, None
+        else:
+            new_cat, new_sub, source = rule["category"], rule["subcategory"] or None, "rule"
+
+        if (old_cat or None, old_sub or None) == (new_cat, new_sub):
             continue
 
-        updates = {"category": rule["category"], "tid": tid}
-        set_clauses = ["category = :category"]
-
-        if rule["subcategory"]:
-            updates["subcategory"] = rule["subcategory"]
-            set_clauses.append("subcategory = :subcategory")
-
-        if rule["payment_type"] and not existing_ptype:
-            updates["payment_type"] = rule["payment_type"]
-            set_clauses.append("payment_type = :payment_type")
-
         conn.execute(
-            f"UPDATE transactions SET {', '.join(set_clauses)} "
-            f"WHERE transaction_id = :tid",
-            updates,
+            "UPDATE transactions SET category = ?, subcategory = ?, "
+            "category_source = ? WHERE transaction_id = ?",
+            (new_cat, new_sub, source, tid),
         )
+        if rule and rule["payment_type"] and not existing_ptype:
+            conn.execute(
+                "UPDATE transactions SET payment_type = ? WHERE transaction_id = ?",
+                (rule["payment_type"], tid),
+            )
         updated += 1
 
     conn.commit()
     return updated
+
+
+def _adopt_legacy_categories(conn: sqlite3.Connection, rules: list[dict]) -> None:
+    """Give a category_source to rows categorized before it existed.
+
+    A row whose category and subcategory equal what the old matcher (first
+    substring match in file order) picks from the current rules was set by a
+    rule, so it becomes rule-owned and gets re-evaluated. Anything else was
+    edited by hand, or its rule has changed since, and is kept as manual.
+    """
+    rows = conn.execute(
+        """
+        SELECT transaction_id, description_raw, description_clean,
+               category, subcategory
+        FROM transactions
+        WHERE category <> '' AND category_source IS NULL
+        """
+    ).fetchall()
+
+    for tid, desc_raw, desc_clean, category, subcategory in rows:
+        rule = _legacy_match(rules, desc_raw, desc_clean)
+        by_rule = (
+            rule is not None
+            and rule["category"] == category
+            and rule["subcategory"] == (subcategory or "")
+        )
+        conn.execute(
+            "UPDATE transactions SET category_source = ? WHERE transaction_id = ?",
+            ("rule" if by_rule else "manual", tid),
+        )
+
+
+def _legacy_match(
+    rules: list[dict], desc_raw: str | None, desc_clean: str | None
+) -> dict | None:
+    """The matcher used before word boundaries: first substring hit wins."""
+    raw, both = _match_targets(desc_raw, desc_clean)
+    for rule in rules:
+        target = raw if rule["match_field"] == "description_raw" else both
+        if rule["pattern_upper"] in target:
+            return rule
+    return None
+
+
+def _match_targets(desc_raw: str | None, desc_clean: str | None) -> tuple[str, str]:
+    """Uppercased text searched by description_raw rules and by all others."""
+    raw = (desc_raw or "").upper()
+    # Default: match against both raw and clean descriptions
+    return raw, raw + " " + (desc_clean or "").upper()
 
 
 def match_rule(
@@ -214,18 +273,14 @@ def match_rule(
     The most specific (longest) matching pattern wins, so "UBER EATS" beats
     "UBER" regardless of where each sits in the file. Ties go to file order.
     """
-    desc_raw_upper = (desc_raw or "").upper()
-    desc_clean_upper = (desc_clean or "").upper()
+    raw, both = _match_targets(desc_raw, desc_clean)
 
     best = None
     for rule in rules:
-        if rule["match_field"] == "description_raw":
-            target = desc_raw_upper
-        else:
-            # Default: match against both raw and clean descriptions
-            target = desc_raw_upper + " " + desc_clean_upper
-
-        if rule["regex"].search(target):
+        target = raw if rule["match_field"] == "description_raw" else both
+        # The substring test is a cheap prefilter: every word-boundary match
+        # is also a substring match, and most rules match neither.
+        if rule["pattern_upper"] in target and rule["regex"].search(target):
             if best is None or len(rule["pattern"]) > len(best["pattern"]):
                 best = rule
     return best

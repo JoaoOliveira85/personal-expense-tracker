@@ -223,6 +223,13 @@ def sync_from_ods(
                     "WHERE transaction_id = ?",
                     (category, subcategory, notes, tx_id),
                 )
+                if category != existing_cat or subcategory != existing_subcat:
+                    # Clearing the category hands the row back to the rules
+                    conn.execute(
+                        "UPDATE transactions SET category_source = ? "
+                        "WHERE transaction_id = ?",
+                        ("manual" if category else None, tx_id),
+                    )
                 updated += 1
 
         conn.commit()

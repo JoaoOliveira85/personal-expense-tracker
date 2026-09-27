@@ -111,3 +111,27 @@ class TestSyncFromOds:
 
         assert sync_from_ods(db, ods, notes) == 0
         assert _category(db, tid) == "Changed Later"
+
+
+def _source(db: Path, tid: str) -> str | None:
+    conn = sqlite3.connect(str(db))
+    try:
+        return conn.execute(
+            "SELECT category_source FROM transactions WHERE transaction_id = ?", (tid,)
+        ).fetchone()[0]
+    finally:
+        conn.close()
+
+
+class TestSyncMarksProvenance:
+    def test_spreadsheet_edit_is_marked_manual(self, report):
+        db, ods, notes, tid = report
+        _set_ods_category(ods, tid, "Household")
+        sync_from_ods(db, ods, notes)
+        assert _source(db, tid) == "manual"
+
+    def test_clearing_category_makes_row_uncategorized(self, report):
+        db, ods, notes, tid = report
+        _set_ods_category(ods, tid, "")
+        sync_from_ods(db, ods, notes)
+        assert _source(db, tid) is None

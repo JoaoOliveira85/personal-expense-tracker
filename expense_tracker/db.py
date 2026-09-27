@@ -60,6 +60,7 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
             who               TEXT,
             category          TEXT,
             subcategory       TEXT,
+            category_source   TEXT,
             notes             TEXT,
             source_file       TEXT NOT NULL,
             imported_at       TEXT NOT NULL
@@ -81,6 +82,8 @@ def migrate_schema(conn: sqlite3.Connection) -> None:
         ("payment_type", "TEXT"),
         ("who", "TEXT"),
         ("notes", "TEXT"),
+        # 'rule' | 'manual' | NULL (uncategorized); see categorize_transactions
+        ("category_source", "TEXT"),
     ]
     for col, typedef in migrations:
         if col not in existing:
