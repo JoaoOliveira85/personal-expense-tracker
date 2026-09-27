@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Iterable
 
-from .constants import NON_SPENDING_CATEGORIES
+from .constants import NON_SPENDING_CATEGORIES, SAVINGS_CATEGORIES
 from .parser import parse_utf16_csv
 from .parsers import parse_statement, detect_parser
 
@@ -193,6 +193,11 @@ def ingest(
 # ---------------------------------------------------------------------------
 
 
+def is_savings(tx: dict) -> bool:
+    """Money moved to or from savings (see SAVINGS_CATEGORIES)."""
+    return (tx.get("category") or "") in SAVINGS_CATEGORIES
+
+
 def is_refund(tx: dict) -> bool:
     """Incoming money in a spending category (see NON_SPENDING_CATEGORIES)."""
     category = tx.get("category") or ""
@@ -200,25 +205,40 @@ def is_refund(tx: dict) -> bool:
         tx.get("direction") == "in"
         and bool(category)
         and category not in NON_SPENDING_CATEGORIES
+        and not is_savings(tx)
     )
+
+
+def is_income(tx: dict) -> bool:
+    """Incoming money that is neither a refund nor a savings withdrawal."""
+    return tx.get("direction") == "in" and not is_refund(tx) and not is_savings(tx)
+
+
+def counts_as_spending(tx: dict) -> bool:
+    """Outgoing money other than savings deposits, or a refund."""
+    return (tx.get("direction") == "out" and not is_savings(tx)) or is_refund(tx)
 
 
 def spend_amount(tx: dict) -> float:
     """Contribution to spending: +amount out, -amount for a refund, else 0."""
-    if tx.get("direction") == "out":
-        return tx["amount_abs"]
-    return -tx["amount_abs"] if is_refund(tx) else 0.0
+    if not counts_as_spending(tx):
+        return 0.0
+    return tx["amount_abs"] if tx.get("direction") == "out" else -tx["amount_abs"]
 
 
-_NON_SPENDING_SQL = ", ".join(f"'{c}'" for c in NON_SPENDING_CATEGORIES)
+def _sql_list(values: tuple[str, ...]) -> str:
+    return ", ".join(f"'{v}'" for v in values)
 
-# SQL counterparts of is_refund() / spend_amount() for aggregate queries.
+
+# SQL counterparts of the helpers above, for aggregate queries.
+NOT_SAVINGS_SQL = f"COALESCE(category, '') NOT IN ({_sql_list(SAVINGS_CATEGORIES)})"
 REFUND_SQL = (
-    "(direction = 'in' AND COALESCE(category, '') <> '' "
-    f"AND category NOT IN ({_NON_SPENDING_SQL}))"
+    "(direction = 'in' AND COALESCE(category, '') <> '' AND category NOT IN "
+    f"({_sql_list(NON_SPENDING_CATEGORIES + SAVINGS_CATEGORIES)}))"
 )
+INCOME_SQL = f"(direction = 'in' AND NOT {REFUND_SQL} AND {NOT_SAVINGS_SQL})"
 SPEND_SQL = (
-    "CASE WHEN direction = 'out' THEN amount_abs "
+    f"CASE WHEN direction = 'out' AND {NOT_SAVINGS_SQL} THEN amount_abs "
     f"WHEN {REFUND_SQL} THEN -amount_abs ELSE 0 END"
 )
 

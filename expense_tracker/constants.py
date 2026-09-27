@@ -35,6 +35,10 @@ DOW_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 # category's spending instead of counting as income.
 NON_SPENDING_CATEGORIES = ("Income", "Transfers")
 
+# Money moved into or out of savings products (e.g. a savings or
+# investment account): deposits are not spending and withdrawals are not income.
+SAVINGS_CATEGORIES = ("Savings",)
+
 # ---------------------------------------------------------------------------
 # Data sheet column definitions
 # ---------------------------------------------------------------------------

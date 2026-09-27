@@ -37,7 +37,7 @@ import streamlit as st
 
 from expense_tracker.constants import (
     DEFAULT_DB, DEFAULT_RULES, DEFAULT_ODS, DEFAULT_RAW, DEFAULT_DESC_NOTES,
-    DEFAULT_BACKUPS, DEFAULT_REPORTS,
+    DEFAULT_BACKUPS, DEFAULT_REPORTS, SAVINGS_CATEGORIES,
 )
 from expense_tracker.db import (
     ensure_schema, migrate_schema, fetch_all_transactions, ingest,
@@ -126,9 +126,11 @@ if page == "Dashboard":
 
     # Summary metrics
     expenses = df[df["direction"] == "out"]
-    # Refunds (spend < 0) reduce spending instead of counting as income
+    # Refunds (spend < 0) reduce spending instead of counting as income;
+    # savings deposits and withdrawals are neither
+    savings = df["category"].isin(SAVINGS_CATEGORIES)
     spending = df[df["spend"] != 0]
-    income = df[(df["direction"] == "in") & (df["spend"] == 0)]
+    income = df[(df["direction"] == "in") & (df["spend"] == 0) & ~savings]
 
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("Total Expenses", f"{df['spend'].sum():,.2f} €")
@@ -182,9 +184,10 @@ if page == "Dashboard":
 
     with col_d:
         st.subheader("Top 10 Merchants")
-        if not expenses.empty:
+        spent = expenses[~expenses["category"].isin(SAVINGS_CATEGORIES)]
+        if not spent.empty:
             top = (
-                expenses.groupby("description_clean")["amount_abs"]
+                spent.groupby("description_clean")["amount_abs"]
                 .sum()
                 .nlargest(10)
                 .sort_values(ascending=True)

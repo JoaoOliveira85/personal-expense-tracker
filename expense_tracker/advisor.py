@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from .constants import DEFAULT_DB, DEFAULT_ADVISOR_DIR
-from .db import REFUND_SQL, SPEND_SQL
+from .db import INCOME_SQL, NOT_SAVINGS_SQL, REFUND_SQL, SPEND_SQL
 from .pdf_report import previous_month_label, month_display_name, _prev_month
 
 
@@ -116,8 +116,7 @@ def _fetch_monthly_summary(
     row = conn.execute(f"""
         SELECT
             COUNT(*) as tx_count,
-            SUM(CASE WHEN direction = 'in' AND NOT {REFUND_SQL}
-                THEN amount_abs ELSE 0 END) as income,
+            SUM(CASE WHEN {INCOME_SQL} THEN amount_abs ELSE 0 END) as income,
             SUM({SPEND_SQL}) as expenses
         FROM transactions
         WHERE month = ?
@@ -134,19 +133,19 @@ def _fetch_monthly_summary(
             SUM({SPEND_SQL}) as total,
             SUM(direction = 'out') as count
         FROM transactions
-        WHERE month = ? AND (direction = 'out' OR {REFUND_SQL})
+        WHERE month = ? AND (direction = 'out' OR {REFUND_SQL}) AND {NOT_SAVINGS_SQL}
         GROUP BY category
         ORDER BY total DESC
     """, (month,)).fetchall()
     
     # Get top merchants
-    merchants = conn.execute("""
+    merchants = conn.execute(f"""
         SELECT 
             description_clean as merchant,
             SUM(amount_abs) as total,
             COUNT(*) as count
         FROM transactions
-        WHERE month = ? AND direction = 'out'
+        WHERE month = ? AND direction = 'out' AND {NOT_SAVINGS_SQL}
         GROUP BY description_clean
         ORDER BY total DESC
         LIMIT 10
@@ -184,8 +183,7 @@ def _fetch_historical_summary(
         SELECT
             COUNT(DISTINCT month) as month_count,
             COUNT(*) as tx_count,
-            SUM(CASE WHEN direction = 'in' AND NOT {REFUND_SQL}
-                THEN amount_abs ELSE 0 END) as total_income,
+            SUM(CASE WHEN {INCOME_SQL} THEN amount_abs ELSE 0 END) as total_income,
             SUM({SPEND_SQL}) as total_expenses,
             MIN(month) as first_month,
             MAX(month) as last_month
@@ -205,7 +203,7 @@ def _fetch_historical_summary(
             AVG(CASE WHEN direction = 'out' THEN amount_abs END) as avg_per_tx,
             SUM(direction = 'out') as count
         FROM transactions
-        WHERE month < ? AND (direction = 'out' OR {REFUND_SQL})
+        WHERE month < ? AND (direction = 'out' OR {REFUND_SQL}) AND {NOT_SAVINGS_SQL}
         GROUP BY category
         ORDER BY total DESC
     """, (before_month,)).fetchall()

@@ -8,8 +8,13 @@ from __future__ import annotations
 
 from collections import defaultdict
 
-from .constants import DATA_COLUMNS, DATA_HEADERS, NON_SPENDING_CATEGORIES
-from .db import is_refund
+from .constants import (
+    DATA_COLUMNS,
+    DATA_HEADERS,
+    NON_SPENDING_CATEGORIES,
+    SAVINGS_CATEGORIES,
+)
+from .db import counts_as_spending, is_savings
 
 
 # ---------------------------------------------------------------------------
@@ -23,22 +28,33 @@ from .db import is_refund
 # ---------------------------------------------------------------------------
 
 
+def _not_in(n: int, categories: tuple[str, ...]) -> str:
+    """1 for rows whose category is none of `categories`, 0 otherwise."""
+    return "".join(f'*([.Data.H2:.Data.H{n}]<>"{c}")' for c in categories)
+
+
 def _refund(n: int) -> str:
     """1 for refund rows, 0 otherwise."""
-    h = f"[.Data.H2:.Data.H{n}]"
-    return f'([.Data.G2:.Data.G{n}]="in")*({h}<>"")' + "".join(
-        f'*({h}<>"{c}")' for c in NON_SPENDING_CATEGORIES
+    return (
+        f'([.Data.G2:.Data.G{n}]="in")*([.Data.H2:.Data.H{n}]<>"")'
+        + _not_in(n, NON_SPENDING_CATEGORIES + SAVINGS_CATEGORIES)
     )
 
 
 def _spend(n: int) -> str:
-    """+amount for outgoing rows, -amount for refunds, 0 otherwise."""
-    return f'(([.Data.G2:.Data.G{n}]="out")-{_refund(n)})*[.Data.F2:.Data.F{n}]'
+    """+amount for outgoing non-savings rows, -amount for refunds, else 0."""
+    return (
+        f'(([.Data.G2:.Data.G{n}]="out"){_not_in(n, SAVINGS_CATEGORIES)}'
+        f"-{_refund(n)})*[.Data.F2:.Data.F{n}]"
+    )
 
 
 def _income(n: int) -> str:
-    """Amount of incoming rows that are not refunds."""
-    return f'(([.Data.G2:.Data.G{n}]="in")-{_refund(n)})*[.Data.F2:.Data.F{n}]'
+    """Amount of incoming rows that are neither refunds nor savings."""
+    return (
+        f'(([.Data.G2:.Data.G{n}]="in"){_not_in(n, SAVINGS_CATEGORIES)}'
+        f"-{_refund(n)})*[.Data.F2:.Data.F{n}]"
+    )
 
 
 def setup_styles(doc):
@@ -216,7 +232,7 @@ def write_monthly_summary_sheet(doc, transactions):
     months = sorted(set(tx["month"] for tx in transactions if tx["month"]))
     categories = sorted(set(
         tx["category"] for tx in transactions
-        if tx.get("category") and (tx["direction"] == "out" or is_refund(tx))
+        if tx.get("category") and counts_as_spending(tx)
     ))
     if not categories:
         categories = ["(no categories yet)"]
@@ -285,7 +301,7 @@ def write_category_breakdown_sheet(doc, transactions):
 
     categories = sorted(set(
         tx["category"] for tx in transactions
-        if tx.get("category") and (tx["direction"] == "out" or is_refund(tx))
+        if tx.get("category") and counts_as_spending(tx)
     ))
     n_months = len(set(tx["month"] for tx in transactions if tx["month"])) or 1
     n = len(transactions) + 1
@@ -416,7 +432,7 @@ def write_dashboard_sheet(doc, transactions):
     # --- Top categories ---
     categories = sorted(set(
         tx["category"] for tx in transactions
-        if tx.get("category") and (tx["direction"] == "out" or is_refund(tx))
+        if tx.get("category") and counts_as_spending(tx)
     ))
 
     table.addElement(make_header_row(["Top Categories", "Total Spent", "# Transactions"]))
@@ -441,7 +457,7 @@ def write_dashboard_sheet(doc, transactions):
     # --- Top 10 Merchants (by total spend) ---
     merchant_totals: dict[str, float] = {}
     for tx in transactions:
-        if tx.get("direction") == "out":
+        if tx.get("direction") == "out" and not is_savings(tx):
             desc = tx.get("description_clean") or tx.get("description_raw") or ""
             if desc:
                 amt = 0.0
@@ -576,7 +592,7 @@ def write_subcategory_breakdown_sheet(doc, transactions):
     pairs = sorted(set(
         (tx["category"], tx.get("subcategory") or "")
         for tx in transactions
-        if tx.get("category") and (tx["direction"] == "out" or is_refund(tx))
+        if tx.get("category") and counts_as_spending(tx)
     ))
 
     n = len(transactions) + 1

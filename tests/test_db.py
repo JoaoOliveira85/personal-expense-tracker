@@ -14,6 +14,7 @@ from expense_tracker.db import (
     ingested_source_files,
     reclean_descriptions,
     fetch_all_transactions,
+    is_income,
     is_refund,
     spend_amount,
 )
@@ -315,6 +316,7 @@ class TestRefunds:
             (_t("in", ""), False),
             (_t("in", None), False),
             (_t("out", "Health"), False),
+            (_t("in", "Savings"), False),
         ],
     )
     def test_is_refund(self, tx, expected):
@@ -328,7 +330,23 @@ class TestRefunds:
             (_t("in", "Health", 30), -30),
             (_t("in", "Income", 30), 0),
             (_t("in", "", 30), 0),
+            (_t("out", "Savings", 30), 0),
+            (_t("in", "Savings", 30), 0),
         ],
     )
     def test_spend_amount(self, tx, expected):
         assert spend_amount(tx) == expected
+
+    @pytest.mark.parametrize(
+        "tx, expected",
+        [
+            (_t("in", "Income"), True),
+            (_t("in", "Transfers"), True),
+            (_t("in", ""), True),
+            (_t("in", "Health"), False),
+            (_t("in", "Savings"), False),
+            (_t("out", "Income"), False),
+        ],
+    )
+    def test_is_income(self, tx, expected):
+        assert is_income(tx) is expected

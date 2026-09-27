@@ -162,6 +162,18 @@ class TestComputeStats:
         assert stats["total_expenses"] == 70
         assert stats["total_income"] == 0
 
+    def test_savings_are_neither_spending_nor_income(self):
+        txns = [
+            _tx(desc="SAVINGS ACCOUNT", amount=2000, direction="out", category="Savings"),
+            _tx(desc="SAVINGS ACCOUNT", amount=500, direction="in", category="Savings"),
+            _tx(amount=40, direction="out", category="Groceries"),
+        ]
+        stats = _compute_stats(txns)
+        assert stats["total_expenses"] == 40
+        assert stats["total_income"] == 0
+        assert [c[0] for c in stats["by_category"]] == ["Groceries"]
+        assert [m[0] for m in stats["top_merchants"]] == ["TEST MERCHANT"]
+
     def test_income_and_uncategorized_inflows_are_income(self):
         txns = [
             _tx(amount=1000, direction="in", category="Income"),
@@ -484,6 +496,7 @@ class TestHistoricalCategoryTotals:
         _insert(conn, "1", "2026-01", "out", "Health", 100)
         _insert(conn, "2", "2026-01", "in", "Health", 30)
         _insert(conn, "3", "2026-01", "in", "Income", 2000)
+        _insert(conn, "4", "2026-01", "out", "Savings", 3000)
         totals = _fetch_historical_category_totals(conn)
         conn.close()
         assert totals == {"2026-01": {"Health": 70}}

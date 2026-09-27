@@ -23,11 +23,13 @@ N = 6  # last Data row: 5 sample transactions + header
 
 XLSX_REFUNDS = (
     'Data!G:G,"in",Data!H:H,"<>",Data!H:H,"<>Income",Data!H:H,"<>Transfers"'
+    ',Data!H:H,"<>Savings"'
 )
 ODS_SPEND = (
-    f'(([.Data.G2:.Data.G{N}]="out")'
+    f'(([.Data.G2:.Data.G{N}]="out")*([.Data.H2:.Data.H{N}]<>"Savings")'
     f'-([.Data.G2:.Data.G{N}]="in")*([.Data.H2:.Data.H{N}]<>"")'
-    f'*([.Data.H2:.Data.H{N}]<>"Income")*([.Data.H2:.Data.H{N}]<>"Transfers"))'
+    f'*([.Data.H2:.Data.H{N}]<>"Income")*([.Data.H2:.Data.H{N}]<>"Transfers")'
+    f'*([.Data.H2:.Data.H{N}]<>"Savings"))'
     f'*[.Data.F2:.Data.F{N}]'
 )
 
@@ -35,7 +37,8 @@ ODS_SPEND = (
 @pytest.fixture
 def db(populated_db, rules_csv, noise_words, cleaning_patterns):
     """Sample DB, categorized, with the EXEMPLO payment turned into an
-    Insurance refund (the only Insurance transaction)."""
+    Insurance refund (the only Insurance transaction) and the VODAFONE
+    payment into a Savings deposit."""
     reset_cleaning_cache()
     _get_cleaning_patterns(noise_words, cleaning_patterns)
     conn = sqlite3.connect(str(populated_db))
@@ -44,6 +47,10 @@ def db(populated_db, rules_csv, noise_words, cleaning_patterns):
     conn.execute(
         "UPDATE transactions SET direction = 'in', category = 'Insurance' "
         "WHERE description_raw LIKE '%EXEMPLO%'"
+    )
+    conn.execute(
+        "UPDATE transactions SET category = 'Savings' "
+        "WHERE description_raw LIKE '%VODAFONE%'"
     )
     conn.commit()
     conn.close()
@@ -87,20 +94,28 @@ class TestXlsxRefunds:
         ws = workbook["Dashboard"]
         income = ws.cell(row=_row_by_label(ws, "Total Income"), column=2).value
         expenses = ws.cell(row=_row_by_label(ws, "Total Expenses"), column=2).value
-        assert income == f'=SUMIFS(Data!F:F,Data!G:G,"in")-SUMIFS(Data!F:F,{XLSX_REFUNDS})'
-        assert expenses == (
-            f'=SUMIFS(Data!F:F,Data!G:G,"out")-SUMIFS(Data!F:F,{XLSX_REFUNDS})'
+        assert income == (
+            '=SUMIFS(Data!F:F,Data!G:G,"in",Data!H:H,"<>Savings")'
+            f"-SUMIFS(Data!F:F,{XLSX_REFUNDS})"
         )
+        assert expenses == (
+            '=SUMIFS(Data!F:F,Data!G:G,"out",Data!H:H,"<>Savings")'
+            f"-SUMIFS(Data!F:F,{XLSX_REFUNDS})"
+        )
+
+    def test_savings_is_not_a_spending_category(self, workbook):
+        with pytest.raises(AssertionError):
+            _row_by_label(workbook["Category Breakdown"], "Savings")
 
     def test_monthly_trend_nets_refunds(self, workbook):
         ws = workbook["Monthly Trend"]
         month = 'Data!B:B,"2026-01",'
         assert ws["B2"].value == (
-            f'=SUMIFS(Data!F:F,{month}Data!G:G,"in")'
+            f'=SUMIFS(Data!F:F,{month}Data!G:G,"in",Data!H:H,"<>Savings")'
             f"-SUMIFS(Data!F:F,{month}{XLSX_REFUNDS})"
         )
         assert ws["C2"].value == (
-            f'=SUMIFS(Data!F:F,{month}Data!G:G,"out")'
+            f'=SUMIFS(Data!F:F,{month}Data!G:G,"out",Data!H:H,"<>Savings")'
             f"-SUMIFS(Data!F:F,{month}{XLSX_REFUNDS})"
         )
 
@@ -139,6 +154,10 @@ class TestOdsRefunds:
 
     def test_category_with_only_refunds_is_listed(self, ods_doc):
         assert _ods_row(ods_doc, "Category Breakdown", "Insurance")
+
+    def test_savings_is_not_a_spending_category(self, ods_doc):
+        with pytest.raises(AssertionError):
+            _ods_row(ods_doc, "Category Breakdown", "Savings")
 
     def test_dashboard_total_expenses_nets_refunds(self, ods_doc):
         cells = _ods_row(ods_doc, "Dashboard", "Total Expenses")

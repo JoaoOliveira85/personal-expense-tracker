@@ -15,6 +15,8 @@ def conn(test_db):
     _insert(conn, "1", "2026-01", "out", "Health", 100)
     _insert(conn, "2", "2026-01", "in", "Health", 30)
     _insert(conn, "3", "2026-01", "in", "Income", 2000)
+    _insert(conn, "4", "2026-01", "out", "Savings", 3000)
+    _insert(conn, "5", "2026-01", "in", "Savings", 500)
     yield conn
     conn.close()
 

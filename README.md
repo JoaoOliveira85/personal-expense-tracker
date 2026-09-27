@@ -521,7 +521,11 @@ Open this file in **LibreOffice Calc** or upload it to **Google Sheets**.
 | **Recurring Merchants** | First run only | Merchants that appear 3+ times — helps spot subscriptions, regular bills, and habitual spending. Shows count, total, average, date range, and category. |
 | *Your custom sheets* | Never touched | Add as many sheets as you want. The script will never modify or remove them. |
 
-**Refunds.** Money coming *in* with a spending category (e.g. a pharmacy refund or an insurance reimbursement categorized as Health) is treated as a refund: it is subtracted from that category's spending and from total expenses, and is **not** counted as income. Incoming transactions categorized `Income` or `Transfers`, or left uncategorized, count as income. This applies to every report (ODS, xlsx, PDF, GUI dashboard, advisor). Because the analysis sheets above are only written on the first run, regenerate an existing ODS with `python bank_ingest.py report --fresh` to pick up the refund-aware formulas.
+**Refunds.** Money coming *in* with a spending category (e.g. a pharmacy refund or an insurance reimbursement categorized as Health) is treated as a refund: it is subtracted from that category's spending and from total expenses, and is **not** counted as income. Incoming transactions categorized `Income` or `Transfers`, or left uncategorized, count as income.
+
+**Savings.** Transactions categorized `Savings` are money moved into or out of a savings product (e.g. a savings or investment account): deposits are **not** counted as spending and withdrawals are **not** counted as income, so Net reflects only what you earned and spent. Monthly Trend's running balance therefore won't match your bank balance in months with savings movements.
+
+Both rules apply to every report (ODS, xlsx, PDF, GUI dashboard, advisor). Because the analysis sheets above are only written on the first run, regenerate an existing ODS with `python bank_ingest.py report --fresh` to pick up the refund-aware formulas.
 
 ### Manual Categorization & Notes
 

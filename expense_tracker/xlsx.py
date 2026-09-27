@@ -18,24 +18,32 @@ from .constants import (
     DATA_COLUMNS,
     DATA_HEADERS,
     NON_SPENDING_CATEGORIES,
+    SAVINGS_CATEGORIES,
 )
-from .db import migrate_schema, fetch_all_transactions, is_refund
+from .db import migrate_schema, fetch_all_transactions, counts_as_spending, is_savings
 from .rules import load_rules
 
-# SUMIFS criteria selecting refunds (see db.is_refund)
+# SUMIFS criteria excluding savings, and selecting refunds (see db.py)
+_NOT_SAVINGS = "".join(f',Data!H:H,"<>{c}"' for c in SAVINGS_CATEGORIES)
 _REFUNDS = 'Data!G:G,"in",Data!H:H,"<>"' + "".join(
-    f',Data!H:H,"<>{c}"' for c in NON_SPENDING_CATEGORIES
+    f',Data!H:H,"<>{c}"' for c in NON_SPENDING_CATEGORIES + SAVINGS_CATEGORIES
 )
 
 
 def _spend(criteria: str = "") -> str:
     """SUMIFS spending net of refunds; `criteria` is e.g. 'Data!B:B,"2026-01",'."""
-    return f'SUMIFS(Data!F:F,{criteria}Data!G:G,"out")-SUMIFS(Data!F:F,{criteria}{_REFUNDS})'
+    return (
+        f'SUMIFS(Data!F:F,{criteria}Data!G:G,"out"{_NOT_SAVINGS})'
+        f"-SUMIFS(Data!F:F,{criteria}{_REFUNDS})"
+    )
 
 
 def _income(criteria: str = "") -> str:
-    """SUMIFS incoming money that is not a refund."""
-    return f'SUMIFS(Data!F:F,{criteria}Data!G:G,"in")-SUMIFS(Data!F:F,{criteria}{_REFUNDS})'
+    """SUMIFS incoming money that is neither a refund nor a savings withdrawal."""
+    return (
+        f'SUMIFS(Data!F:F,{criteria}Data!G:G,"in"{_NOT_SAVINGS})'
+        f"-SUMIFS(Data!F:F,{criteria}{_REFUNDS})"
+    )
 
 
 def _category_spend(cat: str, criteria: str = "") -> str:
@@ -336,7 +344,7 @@ def _write_dashboard_sheet(ws, transactions: list[dict], styles: dict, n: int) -
     # Top Categories
     categories = sorted(set(
         tx["category"] for tx in transactions
-        if tx.get("category") and (tx["direction"] == "out" or is_refund(tx))
+        if tx.get("category") and counts_as_spending(tx)
     ))
     
     for col, header in enumerate(["Top Categories", "Total Spent", "# Transactions"], start=1):
@@ -357,7 +365,7 @@ def _write_dashboard_sheet(ws, transactions: list[dict], styles: dict, n: int) -
     # Top Merchants
     merchant_totals: dict[str, float] = {}
     for tx in transactions:
-        if tx.get("direction") == "out":
+        if tx.get("direction") == "out" and not is_savings(tx):
             desc = tx.get("description_clean") or ""
             if desc:
                 amt = float(tx.get("amount_abs") or 0)
@@ -386,7 +394,7 @@ def _write_monthly_summary_sheet(ws, transactions: list[dict], styles: dict, n: 
     months = sorted(set(tx["month"] for tx in transactions if tx["month"]))
     categories = sorted(set(
         tx["category"] for tx in transactions
-        if tx.get("category") and (tx["direction"] == "out" or is_refund(tx))
+        if tx.get("category") and counts_as_spending(tx)
     ))
     
     if not categories:
@@ -493,7 +501,7 @@ def _write_category_breakdown_sheet(ws, transactions: list[dict], styles: dict, 
     """Write category breakdown analysis."""
     categories = sorted(set(
         tx["category"] for tx in transactions
-        if tx.get("category") and (tx["direction"] == "out" or is_refund(tx))
+        if tx.get("category") and counts_as_spending(tx)
     ))
     n_months = len(set(tx["month"] for tx in transactions if tx["month"])) or 1
     
@@ -551,7 +559,7 @@ def _write_subcategory_breakdown_sheet(ws, transactions: list[dict], styles: dic
     pairs = sorted(set(
         (tx["category"], tx.get("subcategory") or "")
         for tx in transactions
-        if tx.get("category") and (tx["direction"] == "out" or is_refund(tx))
+        if tx.get("category") and counts_as_spending(tx)
     ))
     
     headers = ["Category", "Subcategory", "Total Spent", "% of Category", "# Transactions"]
