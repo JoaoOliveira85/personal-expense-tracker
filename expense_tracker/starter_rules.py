@@ -18,7 +18,8 @@ from .rules import RULES_HEADER, load_rules
 # Each tuple: (pattern, match_field, category, subcategory, payment_type)
 #
 # Guidelines:
-# - Patterns are case-insensitive substrings matched against the description
+# - Patterns are case-insensitive and must start at a word boundary; a
+#   trailing space ("BP ") also requires a word boundary at the end
 # - More specific patterns should come before broader ones
 # - payment_type is left empty unless strongly implied (e.g. DD = direct_debit)
 # - match_field is "description" (matches both raw and cleaned) unless the

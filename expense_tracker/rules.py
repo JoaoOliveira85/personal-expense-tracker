@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import csv
+import re
 import sqlite3
 from pathlib import Path
 
@@ -116,6 +117,10 @@ def load_rules(rules_path: Path) -> list[dict]:
 
     Expected columns: pattern, match_field, category, subcategory, payment_type
     First matching rule wins (file order = priority).
+
+    Patterns match case-insensitively at the start of a word, so "PAO" matches
+    "PAO QUENTE" and "PAOZINHO" but not "JAPAO". A trailing space in the
+    pattern ("BP ") also requires the match to end at a word boundary.
     """
     if not rules_path.exists():
         print(f"Warning: rules file not found at {rules_path}, skipping categorization.")
@@ -125,13 +130,17 @@ def load_rules(rules_path: Path) -> list[dict]:
     with rules_path.open("r", encoding="utf-8") as f:
         reader = csv.DictReader(f)
         for row in reader:
-            pattern = row.get("pattern", "").strip()
+            raw_pattern = row.get("pattern", "")
+            pattern = raw_pattern.strip()
             if not pattern:
                 continue
             rules.append(
                 {
                     "pattern": pattern,
                     "pattern_upper": pattern.upper(),
+                    "regex": _compile_pattern(
+                        pattern, whole_word=raw_pattern != raw_pattern.rstrip()
+                    ),
                     "match_field": row.get("match_field", "description").strip(),
                     "category": row.get("category", "").strip(),
                     "subcategory": row.get("subcategory", "").strip(),
@@ -139,6 +148,18 @@ def load_rules(rules_path: Path) -> list[dict]:
                 }
             )
     return rules
+
+
+def _compile_pattern(pattern: str, whole_word: bool) -> re.Pattern[str]:
+    """Anchor a literal pattern to word boundaries (see load_rules)."""
+    regex = re.escape(pattern.upper())
+    # Only anchor on word characters: a pattern like ">PAGAMENTO" already
+    # starts at a natural boundary and may follow a letter in bank text.
+    if pattern[0].isalnum():
+        regex = r"(?<!\w)" + regex
+    if whole_word:
+        regex += r"(?!\w)"
+    return re.compile(regex)
 
 
 def categorize_transactions(conn: sqlite3.Connection, rules: list[dict]) -> int:
@@ -159,35 +180,46 @@ def categorize_transactions(conn: sqlite3.Connection, rules: list[dict]) -> int:
 
     updated = 0
     for tid, desc_raw, desc_clean, existing_ptype in rows:
-        desc_raw_upper = (desc_raw or "").upper()
-        desc_clean_upper = (desc_clean or "").upper()
+        rule = match_rule(rules, desc_raw, desc_clean)
+        if rule is None:
+            continue
 
-        for rule in rules:
-            if rule["match_field"] == "description_raw":
-                target = desc_raw_upper
-            else:
-                # Default: match against both raw and clean descriptions
-                target = desc_raw_upper + " " + desc_clean_upper
+        updates = {"category": rule["category"], "tid": tid}
+        set_clauses = ["category = :category"]
 
-            if rule["pattern_upper"] in target:
-                updates = {"category": rule["category"], "tid": tid}
-                set_clauses = ["category = :category"]
+        if rule["subcategory"]:
+            updates["subcategory"] = rule["subcategory"]
+            set_clauses.append("subcategory = :subcategory")
 
-                if rule["subcategory"]:
-                    updates["subcategory"] = rule["subcategory"]
-                    set_clauses.append("subcategory = :subcategory")
+        if rule["payment_type"] and not existing_ptype:
+            updates["payment_type"] = rule["payment_type"]
+            set_clauses.append("payment_type = :payment_type")
 
-                if rule["payment_type"] and not existing_ptype:
-                    updates["payment_type"] = rule["payment_type"]
-                    set_clauses.append("payment_type = :payment_type")
-
-                conn.execute(
-                    f"UPDATE transactions SET {', '.join(set_clauses)} "
-                    f"WHERE transaction_id = :tid",
-                    updates,
-                )
-                updated += 1
-                break
+        conn.execute(
+            f"UPDATE transactions SET {', '.join(set_clauses)} "
+            f"WHERE transaction_id = :tid",
+            updates,
+        )
+        updated += 1
 
     conn.commit()
     return updated
+
+
+def match_rule(
+    rules: list[dict], desc_raw: str | None, desc_clean: str | None
+) -> dict | None:
+    """Return the rule that categorizes a transaction, or None."""
+    desc_raw_upper = (desc_raw or "").upper()
+    desc_clean_upper = (desc_clean or "").upper()
+
+    for rule in rules:
+        if rule["match_field"] == "description_raw":
+            target = desc_raw_upper
+        else:
+            # Default: match against both raw and clean descriptions
+            target = desc_raw_upper + " " + desc_clean_upper
+
+        if rule["regex"].search(target):
+            return rule
+    return None

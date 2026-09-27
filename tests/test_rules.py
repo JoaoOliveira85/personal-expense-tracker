@@ -15,6 +15,7 @@ from expense_tracker.rules import (
     remove_card,
     load_rules,
     categorize_transactions,
+    match_rule,
 )
 
 
@@ -229,3 +230,66 @@ class TestCategorizeTransactions:
         assert row[1] == "Pharmacy"
         # payment_type should be set by the rule if empty, but parser already sets it
         # The rule says "card" and parser detected "card", so it stays
+
+
+# ---------------------------------------------------------------------------
+# match_rule — word-boundary semantics
+# ---------------------------------------------------------------------------
+
+
+def _rules(tmp_path: Path, *lines: str) -> list[dict]:
+    p = tmp_path / "rules.csv"
+    p.write_text(
+        "pattern,match_field,category,subcategory,payment_type\n"
+        + "\n".join(lines)
+        + "\n",
+        encoding="utf-8",
+    )
+    return load_rules(p)
+
+
+def _category(rules: list[dict], raw: str, clean: str = "") -> str | None:
+    rule = match_rule(rules, raw, clean)
+    return rule["category"] if rule else None
+
+
+class TestMatchRuleWordBoundary:
+    def test_does_not_match_inside_a_word(self, tmp_path):
+        rules = _rules(tmp_path, "PAO,description,Groceries,,")
+        assert _category(rules, "COMPRA 1234 SUSHI DO JAPAO LISBOA") is None
+
+    def test_does_not_match_across_word_start(self, tmp_path):
+        rules = _rules(tmp_path, "CP PORTO,description,Transport,,")
+        assert _category(rules, "LEV ATM 1234 BANKA PORTO") is None
+
+    def test_still_matches_word_prefix(self, tmp_path):
+        rules = _rules(tmp_path, "CINEMA,description,Entertainment,,")
+        assert _category(rules, "COMPRA 1234 NOS CINEMAS LISBOA") == "Entertainment"
+
+    def test_matches_at_start_of_description(self, tmp_path):
+        rules = _rules(tmp_path, "FARMACIA,description,Health,,")
+        assert _category(rules, "FARMACIACENTRAL LISBOA") == "Health"
+
+    def test_is_case_insensitive(self, tmp_path):
+        rules = _rules(tmp_path, "youtube,description,Subscriptions,,")
+        assert _category(rules, "COMPRA 1234 Google YouTubePremium") == "Subscriptions"
+
+    def test_trailing_space_requires_whole_word(self, tmp_path):
+        rules = _rules(tmp_path, '"BP ",description,Transport,,')
+        assert _category(rules, "LEV ATM 1234 BPI Lisboa") is None
+
+    def test_trailing_space_matches_word_at_end(self, tmp_path):
+        rules = _rules(tmp_path, '"BP ",description,Transport,,')
+        assert _category(rules, "COMPRA 1234 BP") == "Transport"
+
+    def test_pattern_starting_with_punctuation_matches_anywhere(self, tmp_path):
+        rules = _rules(tmp_path, ">PAGAMENTO CARTAO,description_raw,Debt,,")
+        assert _category(rules, "VIS>PAGAMENTO CARTAO CREDITO") == "Debt"
+
+    def test_description_raw_rule_ignores_clean_description(self, tmp_path):
+        rules = _rules(tmp_path, "CONTINENTE,description_raw,Groceries,,")
+        assert _category(rules, "COMPRA 1234 XYZ", "CONTINENTE") is None
+
+    def test_description_rule_checks_clean_description(self, tmp_path):
+        rules = _rules(tmp_path, "CONTINENTE,description,Groceries,,")
+        assert _category(rules, "COMPRA 1234 XYZ", "CONTINENTE") == "Groceries"

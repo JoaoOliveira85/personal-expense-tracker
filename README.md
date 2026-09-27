@@ -598,7 +598,8 @@ TRF P/ Renda,description,Housing,Rent,transfer
 ### How Rules Work
 
 - Rules are applied **in order** — the first matching rule wins
-- Matching is **case-insensitive** and uses substring matching
+- Matching is **case-insensitive** and a pattern must start at the beginning of a word: `PAO` matches "PAO QUENTE" and "PAOZINHO" but not "JAPAO"
+- End a pattern with a space (write it quoted, e.g. `"BP "`) to also require it to end on a word boundary: `"BP "` matches "BP" but not "BPI"
 - Rules only apply to **uncategorized** transactions (they won't override manual edits or previous rules)
 - After adding new rules, run `./run.sh` to apply them
 
