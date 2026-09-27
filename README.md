@@ -154,11 +154,19 @@ Run this occasionally to get the latest improvements.
 ./update.sh
 ```
 
+Code is developed in [`personal-expense-tracker`](https://github.com/JoaoOliveira85/personal-expense-tracker), a repository that never contains personal data. Your own clone can point `origin` at a separate private repo where you commit your data; `update.sh` pulls code from the development repo regardless.
+
 What it does:
-1. Fetches changes from the GitHub remote
-2. If there are updates, pulls them safely (fast-forward only)
-3. Re-runs `install.sh` if dependencies changed
-4. If already up to date, does nothing
+1. Finds the remote pointing at the development repo, or adds one named `upstream`
+2. Fetches its `main` branch and merges it into your current branch (fast-forward when possible, otherwise a merge commit that keeps your personal commits)
+3. Aborts cleanly on a merge conflict, leaving your clone unchanged
+4. Re-runs `install.sh` if dependencies changed
+5. If already up to date, does nothing
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `EXPENSE_TRACKER_UPSTREAM` | `git@github.com:JoaoOliveira85/personal-expense-tracker.git` | Development repo URL |
+| `EXPENSE_TRACKER_BRANCH` | `main` | Branch to follow |
 
 ---
 
@@ -696,8 +704,8 @@ The expense tracker can run as a containerized service on a home server (NUC, Ra
 
 ```bash
 # 1. Clone and set up
-git clone -b integration https://github.com/<your-user>/expense-tracking.git
-cd expense-tracking
+git clone -b integration https://github.com/<your-user>/personal-expense-tracker.git
+cd personal-expense-tracker
 ./install.sh
 
 # 2. (Optional) Configure email for automated fetching

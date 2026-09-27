@@ -1,18 +1,32 @@
 #!/bin/bash
 #
-# update.sh — pull the latest code from GitHub and re-install if needed.
+# update.sh — pull the latest code from the upstream development repo and
+# re-install if needed.
 #
 # Usage:
 #   ./update.sh
 #
+# Code is developed in a separate, data-free repository (the "upstream").
+# This lets your own clone keep committing personal data to its own private
+# remote (origin) while still receiving code updates.
+#
 # What it does:
-#   1. Fetches the latest changes from the remote repository
-#   2. If there are new changes, pulls them and runs install.sh
-#   3. If already up to date, does nothing
+#   1. Makes sure a remote points at the upstream repo (adds 'upstream' if not)
+#   2. Fetches the upstream branch and merges it into the current branch
+#   3. Re-runs install.sh if dependencies changed
+#   4. If already up to date, does nothing
+#
+# Environment overrides:
+#   EXPENSE_TRACKER_UPSTREAM  upstream repo URL
+#                             (default: git@github.com:JoaoOliveira85/personal-expense-tracker.git)
+#   EXPENSE_TRACKER_BRANCH    upstream branch to follow (default: main)
 #
 
-set -e
+set -euo pipefail
 cd "$(dirname "$0")"
+
+UPSTREAM_URL="${EXPENSE_TRACKER_UPSTREAM:-git@github.com:JoaoOliveira85/personal-expense-tracker.git}"
+UPSTREAM_BRANCH="${EXPENSE_TRACKER_BRANCH:-main}"
 
 # ── Colours (disable if not a terminal) ──────────────────────────────────
 if [ -t 1 ]; then
@@ -38,24 +52,40 @@ if ! git rev-parse --is-inside-work-tree &>/dev/null; then
     fail "This directory is not a git repository. Run 'git init' and set up a remote first."
 fi
 
-# ── Check there's a remote ──────────────────────────────────────────────
-REMOTE=$(git remote | head -n1)
+# ── Find (or add) the upstream remote ────────────────────────────────────
+# Compare by "owner/repo" so SSH and HTTPS URLs of the same repo both match.
+repo_path() { echo "$1" | sed -E 's#^.*github\.com[:/]##; s#\.git$##'; }
+
+WANTED=$(repo_path "$UPSTREAM_URL")
+REMOTE=""
+for r in $(git remote); do
+    if [ "$(repo_path "$(git remote get-url "$r")")" = "$WANTED" ]; then
+        REMOTE="$r"
+        break
+    fi
+done
+
 if [ -z "$REMOTE" ]; then
-    fail "No git remote configured. Add one with: git remote add origin <url>"
+    if git remote | grep -qx upstream; then
+        fail "Remote 'upstream' exists but points elsewhere ($(git remote get-url upstream)). Set EXPENSE_TRACKER_UPSTREAM or fix the remote."
+    fi
+    git remote add upstream "$UPSTREAM_URL"
+    REMOTE=upstream
+    ok "Added remote 'upstream' → $UPSTREAM_URL"
 fi
 
 BRANCH=$(git rev-parse --abbrev-ref HEAD)
-ok "On branch '$BRANCH', remote '$REMOTE'"
+TARGET="$REMOTE/$UPSTREAM_BRANCH"
+ok "On branch '$BRANCH', following '$TARGET'"
 
 # ── Fetch latest ─────────────────────────────────────────────────────────
 echo
 echo "Fetching latest changes..."
-git fetch "$REMOTE" "$BRANCH" --quiet
+git fetch "$REMOTE" "$UPSTREAM_BRANCH" --quiet
 
 LOCAL=$(git rev-parse HEAD)
-REMOTE_HEAD=$(git rev-parse "$REMOTE/$BRANCH")
 
-if [ "$LOCAL" = "$REMOTE_HEAD" ]; then
+if git merge-base --is-ancestor "$TARGET" HEAD; then
     ok "Already up to date — nothing to do."
     exit 0
 fi
@@ -63,17 +93,22 @@ fi
 # ── Show what's incoming ─────────────────────────────────────────────────
 echo
 echo "New changes available:"
-git log --oneline "$LOCAL..$REMOTE_HEAD"
+git log --oneline "HEAD..$TARGET"
 echo
 
-# ── Pull ─────────────────────────────────────────────────────────────────
-echo "Pulling changes..."
-git pull --ff-only "$REMOTE" "$BRANCH"
+# ── Merge ────────────────────────────────────────────────────────────────
+# Fast-forwards when possible; otherwise creates a merge commit so any
+# personal commits on this branch are kept.
+echo "Merging changes..."
+if ! git merge --no-edit "$TARGET"; then
+    git merge --abort 2>/dev/null || true
+    fail "Merge conflict — nothing was changed. Resolve manually with: git merge $TARGET"
+fi
 ok "Code updated"
 
 # ── Re-install if dependencies or install script changed ─────────────────
 echo
-CHANGED=$(git diff --name-only "$LOCAL" "$REMOTE_HEAD")
+CHANGED=$(git diff --name-only "$LOCAL" HEAD)
 
 if echo "$CHANGED" | grep -qE '(requirements\.txt|install\.sh)'; then
     echo "Dependencies or install script changed — running install.sh..."

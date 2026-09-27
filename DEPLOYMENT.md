@@ -22,8 +22,8 @@ Clone the repo to your server:
 
 ```bash
 # Clone a specific branch (e.g. integration, main)
-git clone -b integration https://github.com/<your-user>/expense-tracking.git
-cd expense-tracking
+git clone -b integration https://github.com/<your-user>/personal-expense-tracker.git
+cd personal-expense-tracker
 ```
 
 The Docker setup uses **bind mounts** so your data lives on the host filesystem (not inside the container). This means data persists across container rebuilds and is easy to back up or sync.

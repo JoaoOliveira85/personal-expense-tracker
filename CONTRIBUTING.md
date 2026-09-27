@@ -440,7 +440,7 @@ The parser will automatically work with `ingest` (auto-detected or via `--bank n
 | `DEPLOYMENT.md` | ~540 | Docker & home server (NUC) deployment guide |
 | `install.sh` | ~200 | First-time setup (venv, deps, directories, starter configs, supports --branch) |
 | `run.sh` | ~20 | Everyday script — activates venv, launches GUI (or forwards CLI commands) |
-| `update.sh` | ~30 | Git pull + re-run install if needed |
+| `update.sh` | ~120 | Merge code from the upstream dev repo + re-run install if needed |
 | `pytest.ini` | 3 | pytest configuration |
 | `tests/conftest.py` | 100 | Shared fixtures and synthetic UTF-16 CSV builder |
 | `tests/test_parser.py` | 230 | Parser unit tests (39 tests) |
