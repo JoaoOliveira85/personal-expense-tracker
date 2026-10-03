@@ -88,3 +88,16 @@ class TestAutoWiderStatement:
         cli.cmd_auto(args)
 
         assert len(_dates(args.db)) == 4
+
+
+class TestDefaultCommand:
+    @pytest.mark.parametrize("flag", ["-q", "--quiet"])
+    def test_global_flag_kept_when_defaulting_to_auto(self, flag, monkeypatch):
+        seen = []
+        monkeypatch.setattr(cli, "cmd_auto", lambda args: seen.append(args))
+        monkeypatch.setattr("sys.argv", ["bank_ingest.py", flag])
+
+        cli.main()
+
+        assert len(seen) == 1
+        assert seen[0].quiet

@@ -1300,8 +1300,8 @@ def main() -> None:
 
     args = ap.parse_args()
 
-    # Default to 'auto' when no subcommand is given
+    # Default to 'auto' when no subcommand is given (keeping -q / -v)
     if args.cmd is None:
-        args = ap.parse_args(["auto"])
+        args = ap.parse_args(sys.argv[1:] + ["auto"])
 
     args.func(args)
