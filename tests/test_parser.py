@@ -286,6 +286,27 @@ class TestParseUtf16Csv:
         assert rows[0]["amount_abs"] == 45.50
         assert rows[0]["direction"] == "out"
 
+    @pytest.mark.parametrize(
+        "amount, balance, expected_amount, expected_balance",
+        [
+            ("-1.234,56", "12.345,67", -1234.56, 12345.67),
+            ("2.500,00", "1.002.500,00", 2500.00, 1002500.00),
+            ("-45.50", "1234.56", -45.50, 1234.56),
+        ],
+    )
+    def test_amount_formats(
+        self, tmp_path, cards_csv, amount, balance, expected_amount, expected_balance
+    ):
+        """Thousands separators (dot) with comma decimals, or dot decimals."""
+        path = make_utf16_csv(
+            tmp_path / "movs.csv",
+            [("15-01-2026", "15-01-2026", "TRF P/ RENDA", amount, "Transf.", balance)],
+        )
+        rows = parse_utf16_csv(path, cards_path=cards_csv)
+        assert rows[0]["amount_signed"] == expected_amount
+        assert rows[0]["amount_abs"] == abs(expected_amount)
+        assert rows[0]["balance"] == expected_balance
+
     def test_income_direction(self, utf16_csv, cards_csv):
         rows = parse_utf16_csv(utf16_csv, cards_path=cards_csv)
         # Last row is salary (positive)

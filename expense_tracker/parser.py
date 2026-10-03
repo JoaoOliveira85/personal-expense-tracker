@@ -152,6 +152,21 @@ def load_card_holders(cards_path: Path = DEFAULT_CARDS) -> dict[str, str]:
 # ---------------------------------------------------------------------------
 
 
+def parse_amount(text: str) -> float:
+    """Parse a statement amount: '-45,50', '1.234,56', '45.50' or '1 529.13'.
+
+    With a comma, the comma is the decimal mark and dots group thousands.
+    Without one, a dot followed by one or two final digits is the decimal
+    mark; otherwise dots group thousands. Raises ValueError if unparseable.
+    """
+    s = text.strip().replace(" ", "").replace("\u00a0", "")
+    if "," in s:
+        s = s.replace(".", "").replace(",", ".")
+    elif not re.search(r"\.\d{1,2}$", s):
+        s = s.replace(".", "")
+    return float(s)
+
+
 def detect_payment_type(description: str) -> str:
     """Infer payment type from the raw bank description."""
     for pattern, ptype in PAYMENT_TYPE_PATTERNS:
@@ -345,8 +360,8 @@ def parse_utf16_csv(path: Path, cards_path: Path = DEFAULT_CARDS) -> list[dict]:
         posted = datetime.strptime(date_posted_s, "%d-%m-%Y").date()
         value = datetime.strptime(date_value_s, "%d-%m-%Y").date()
 
-        amount = float(amount_s.replace(",", "."))
-        balance = float(balance_s.replace(",", "."))
+        amount = parse_amount(amount_s)
+        balance = parse_amount(balance_s)
 
         card_last4 = detect_card(desc, known_cards)
         payment_type = detect_payment_type(desc)
