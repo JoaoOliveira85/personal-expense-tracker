@@ -33,18 +33,18 @@ sync_once() {
     # 1. Fetch new statements from email (if configured)
     if [ -f "data/email-config.json" ]; then
         echo "[1/4] Fetching statements from email..."
-        py bank_ingest.py fetch --quiet || echo "  Warning: email fetch failed (will retry tomorrow)"
+        py bank_ingest.py --quiet fetch || echo "  Warning: email fetch failed (will retry tomorrow)"
     else
         echo "[1/4] Skipping email fetch (no email-config.json found)"
     fi
 
     # 2. Ingest, categorize, and regenerate ODS report
     echo "[2/4] Running auto ingest + report..."
-    py bank_ingest.py auto --quiet
+    py bank_ingest.py --quiet auto
 
     # 3. Generate monthly PDF
     echo "[3/4] Generating PDF report..."
-    py bank_ingest.py pdf --quiet || echo "  Warning: PDF generation failed (possibly no data for this month)"
+    py bank_ingest.py --quiet pdf || echo "  Warning: PDF generation failed (possibly no data for this month)"
 
     # 4. Copy to shared folder (if configured)
     if [ -n "${SHARED_FOLDER}" ] && [ -d "${SHARED_FOLDER}" ]; then

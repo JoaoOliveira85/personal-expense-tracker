@@ -5,9 +5,12 @@ import os
 import shlex
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
+
+from expense_tracker import cli
 
 SCRIPT = Path(__file__).resolve().parent.parent / "cron" / "daily-sync.sh"
 
@@ -56,3 +59,19 @@ def test_sync_runs_every_step_without_a_venv(tmp_path):
 
     assert [c.split()[0] for c in calls] == ["bank_ingest.py"] * 3
 
+
+def test_sync_commands_are_accepted_by_the_cli(tmp_path, monkeypatch):
+    calls = _run_one_sync(tmp_path)
+    assert calls
+
+    for call in calls:
+        argv = shlex.split(call)
+        seen = []
+        for name in ("cmd_fetch", "cmd_auto", "cmd_pdf"):
+            monkeypatch.setattr(cli, name, lambda args: seen.append(args))
+        monkeypatch.setattr(sys, "argv", argv)
+
+        cli.main()  # argparse exits with status 2 on an unknown option
+
+        assert len(seen) == 1, call
+        assert seen[0].quiet, call
