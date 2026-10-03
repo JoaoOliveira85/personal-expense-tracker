@@ -17,7 +17,10 @@ from pathlib import Path
 from typing import Optional
 
 from ..constants import DEFAULT_CARDS, DOW_NAMES
-from ..parser import clean_description, detect_card, detect_payment_type, load_card_holders
+from ..parser import (
+    clean_description, detect_card, detect_payment_type, load_card_holders,
+    parse_amount,
+)
 
 # ---------------------------------------------------------------------------
 # UTF8-specific patterns
@@ -79,13 +82,11 @@ def _parse_date(s: str) -> Optional[date]:
 
 
 def _parse_amount(s: str) -> Optional[float]:
-    """Parse a Portuguese-format amount (comma decimal, dot thousands)."""
-    s = s.strip()
-    if not s:
+    """Parse an amount ('1.234,56', '45,50', '45.50'); None if empty or invalid."""
+    if not s.strip():
         return None
-    cleaned = s.replace(" ", "").replace(".", "").replace(",", ".")
     try:
-        return float(cleaned)
+        return parse_amount(s)
     except ValueError:
         return None
 

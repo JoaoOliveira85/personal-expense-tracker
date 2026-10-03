@@ -290,3 +290,26 @@ class TestParseStatement:
         path.write_text("not,a,bank,statement\n", encoding="utf-8")
         with pytest.raises(ValueError, match="Could not detect"):
             parse_statement(path, cards_path=cards_csv)
+
+
+class TestUtf8Amounts:
+    @pytest.mark.parametrize(
+        "debit, balance, expected_amount, expected_balance",
+        [
+            ("1.234,56", "10.000,00", -1234.56, 10000.00),
+            ("45.50", "1234.56", -45.50, 1234.56),
+        ],
+    )
+    def test_amount_formats(
+        self, tmp_path, debit, balance, expected_amount, expected_balance
+    ):
+        path = tmp_path / "utf8.csv"
+        path.write_text(
+            "Data Mov.;Data Valor;Descrição;Débito;Crédito;Saldo Contabilístico\n"
+            f"15-01-2026;15-01-2026;COMPRA CONTINENTE;{debit};;{balance}\n",
+            encoding="utf-8",
+        )
+        rows = Utf8CsvParser().parse(path, cards_path=tmp_path / "none.csv")
+        assert [(r["amount_signed"], r["balance"]) for r in rows] == [
+            (expected_amount, expected_balance)
+        ]

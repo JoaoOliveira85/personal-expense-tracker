@@ -24,6 +24,7 @@ from .parser import (
     detect_card,
     detect_payment_type,
     load_card_holders,
+    parse_amount,
 )
 
 # Set up logging for parsing anomalies
@@ -123,15 +124,11 @@ def _parse_date(s: str) -> Optional[date]:
 
 
 def _parse_amount(s: str) -> Optional[float]:
-    """Parse a Portuguese-format amount (e.g., '-45,50' or '1.234,56')."""
+    """Parse an amount ('-45,50', '1.234,56', '3.00'); None if not one."""
     if not s or not s.strip():
         return None
-    s = s.strip()
-    # Remove thousands separators (dots in Portuguese format)
-    # Then replace comma decimal with dot
-    cleaned = s.replace(" ", "").replace(".", "").replace(",", ".")
     try:
-        return float(cleaned)
+        return parse_amount(s)
     except ValueError:
         return None
 

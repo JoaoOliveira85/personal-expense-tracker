@@ -150,6 +150,14 @@ class TestParseAmount:
     def test_thousands_separator(self):
         assert _parse_amount("1.234,56") == 1234.56
 
+    @pytest.mark.parametrize(
+        "text, expected",
+        [("3.00", 3.00), ("-45.50", -45.50), ("1 529.13", 1529.13), ("1.234", 1234.0)],
+    )
+    def test_dot_decimal(self, text, expected):
+        """PDFs print dot decimals and space thousands: '3.00' is not 300."""
+        assert _parse_amount(text) == expected
+
     def test_empty_returns_none(self):
         assert _parse_amount("") is None
 
