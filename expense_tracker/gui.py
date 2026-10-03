@@ -457,6 +457,8 @@ elif page == "Import":
         if st.button("Ingest uploaded files"):
             with st.spinner("Importing..."):
                 ingest(DEFAULT_DB, saved_files)
+                # Save unsynced ODS edits before the report is regenerated
+                sync_from_ods(DEFAULT_DB, DEFAULT_ODS, DEFAULT_DESC_NOTES)
                 conn = _get_connection(db_path)
                 rules = load_rules(DEFAULT_RULES)
                 if rules:
@@ -598,6 +600,8 @@ elif page == "Tools":
                         if auto_ingest:
                             with st.spinner("Ingesting downloaded files..."):
                                 ingest(DEFAULT_DB, downloaded)
+                                # Save unsynced ODS edits before regenerating
+                                sync_from_ods(DEFAULT_DB, DEFAULT_ODS, DEFAULT_DESC_NOTES)
                                 conn = _get_connection(db_path)
                                 rules = load_rules(DEFAULT_RULES)
                                 if rules:

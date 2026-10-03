@@ -101,3 +101,34 @@ class TestDefaultCommand:
 
         assert len(seen) == 1
         assert seen[0].quiet
+
+
+class TestRecleanKeepsOdsEdits:
+    def test_unsynced_ods_edit_survives_reclean(self, workspace: Path):
+        from expense_tracker.ods import generate_ods
+
+        from .test_ods_sync import _category, _set_ods_category
+
+        args = argparse.Namespace(
+            db=workspace / "data" / "ledger.sqlite",
+            rules=workspace / "data" / "rules.csv",
+            out=workspace / "expense-report.ods",
+            desc_notes=workspace / "data" / "description-notes.csv",
+            backup_dir=workspace / "backups",
+            quiet=True,
+            verbose=False,
+        )
+        statement = make_utf16_csv(workspace / "raw" / "2026-01.csv", FIRST_HALF)
+        ingest(args.db, [statement], cards_path=workspace / "none.csv")
+        generate_ods(args.db, args.rules, args.out, args.desc_notes)
+        conn = sqlite3.connect(str(args.db))
+        tid = conn.execute(
+            "SELECT transaction_id FROM transactions "
+            "WHERE description_raw LIKE '%CONTINENTE%'"
+        ).fetchone()[0]
+        conn.close()
+
+        _set_ods_category(args.out, tid, "Groceries")  # edited, not yet synced
+        cli.cmd_reclean(args)
+
+        assert _category(args.db, tid) == "Groceries"

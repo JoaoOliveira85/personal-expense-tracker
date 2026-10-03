@@ -465,6 +465,11 @@ def cmd_reclean(args):
     zp = create_backup(args.backup_dir, ods_path=args.out)
     _info(f"Pre-reclean backup: {zp} ({format_size(zp.stat().st_size)})")
 
+    # The report below is regenerated from the DB: save unsynced ODS edits first
+    synced = sync_from_ods(args.db, args.out, args.desc_notes)
+    if synced:
+        _info(f"Synced {synced} manual edit(s) from {args.out} back to database.")
+
     _info("Re-cleaning all descriptions using current patterns...")
     updated = reclean_descriptions(args.db)
     if updated:
