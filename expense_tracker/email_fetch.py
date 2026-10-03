@@ -11,6 +11,7 @@ from __future__ import annotations
 import email
 import imaplib
 import json
+import os
 import re
 from datetime import datetime, timedelta
 from email.header import decode_header
@@ -107,7 +108,10 @@ def create_email_config(
         "folder": folder,
     }
     config_path.parent.mkdir(parents=True, exist_ok=True)
-    with config_path.open("w", encoding="utf-8") as f:
+    # The file holds the mailbox password: owner-only, also when it exists
+    fd = os.open(config_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    os.fchmod(fd, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
         json.dump(config, f, indent=2)
 
 

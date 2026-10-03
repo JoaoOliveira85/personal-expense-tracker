@@ -43,6 +43,22 @@ class TestEmailConfig:
         assert config["imap_port"] == 993
         assert config["folder"] == "INBOX"
 
+    @pytest.mark.parametrize("pre_existing", [False, True])
+    def test_config_is_readable_only_by_owner(self, tmp_path, pre_existing):
+        """The file holds the mailbox password."""
+        config_path = tmp_path / "email-config.json"
+        if pre_existing:
+            config_path.write_text("{}", encoding="utf-8")
+            config_path.chmod(0o644)
+        create_email_config(
+            config_path,
+            imap_host="imap.gmail.com",
+            email_addr="test@gmail.com",
+            password="app-password-123",
+        )
+        assert config_path.stat().st_mode & 0o777 == 0o600
+        assert load_email_config(config_path)["password"] == "app-password-123"
+
     def test_load_missing_file_raises(self, tmp_path):
         with pytest.raises(FileNotFoundError, match="Email config not found"):
             load_email_config(tmp_path / "nonexistent.json")
