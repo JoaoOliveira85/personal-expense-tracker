@@ -213,9 +213,13 @@ def cmd_auto(args):
 
     # Step 2: Auto-rename
     if new_files:
-        new_files = _rename_files(new_files)
-        # Re-discover after renames (names may have changed)
-        new_files = _discover_new_files(raw_dir, args.db)
+        renamed = _rename_files(new_files)
+        # Re-discover after renames (names may have changed). Keep the renamed
+        # files too: a wider statement that replaced YYYY-MM.csv takes a name
+        # already in the DB, and rows are deduplicated on insert anyway.
+        new_files = list(dict.fromkeys(
+            renamed + _discover_new_files(raw_dir, args.db)
+        ))
 
     if new_files:
         _info(f"Found {len(new_files)} new file(s): {', '.join(f.name for f in new_files)}")
