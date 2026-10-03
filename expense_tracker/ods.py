@@ -87,6 +87,12 @@ def _save_baseline(
     conn.commit()
 
 
+def _is_missing_or_empty(ods_path: Path) -> bool:
+    """No report yet. An empty file is the placeholder created with `touch`
+    so Docker can bind-mount it (see DEPLOYMENT.md)."""
+    return not ods_path.exists() or ods_path.stat().st_size == 0
+
+
 def sync_from_ods(
     db_path: Path,
     ods_path: Path,
@@ -103,7 +109,7 @@ def sync_from_ods(
 
     Returns the number of transactions updated in SQLite.
     """
-    if not ods_path.exists():
+    if _is_missing_or_empty(ods_path):
         return 0
 
     try:
@@ -269,7 +275,7 @@ def generate_ods(
     for tx in transactions:
         tx["merchant_note"] = desc_notes.get(tx.get("description_clean", ""), "")
 
-    is_first_run = not ods_path.exists()
+    is_first_run = _is_missing_or_empty(ods_path)
 
     if is_first_run:
         doc = OpenDocumentSpreadsheet()

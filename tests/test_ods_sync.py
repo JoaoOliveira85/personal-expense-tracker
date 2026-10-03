@@ -135,3 +135,27 @@ class TestSyncMarksProvenance:
         _set_ods_category(ods, tid, "")
         sync_from_ods(db, ods, notes)
         assert _source(db, tid) is None
+
+
+class TestEmptyPlaceholderOds:
+    """DEPLOYMENT.md has users `touch expense-report.ods` for the bind mount."""
+
+    def test_sync_ignores_empty_file(self, populated_db, tmp_path):
+        ods = tmp_path / "expense-report.ods"
+        ods.touch()
+
+        assert sync_from_ods(populated_db, ods, tmp_path / "notes.csv") == 0
+
+    def test_generate_writes_full_report_over_empty_file(
+        self, populated_db, rules_csv, tmp_path
+    ):
+        ods = tmp_path / "expense-report.ods"
+        ods.touch()
+
+        generate_ods(populated_db, rules_csv, ods, tmp_path / "notes.csv")
+
+        names = [
+            s.getAttribute("name")
+            for s in load_ods(str(ods)).spreadsheet.getElementsByType(Table)
+        ]
+        assert "Data" in names and "Dashboard" in names
