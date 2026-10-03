@@ -290,7 +290,7 @@ def parse_pdf_statement(
         if not rows:
             rows = _parse_text_transactions(
                 full_text, statement_year, known_cards, card_owners, path.name,
-                credit_patterns,
+                credit_patterns, period=(d1, d2) if d1 and d2 else None,
             )
     
     # Validation: check for anomalies
@@ -339,9 +339,13 @@ def _parse_text_transactions(
     card_owners: dict[str, str],
     source_file: str,
     credit_patterns: list[str] = None,
+    period: Optional[tuple[date, date]] = None,
 ) -> list[dict]:
     """
     Parse transactions from text-based PDF format (combined statement).
+
+    Lines carry only month.day; with the statement ``period`` known, each
+    date gets the year that puts it nearest the period (see _nearest_date).
     
     Handles lines like:
     "2.02 2.02 COMPRA 1234 TIGER LISBOA 3.00 1 500.00"
@@ -371,7 +375,7 @@ def _parse_text_transactions(
         # Try to parse as a transaction line
         parsed = _parse_text_transaction_line(
             line, statement_year, current_month, known_cards, card_owners, 
-            source_file, credit_patterns
+            source_file, credit_patterns, period=period,
         )
         if parsed:
             rows.append(parsed)
@@ -411,6 +415,16 @@ def _parse_amount_pdf_text(s: str) -> Optional[float]:
         return None
 
 
+def _nearest_date(anchor: date, month: int, day: int) -> date:
+    """The month/day in the year closest to ``anchor`` (raises ValueError)."""
+    candidate = date(anchor.year, month, day)
+    if (candidate - anchor).days > 183:
+        candidate = date(anchor.year - 1, month, day)
+    elif (anchor - candidate).days > 183:
+        candidate = date(anchor.year + 1, month, day)
+    return candidate
+
+
 def _parse_text_transaction_line(
     line: str,
     year: int,
@@ -419,6 +433,7 @@ def _parse_text_transaction_line(
     card_owners: dict[str, str],
     source_file: str,
     credit_patterns: list[str] = None,
+    period: Optional[tuple[date, date]] = None,
 ) -> Optional[dict]:
     """
     Parse a single text line as a transaction.
@@ -500,11 +515,17 @@ def _parse_text_transaction_line(
     try:
         month_int = int(day1)  # First number is month
         day_int = int(month1)  # Second number is day
-        posted = date(year, month_int, day_int)
-        
         month2_int = int(day2)
         day2_int = int(month2)
-        value = date(year, month2_int, day2_int)
+        if period is not None:
+            # A statement can span the new year (Dec 29 to Jan 28), and a
+            # value date can fall in the year before its posting date.
+            start, end = period
+            posted = _nearest_date(start + (end - start) / 2, month_int, day_int)
+            value = _nearest_date(posted, month2_int, day2_int)
+        else:
+            posted = date(year, month_int, day_int)
+            value = date(year, month2_int, day2_int)
     except ValueError:
         return None
     

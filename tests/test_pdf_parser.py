@@ -360,3 +360,55 @@ class TestTextCreditPatterns:
             credit_patterns=load_credit_patterns(path),
         )
         assert rows[0]["amount_signed"] == 50.00
+
+
+def _make_text_pdf(path: Path, lines: list[str]) -> Path:
+    """A PDF with plain text lines and no table, like real statements."""
+    from fpdf import FPDF
+
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Helvetica", size=10)
+    for ln in lines:
+        pdf.cell(0, 6, ln, new_x="LMARGIN", new_y="NEXT")
+    pdf.output(str(path))
+    return path
+
+
+class TestTextStatementYear:
+    """Text lines carry only month.day; the year comes from the period."""
+
+    def _dates(self, tmp_path, header: str, lines: list[str]) -> list[tuple[str, str]]:
+        path = _make_text_pdf(tmp_path / "statement.pdf", [header] + lines)
+        rows = parse_pdf_statement(path, cards_path=tmp_path / "none.csv")
+        return [(r["date_posted"], r["date_value"]) for r in rows]
+
+    def test_statement_spanning_new_year(self, tmp_path):
+        dates = self._dates(
+            tmp_path,
+            "EXTRATO DE 2025/12/29 A 2026/01/28",
+            [
+                "12.30 12.30 COMPRA CONTINENTE 10.00 990.00",
+                "1.05 1.05 COMPRA PINGO DOCE 20.00 970.00",
+            ],
+        )
+        assert dates == [
+            ("2025-12-30", "2025-12-30"),
+            ("2026-01-05", "2026-01-05"),
+        ]
+
+    def test_value_date_in_previous_year(self, tmp_path):
+        dates = self._dates(
+            tmp_path,
+            "EXTRATO DE 2026/01/02 A 2026/01/30",
+            ["1.02 12.31 COMPRA LIDL 5.00 965.00"],
+        )
+        assert dates == [("2026-01-02", "2025-12-31")]
+
+    def test_single_month_statement_unchanged(self, tmp_path):
+        dates = self._dates(
+            tmp_path,
+            "EXTRATO DE 2026/02/02 A 2026/02/27",
+            ["2.03 2.03 COMPRA KIOSK 3.00 1 529.13"],
+        )
+        assert dates == [("2026-02-03", "2026-02-03")]
