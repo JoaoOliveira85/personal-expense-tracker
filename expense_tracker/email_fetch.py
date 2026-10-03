@@ -220,7 +220,9 @@ def fetch_statements(
                 filename = part.get_filename()
                 if not filename:
                     continue
-                filename = _decode_header_value(filename)
+                # The name is chosen by whoever sent the email: keep only the
+                # last component so it can never point outside output_dir.
+                filename = Path(_decode_header_value(filename)).name
                 if not _is_statement_attachment(filename):
                     continue
 

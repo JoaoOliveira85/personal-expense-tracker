@@ -372,3 +372,62 @@ class TestFetchStatements:
             downloaded = fetch_statements(config, raw_dir)
 
         assert len(downloaded) == 0
+
+    @pytest.mark.parametrize(
+        "attachment_name",
+        ["../data/rules.csv", "../../escaped.pdf", "sub/../../escaped.csv"],
+    )
+    def test_attachment_name_cannot_escape_output_dir(self, tmp_path, attachment_name):
+        """The attachment name comes from the email: it must not pick the path."""
+        raw_dir = tmp_path / "work" / "raw"
+        raw_dir.mkdir(parents=True)
+
+        msg = _make_email_message(
+            "Bank A <noreply@bank-a.example>",
+            "Extrato de Conta",
+            [(attachment_name, b"payload")],
+        )
+        mock_conn = self._mock_imap([msg])
+        config = {
+            "imap_host": "imap.test.com",
+            "imap_port": 993,
+            "email": "test@test.com",
+            "password": "pass",
+            "bank_senders": ["bank-a.example"],
+            "folder": "INBOX",
+        }
+
+        with patch("expense_tracker.email_fetch.imaplib.IMAP4_SSL", return_value=mock_conn):
+            downloaded = fetch_statements(config, raw_dir)
+
+        assert len(downloaded) == 1
+        assert downloaded[0].parent == raw_dir
+        assert downloaded[0].name == Path(attachment_name).name
+        written = [p for p in tmp_path.rglob("*") if p.is_file()]
+        assert written == [downloaded[0]]
+
+    def test_absolute_attachment_name_stays_in_output_dir(self, tmp_path):
+        raw_dir = tmp_path / "raw"
+        raw_dir.mkdir()
+        outside = tmp_path / "outside" / "statement.csv"
+
+        msg = _make_email_message(
+            "Bank A <noreply@bank-a.example>",
+            "Extrato de Conta",
+            [(str(outside), b"payload")],
+        )
+        mock_conn = self._mock_imap([msg])
+        config = {
+            "imap_host": "imap.test.com",
+            "imap_port": 993,
+            "email": "test@test.com",
+            "password": "pass",
+            "bank_senders": ["bank-a.example"],
+            "folder": "INBOX",
+        }
+
+        with patch("expense_tracker.email_fetch.imaplib.IMAP4_SSL", return_value=mock_conn):
+            downloaded = fetch_statements(config, raw_dir)
+
+        assert downloaded == [raw_dir / "statement.csv"]
+        assert not outside.exists()
