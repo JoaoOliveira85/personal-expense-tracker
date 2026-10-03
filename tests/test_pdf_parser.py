@@ -319,3 +319,44 @@ class TestExtractPdfDateRange:
         pdf.output(str(path))
         with pytest.raises(ValueError, match="Could not find"):
             extract_pdf_date_range(path)
+
+
+# ---------------------------------------------------------------------------
+# Text-layout statements (the path real PDFs take)
+# ---------------------------------------------------------------------------
+
+
+def _text_rows(text: str, year: int = 2026, credit_patterns=None) -> list[dict]:
+    from expense_tracker.pdf_parser import _parse_text_transactions
+
+    return _parse_text_transactions(
+        text, year, set(), {}, "statement.pdf", credit_patterns
+    )
+
+
+class TestTextCreditPatterns:
+    def test_configured_credit_pattern_makes_amount_positive(self):
+        rows = _text_rows(
+            "2.03 2.03 VENDA OLX BICICLETA 50.00 1 050.00",
+            credit_patterns=["VENDA OLX"],
+        )
+        assert [r["amount_signed"] for r in rows] == [50.00]
+        assert rows[0]["direction"] == "in"
+
+    def test_default_pattern_absent_from_config_is_not_credit(self):
+        rows = _text_rows(
+            "2.03 2.03 TRF. P/O EXEMPLO 84.00 966.00",
+            credit_patterns=["VENCIMENTO"],
+        )
+        assert [r["amount_signed"] for r in rows] == [-84.00]
+
+    def test_loaded_from_file_by_parse_pdf_statement(self, tmp_path):
+        from expense_tracker.pdf_parser import load_credit_patterns
+
+        path = tmp_path / "credit-patterns.csv"
+        path.write_text("pattern\nVENDA OLX\n", encoding="utf-8")
+        rows = _text_rows(
+            "2.03 2.03 VENDA OLX BICICLETA 50.00 1 050.00",
+            credit_patterns=load_credit_patterns(path),
+        )
+        assert rows[0]["amount_signed"] == 50.00

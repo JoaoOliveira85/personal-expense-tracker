@@ -516,7 +516,7 @@ def _parse_text_transaction_line(
     # Determine if debit or credit based on configurable patterns
     # Credits are incoming money - they should be positive
     desc_upper = desc.upper()
-    is_credit = any(p.upper() in desc_upper for p in DEFAULT_CREDIT_PATTERN_LIST)
+    is_credit = any(p.upper() in desc_upper for p in credit_patterns)
     
     # Most transactions are expenses (negative), credits are positive
     if not is_credit:
