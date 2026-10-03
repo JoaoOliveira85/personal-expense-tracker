@@ -133,9 +133,11 @@ if page == "Dashboard":
     income = df[(df["direction"] == "in") & (df["spend"] == 0) & ~savings]
 
     col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Total Expenses", f"{df['spend'].sum():,.2f} €")
-    col2.metric("Total Income", f"{income['amount_abs'].sum():,.2f} €")
-    col3.metric("Net", f"{df['amount_signed'].sum():,.2f} €")
+    total_expenses = df["spend"].sum()
+    total_income = income["amount_abs"].sum()
+    col1.metric("Total Expenses", f"{total_expenses:,.2f} €")
+    col2.metric("Total Income", f"{total_income:,.2f} €")
+    col3.metric("Net", f"{total_income - total_expenses:,.2f} €")
     col4.metric("Transactions", len(df))
 
     st.divider()

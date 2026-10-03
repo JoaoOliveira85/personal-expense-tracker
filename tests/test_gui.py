@@ -140,3 +140,50 @@ class TestGuiModuleStructure:
         assert "Categorize" in content
         assert "Rules" in content
         assert "Import" in content
+
+
+class TestDashboardTotals:
+    """Run the Streamlit page against a temporary database."""
+
+    def _insert(self, conn, tid, direction, amount, category):
+        signed = amount if direction == "in" else -amount
+        conn.execute(
+            """
+            INSERT INTO transactions (
+                transaction_id, date_posted, date_value, month, day_of_week,
+                description_raw, description_clean,
+                amount_signed, amount_abs, direction, tx_type, balance,
+                currency, account, source_file, imported_at, category
+            ) VALUES (?, '2026-01-10', '2026-01-10', '2026-01', 'Sat', ?, ?,
+                      ?, ?, ?, '', 0, 'EUR', 'checkings_account', 't.csv',
+                      '2026-01-15T10:00:00', ?)
+            """,
+            (tid, tid, tid, signed, amount, direction, category),
+        )
+
+    def test_net_is_income_minus_expenses(self, tmp_path, monkeypatch):
+        """Savings deposits are neither spending nor income (README), so Net
+        must not move with them either."""
+        from streamlit.testing.v1 import AppTest
+
+        import expense_tracker.constants as constants
+
+        db_path = tmp_path / "ledger.sqlite"
+        conn = sqlite3.connect(str(db_path))
+        ensure_schema(conn)
+        migrate_schema(conn)
+        self._insert(conn, "salary", "in", 2000.0, "Income")
+        self._insert(conn, "groceries", "out", 500.0, "Groceries")
+        self._insert(conn, "deposit", "out", 300.0, "Savings")
+        conn.commit()
+        conn.close()
+
+        monkeypatch.setattr(constants, "DEFAULT_DB", db_path)
+        monkeypatch.chdir(tmp_path)  # gui.py chdirs; restore cwd afterwards
+        gui_path = Path(__file__).parent.parent / "expense_tracker" / "gui.py"
+        at = AppTest.from_file(str(gui_path), default_timeout=30).run()
+
+        metrics = {m.label: m.value for m in at.metric}
+        assert metrics["Total Expenses"] == "500.00 €"
+        assert metrics["Total Income"] == "2,000.00 €"
+        assert metrics["Net"] == "1,500.00 €"
