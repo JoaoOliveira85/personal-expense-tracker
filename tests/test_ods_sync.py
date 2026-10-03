@@ -159,3 +159,70 @@ class TestEmptyPlaceholderOds:
             for s in load_ods(str(ods)).spreadsheet.getElementsByType(Table)
         ]
         assert "Data" in names and "Dashboard" in names
+
+
+def _set_ods_cell(ods_path: Path, tid: str, col: int, value: str) -> None:
+    """Simulate a user editing one cell of a transaction's Data-sheet row."""
+    doc = load_ods(str(ods_path))
+    sheet = next(
+        s
+        for s in doc.spreadsheet.getElementsByType(Table)
+        if s.getAttribute("name") == "Data"
+    )
+    for row in sheet.getElementsByType(TableRow)[1:]:
+        cells = _cells(row)
+        if len(cells) > COL_TRANSACTION_ID and str(cells[COL_TRANSACTION_ID]) == tid:
+            cell = cells[col]
+            for p in cell.getElementsByType(P):
+                cell.removeChild(p)
+            cell.addElement(P(text=value))
+            doc.save(str(ods_path))
+            return
+    raise AssertionError(f"transaction {tid} not found in ODS")
+
+
+class TestMerchantNoteSync:
+    @pytest.fixture
+    def two_visits(self, tmp_path, rules_csv):
+        """Two transactions of the same merchant, with a merchant note."""
+        from expense_tracker.db import ingest
+
+        from .conftest import make_utf16_csv
+
+        db = tmp_path / "ledger.sqlite"
+        statement = make_utf16_csv(
+            tmp_path / "2026-01.csv",
+            [
+                ("20-01-2026", "20-01-2026", "MERCEARIA DO BAIRRO", "-8,00", "Compra", "992,00"),
+                ("05-01-2026", "05-01-2026", "MERCEARIA DO BAIRRO", "-12,00", "Compra", "1000,00"),
+            ],
+        )
+        ingest(db, [statement], cards_path=tmp_path / "none.csv")
+        notes = tmp_path / "description-notes.csv"
+        notes.write_text(
+            "description_clean,merchant_note\nMERCEARIA DO BAIRRO,old note\n",
+            encoding="utf-8",
+        )
+        ods = tmp_path / "report.ods"
+        generate_ods(db, rules_csv, ods, notes)
+        conn = sqlite3.connect(str(db))
+        tids = [
+            r[0]
+            for r in conn.execute(
+                "SELECT transaction_id FROM transactions ORDER BY date_posted"
+            )
+        ]
+        conn.close()
+        return db, ods, notes, tids  # tids: oldest first
+
+    @pytest.mark.parametrize("edited", [0, 1], ids=["oldest-row", "newest-row"])
+    def test_edit_on_any_row_updates_merchant_note(self, two_visits, edited):
+        from expense_tracker.constants import COL_MERCHANT_NOTE
+        from expense_tracker.ods import _load_description_notes
+
+        db, ods, notes, tids = two_visits
+        _set_ods_cell(ods, tids[edited], COL_MERCHANT_NOTE, "new note")
+
+        sync_from_ods(db, ods, notes)
+
+        assert _load_description_notes(notes) == {"MERCEARIA DO BAIRRO": "new note"}

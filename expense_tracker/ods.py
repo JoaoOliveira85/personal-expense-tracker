@@ -141,6 +141,9 @@ def sync_from_ods(
     edits: list[tuple[str, str, str, str]] = []
     # Merchant notes: description_clean -> merchant_note
     merchant_notes_from_ods: dict[str, str] = {}
+    # Every row of a merchant shows its note; a row whose note differs from
+    # the stored one is the edit, whichever row the user typed it on.
+    existing_notes = _load_description_notes(desc_notes_path)
 
     for row in rows[1:]:
         cells = row.getElementsByType(TableCell)
@@ -184,7 +187,8 @@ def sync_from_ods(
             expanded[COL_MERCHANT_NOTE].strip()
             if len(expanded) > COL_MERCHANT_NOTE else ""
         )
-        if desc_clean and merchant_note:
+        if (desc_clean and merchant_note
+                and merchant_note != existing_notes.get(desc_clean, "")):
             merchant_notes_from_ods[desc_clean] = merchant_note
 
         if tx_id:
@@ -192,7 +196,6 @@ def sync_from_ods(
 
     # Sync merchant notes to description-notes.csv
     if merchant_notes_from_ods:
-        existing_notes = _load_description_notes(desc_notes_path)
         existing_notes.update(merchant_notes_from_ods)
         _save_description_notes(existing_notes, desc_notes_path)
 
