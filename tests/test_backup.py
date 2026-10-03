@@ -193,6 +193,36 @@ class TestCreateMonthlyBackup:
         assert zp.exists()
 
 
+class TestFailedBackup:
+
+    def test_failure_leaves_no_backup_behind(self, tmp_path: Path):
+        """A half-written monthly zip would count as that month's backup and
+        stop auto from ever making a complete one."""
+        ws = _seed_workspace(tmp_path)
+        real_write = zipfile.ZipFile.write
+
+        def failing_write(self, filename, *args, **kwargs):
+            if Path(filename).parent == ws["raw_dir"]:
+                raise OSError("disk full")
+            return real_write(self, filename, *args, **kwargs)
+
+        with patch("expense_tracker.backup.date") as mock_date, patch.object(
+            zipfile.ZipFile, "write", failing_write
+        ):
+            mock_date.today.return_value = date(2026, 3, 10)
+            mock_date.side_effect = lambda *a, **kw: date(*a, **kw)
+            with pytest.raises(OSError):
+                create_monthly_backup(
+                    ws["backup_dir"],
+                    raw_dir=ws["raw_dir"],
+                    data_dir=ws["data_dir"],
+                    ods_path=ws["ods_path"],
+                )
+            assert not previous_month_backup_exists(ws["backup_dir"])
+
+        assert list(ws["backup_dir"].iterdir()) == []
+
+
 # ---------------------------------------------------------------------------
 # list_backups
 # ---------------------------------------------------------------------------

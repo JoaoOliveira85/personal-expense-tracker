@@ -52,23 +52,31 @@ def create_backup(
         label = f"backup-{datetime.now().strftime('%Y-%m-%dT%H-%M-%S')}"
 
     zip_path = backup_dir / f"{label}.zip"
+    # Build under a temporary name: a half-written zip must never look like a
+    # finished backup (a monthly one would then never be retried).
+    tmp_path = backup_dir / f".{label}.zip.partial"
 
-    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
-        # data/ folder
-        if data_dir.is_dir():
-            for p in sorted(data_dir.rglob("*")):
-                if p.is_file():
-                    zf.write(p, p)
+    try:
+        with zipfile.ZipFile(tmp_path, "w", zipfile.ZIP_DEFLATED) as zf:
+            # data/ folder
+            if data_dir.is_dir():
+                for p in sorted(data_dir.rglob("*")):
+                    if p.is_file():
+                        zf.write(p, p)
 
-        # raw/ folder
-        if raw_dir.is_dir():
-            for p in sorted(raw_dir.rglob("*")):
-                if p.is_file():
-                    zf.write(p, p)
+            # raw/ folder
+            if raw_dir.is_dir():
+                for p in sorted(raw_dir.rglob("*")):
+                    if p.is_file():
+                        zf.write(p, p)
 
-        # expense-report.ods
-        if ods_path.is_file():
-            zf.write(ods_path, ods_path)
+            # expense-report.ods
+            if ods_path.is_file():
+                zf.write(ods_path, ods_path)
+        tmp_path.replace(zip_path)
+    except BaseException:
+        tmp_path.unlink(missing_ok=True)
+        raise
 
     return zip_path
 
