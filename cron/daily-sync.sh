@@ -11,7 +11,13 @@
 
 set -e
 cd /app
-source scripts/env.sh
+if [ -d .venv ]; then
+    source scripts/env.sh
+else
+    # The Docker image installs dependencies into the system Python and
+    # ships neither .venv nor scripts/.
+    py() { python "$@"; }
+fi
 
 HOUR="${SYNC_HOUR:-8}"
 MINUTE="${SYNC_MINUTE:-0}"
