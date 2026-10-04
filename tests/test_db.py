@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from expense_tracker.db import (
+    IngestError,
     tx_id,
     ensure_schema,
     migrate_schema,
@@ -174,6 +175,59 @@ class TestIngest:
         count = conn.execute("SELECT COUNT(*) FROM transactions").fetchone()[0]
         conn.close()
         assert count == 0
+
+
+class TestIngestBadFile:
+    """One file that cannot be read must not undo, or block, the others."""
+
+    @pytest.fixture(autouse=True)
+    def _setup_cleaning(self, noise_words, cleaning_patterns):
+        reset_cleaning_cache()
+        _get_cleaning_patterns(noise_words, cleaning_patterns)
+        yield
+        reset_cleaning_cache()
+
+    def _sources(self, db_path) -> list[tuple[str, int]]:
+        conn = sqlite3.connect(str(db_path))
+        try:
+            return conn.execute(
+                "SELECT source_file, COUNT(*) FROM transactions "
+                "GROUP BY source_file ORDER BY source_file"
+            ).fetchall()
+        finally:
+            conn.close()
+
+    def test_files_around_a_bad_one_are_imported(self, test_db, tmp_path, cards_csv, capsys):
+        first = make_utf16_csv(tmp_path / "first.csv", SAMPLE_ROWS[:2])
+        bad = tmp_path / "junk.csv"
+        bad.write_text("not a bank statement\n", encoding="utf-8")
+        last = make_utf16_csv(tmp_path / "last.csv", SAMPLE_ROWS[2:])
+
+        with pytest.raises(IngestError) as error:
+            ingest(test_db, [first, bad, last], cards_path=cards_csv)
+
+        assert [p.name for p, _ in error.value.failures] == ["junk.csv"]
+        assert "1 of 3" in str(error.value)
+        assert "junk.csv" in str(error.value)
+        assert self._sources(test_db) == [("first.csv", 2), ("last.csv", 3)]
+        out = capsys.readouterr().out
+        assert "junk.csv was not imported" in out
+        assert "Parsed 5 transactions from 2 file(s)." in out
+
+    def test_row_error_in_one_file_keeps_the_other_file(self, test_db, tmp_path, cards_csv):
+        good = make_utf16_csv(tmp_path / "good.csv", SAMPLE_ROWS[:2])
+        broken = make_utf16_csv(
+            tmp_path / "broken.csv",
+            [
+                SAMPLE_ROWS[2],
+                ("12-01-2026", "12-01-2026", "COMPRA 1234 LOJA", "12,50 D", "Compra", "1,00"),
+            ],
+        )
+
+        with pytest.raises(IngestError, match="broken.csv"):
+            ingest(test_db, [good, broken], cards_path=cards_csv)
+
+        assert self._sources(test_db) == [("good.csv", 2)]
 
 
 class TestIngestWarnings:

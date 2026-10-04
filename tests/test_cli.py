@@ -90,6 +90,40 @@ class TestAutoWiderStatement:
         assert len(_dates(args.db)) == 4
 
 
+class TestBadFile:
+    """A file that cannot be read is reported; it does not stop the run."""
+
+    def test_auto_imports_the_rest_and_exits_non_zero(self, workspace: Path, capsys):
+        args = _auto_args(workspace)
+        make_utf16_csv(args.raw / "2026-01.csv", FIRST_HALF + SECOND_HALF)
+        (args.raw / "junk.csv").write_text("not a bank statement\n", encoding="utf-8")
+
+        with pytest.raises(SystemExit) as exit_info:
+            cli.cmd_auto(args)
+
+        assert exit_info.value.code == 1
+        assert len(_dates(args.db)) == 4
+        assert args.out.exists()  # the report is still regenerated
+        assert "junk.csv" in capsys.readouterr().out
+
+    def test_ingest_exits_non_zero_without_a_traceback(self, workspace: Path, capsys):
+        junk = workspace / "raw" / "junk.csv"
+        junk.write_text("not a bank statement\n", encoding="utf-8")
+        args = argparse.Namespace(
+            db=workspace / "data" / "ledger.sqlite",
+            files=[junk],
+            bank=None,
+            no_rename=True,
+            dry_run=False,
+        )
+
+        with pytest.raises(SystemExit) as exit_info:
+            cli.cmd_ingest(args)
+
+        assert exit_info.value.code == 1
+        assert "junk.csv" in capsys.readouterr().out
+
+
 class TestDefaultCommand:
     @pytest.mark.parametrize("flag", ["-q", "--quiet"])
     def test_global_flag_kept_when_defaulting_to_auto(self, flag, monkeypatch):

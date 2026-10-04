@@ -12,6 +12,8 @@ from .constants import NON_SPENDING_CATEGORIES, SAVINGS_CATEGORIES
 from .parser import parse_utf16_csv
 from .parsers import parse_statement, detect_parser
 
+logger = logging.getLogger(__name__)
+
 
 # ---------------------------------------------------------------------------
 # Transaction ID (for deduplication)
@@ -122,6 +124,27 @@ def _parse_file(path: Path, cards_path: Path) -> list[dict]:
         return parse_utf16_csv(path, cards_path=cards_path)
 
 
+class IngestError(Exception):
+    """Some statement files could not be imported; the others were.
+
+    ``failures`` lists each such file with the exception it raised.
+    """
+
+    def __init__(self, failures: list[tuple[Path, Exception]], total: int) -> None:
+        self.failures = failures
+        details = "; ".join(f"{p.name}: {_describe(e)}" for p, e in failures)
+        super().__init__(
+            f"{len(failures)} of {total} file(s) could not be imported ({details})"
+        )
+
+
+def _describe(error: Exception) -> str:
+    """Parsers raise ValueError with a readable message; name anything else."""
+    if isinstance(error, ValueError):
+        return str(error)
+    return f"{type(error).__name__}: {error}"
+
+
 class _WarningTally(logging.Handler):
     """Print parser warnings as they happen and count them for the summary."""
 
@@ -143,6 +166,10 @@ def ingest(
     """Parse bank statement files (CSV or PDF) and insert into SQLite with deduplication.
 
     Supports auto-detection of the bank format. Use bank_id to override.
+
+    Each file is imported in its own transaction. Files that cannot be
+    imported are reported and skipped; once the others are in, IngestError
+    is raised for them.
     """
     from .constants import DEFAULT_CARDS
 
@@ -162,47 +189,64 @@ def ingest(
 
         total_parsed = 0
         total_inserted = 0
+        failures: list[tuple[Path, Exception]] = []
         paths = list(file_paths)
         for p in paths:
-            # Try multi-bank parser first, fall back to legacy UTF-16 parser / PDF
+            # One transaction per file: a file that cannot be read must not
+            # undo, or block, the import of the files around it.
             try:
-                rows = parse_statement(p, cards_path=cards_path, bank_id=bank_id)
-            except ValueError:
-                # Fall back to extension-based detection (CSV vs PDF)
-                rows = _parse_file(p, cards_path)
-            total_parsed += len(rows)
-            for r in rows:
-                r["transaction_id"] = tx_id(r)
-                r["imported_at"] = now
+                # Try multi-bank parser first, fall back to legacy UTF-16 parser / PDF
+                try:
+                    rows = parse_statement(p, cards_path=cards_path, bank_id=bank_id)
+                except ValueError:
+                    # Fall back to extension-based detection (CSV vs PDF)
+                    rows = _parse_file(p, cards_path)
+                inserted = 0
+                for r in rows:
+                    r["transaction_id"] = tx_id(r)
+                    r["imported_at"] = now
 
-                cur = conn.execute(
-                    """
-                    INSERT OR IGNORE INTO transactions (
-                        transaction_id, date_posted, date_value, month, day_of_week,
-                        description_raw, description_clean,
-                        amount_signed, amount_abs, direction, tx_type, balance,
-                        currency, account, card_last4, payment_type, who,
-                        category, subcategory,
-                        source_file, imported_at
-                    ) VALUES (
-                        :transaction_id, :date_posted, :date_value, :month, :day_of_week,
-                        :description_raw, :description_clean,
-                        :amount_signed, :amount_abs, :direction, :tx_type, :balance,
-                        :currency, :account, :card_last4, :payment_type, :who,
-                        NULL, NULL,
-                        :source_file, :imported_at
+                    cur = conn.execute(
+                        """
+                        INSERT OR IGNORE INTO transactions (
+                            transaction_id, date_posted, date_value, month, day_of_week,
+                            description_raw, description_clean,
+                            amount_signed, amount_abs, direction, tx_type, balance,
+                            currency, account, card_last4, payment_type, who,
+                            category, subcategory,
+                            source_file, imported_at
+                        ) VALUES (
+                            :transaction_id, :date_posted, :date_value, :month, :day_of_week,
+                            :description_raw, :description_clean,
+                            :amount_signed, :amount_abs, :direction, :tx_type, :balance,
+                            :currency, :account, :card_last4, :payment_type, :who,
+                            NULL, NULL,
+                            :source_file, :imported_at
+                        )
+                        """,
+                        r,
                     )
-                    """,
-                    r,
-                )
-                if cur.rowcount > 0:
-                    total_inserted += 1
+                    if cur.rowcount > 0:
+                        inserted += 1
+                conn.commit()
+            except Exception as e:
+                conn.rollback()
+                failures.append((p, e))
+                logger.debug("%s could not be imported", p, exc_info=True)
+                print(f"  Error: {p.name} was not imported: {_describe(e)}")
+                continue
+            total_parsed += len(rows)
+            total_inserted += inserted
 
-        conn.commit()
-        print(f"Parsed {total_parsed} transactions from {len(paths)} file(s).")
+        print(
+            f"Parsed {total_parsed} transactions "
+            f"from {len(paths) - len(failures)} file(s)."
+        )
         print(f"Inserted {total_inserted} new transactions into {db_path}.")
         if warnings.count:
             print(f"{warnings.count} warning(s) while parsing: see the lines above.")
+        if failures:
+            raise IngestError(failures, len(paths))
     finally:
         package_logger.removeHandler(warnings)
         conn.close()

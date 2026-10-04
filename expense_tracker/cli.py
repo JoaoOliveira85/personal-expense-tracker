@@ -14,7 +14,10 @@ from .backup import (
     create_backup, create_monthly_backup,
     previous_month_backup_exists, list_backups, format_size,
 )
-from .db import ingest, ingested_source_files, migrate_schema, reclean_descriptions
+from .db import (
+    IngestError, ingest, ingested_source_files, migrate_schema,
+    reclean_descriptions,
+)
 from .parser import auto_rename_csv, load_card_holders
 from .pdf_parser import extract_pdf_date_range
 from .rules import (
@@ -221,9 +224,15 @@ def cmd_auto(args):
             renamed + _discover_new_files(raw_dir, args.db)
         ))
 
+    ingest_error = None
     if new_files:
         _info(f"Found {len(new_files)} new file(s): {', '.join(f.name for f in new_files)}")
-        ingest(args.db, new_files)
+        try:
+            ingest(args.db, new_files)
+        except IngestError as e:
+            # The other files are in: still update the report, then fail
+            ingest_error = e
+            print(f"Error: {e}")
     else:
         _info("No new files to ingest.")
 
@@ -263,6 +272,9 @@ def cmd_auto(args):
         generate_ods(args.db, args.rules, ods_path, args.desc_notes)
         _info(f"\nDone! Reports saved to {args.out.with_suffix('.xlsx')} and {ods_path}")
 
+    if ingest_error is not None:
+        sys.exit(1)
+
 
 def cmd_ingest(args):
     """Handle the 'ingest' subcommand."""
@@ -284,7 +296,11 @@ def cmd_ingest(args):
 
     if files:
         bank_id = getattr(args, "bank", None)
-        ingest(args.db, files, bank_id=bank_id)
+        try:
+            ingest(args.db, files, bank_id=bank_id)
+        except IngestError as e:
+            print(f"Error: {e}")
+            sys.exit(1)
 
 
 def cmd_report(args):
@@ -737,7 +753,11 @@ def cmd_fetch(args):
         if not args.no_ingest:
             _info("\nProceeding to ingest downloaded files...")
             # Trigger auto ingest
-            ingest(args.db, downloaded)
+            try:
+                ingest(args.db, downloaded)
+            except IngestError as e:
+                print(f"Error: {e}")
+                sys.exit(1)
 
 
 def cmd_gui(args):
