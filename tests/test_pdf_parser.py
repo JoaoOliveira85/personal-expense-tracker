@@ -501,6 +501,35 @@ class TestBalanceCheck:
         assert len(rows) == 5
         assert self._warnings(caplog) == []
 
+    def test_newest_first_statement_of_equal_amounts_reports_nothing(
+        self, tmp_path, cards_csv, caplog
+    ):
+        """Equal amounts explain the balance in either order: the dates
+        say which order it is."""
+        rows = [
+            ("15-01-2026", "15-01-2026", "COMPRA 1234 CAFE", "-10,00", "Compra", "980,00"),
+            ("14-01-2026", "14-01-2026", "COMPRA 1234 CAFE", "-10,00", "Compra", "990,00"),
+            ("13-01-2026", "13-01-2026", "COMPRA 1234 CAFE", "-10,00", "Compra", "1000,00"),
+        ]
+        path = _make_pdf_statement(tmp_path / "statement.pdf", rows)
+
+        assert len(parse_pdf_statement(path, cards_path=cards_csv)) == 3
+        assert self._warnings(caplog) == []
+
+    def test_wrong_sign_among_equal_amounts_is_still_reported(self, tmp_path, caplog):
+        path = self._text_statement(
+            tmp_path,
+            [
+                "2.02 2.02 COMPRA CAFE 10.00 990.00",
+                "2.03 2.03 TRF MB WAY DE ALICE 10.00 1 000.00",
+            ],
+        )
+        parse_pdf_statement(path, cards_path=tmp_path / "none.csv")
+
+        messages = self._warnings(caplog)
+        assert len(messages) == 1
+        assert "TRF MB WAY DE ALICE" in messages[0]
+
     def test_amount_that_does_not_explain_the_balance_is_reported(
         self, tmp_path, cards_csv, caplog
     ):

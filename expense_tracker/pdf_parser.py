@@ -338,9 +338,10 @@ def _balance_mismatches(rows: list[dict]) -> list[tuple[dict, float]]:
     """Rows whose amount differs from the change in the running balance.
 
     Statements list transactions oldest first or newest first; the order
-    that explains more amounts is used. A balance of 0 stands for "not
-    printed" (see the row parsers), so only neighbours that both carry a
-    balance are compared.
+    that explains more amounts is used, and the dates decide when both
+    explain as many (neighbours of equal amounts). A balance of 0 stands
+    for "not printed" (see the row parsers), so only neighbours that both
+    carry a balance are compared.
     """
     pairs = [
         (prev, cur)
@@ -358,6 +359,10 @@ def _balance_mismatches(rows: list[dict]) -> list[tuple[dict, float]]:
     newest_first = sum(
         explains(prev, prev["balance"] - cur["balance"]) for prev, cur in pairs
     )
+
+    if newest_first == oldest_first and rows:
+        # ISO dates: a first row dated after the last one is newest first
+        newest_first += rows[0]["date_posted"] > rows[-1]["date_posted"]
 
     mismatches = []
     for prev, cur in pairs:
