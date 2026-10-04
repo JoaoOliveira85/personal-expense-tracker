@@ -297,7 +297,7 @@ def parse_pdf_statement(
 
 
 def _validate_parsed_transactions(rows: list[dict], source_file: str) -> None:
-    """Log warnings for potential parsing anomalies."""
+    """Warn about parsing anomalies: no rows, or amounts the balance disproves."""
     if not rows:
         logger.warning(f"{source_file}: No transactions parsed")
         return
@@ -310,23 +310,51 @@ def _validate_parsed_transactions(rows: list[dict], source_file: str) -> None:
                 f"{source_file}: Large amount {r['amount_signed']:.2f} - {r['description_raw'][:50]}"
             )
     
-    # Check for potential misclassified credits/debits
-    # If balance increases but we marked as debit, or vice versa
-    for i in range(1, len(rows)):
-        prev_balance = rows[i-1].get('balance', 0)
-        curr_balance = rows[i].get('balance', 0)
-        amount = rows[i]['amount_signed']
-        
-        if prev_balance and curr_balance:
-            expected_change = curr_balance - prev_balance
-            # Allow some tolerance for rounding
-            if abs(expected_change - amount) > 1.0:
-                # Balance change doesn't match amount - might be parsing issue
-                logger.debug(
-                    f"{source_file}: Balance mismatch on {rows[i]['date_posted']}: "
-                    f"amount={amount:.2f}, balance_change={expected_change:.2f}, "
-                    f"desc={rows[i]['description_raw'][:40]}"
-                )
+    # A wrong sign (text lines are signed by keyword) or a misread amount
+    # shows up as a balance that moved by something else.
+    for row, change in _balance_mismatches(rows):
+        logger.warning(
+            "%s: amount does not match the balance on %s: %s is %+.2f but the "
+            "balance changed by %+.2f",
+            source_file, row["date_posted"], row["description_raw"][:40],
+            row["amount_signed"], change,
+        )
+
+
+def _balance_mismatches(rows: list[dict]) -> list[tuple[dict, float]]:
+    """Rows whose amount differs from the change in the running balance.
+
+    Statements list transactions oldest first or newest first; the order
+    that explains more amounts is used. A balance of 0 stands for "not
+    printed" (see the row parsers), so only neighbours that both carry a
+    balance are compared.
+    """
+    pairs = [
+        (prev, cur)
+        for prev, cur in zip(rows, rows[1:])
+        if prev.get("balance") and cur.get("balance")
+    ]
+
+    def explains(row: dict, change: float) -> bool:
+        # Magnitudes only: the sign is one of the things being checked
+        return abs(abs(change) - row["amount_abs"]) < 0.005
+
+    oldest_first = sum(
+        explains(cur, cur["balance"] - prev["balance"]) for prev, cur in pairs
+    )
+    newest_first = sum(
+        explains(prev, prev["balance"] - cur["balance"]) for prev, cur in pairs
+    )
+
+    mismatches = []
+    for prev, cur in pairs:
+        if newest_first > oldest_first:
+            row, change = prev, prev["balance"] - cur["balance"]
+        else:
+            row, change = cur, cur["balance"] - prev["balance"]
+        if abs(change - row["amount_signed"]) >= 0.005:
+            mismatches.append((row, change))
+    return mismatches
 
 
 def _parse_text_transactions(

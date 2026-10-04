@@ -200,6 +200,24 @@ class TestIngestWarnings:
         conn.close()
         assert count == 1
 
+    def test_pdf_balance_mismatch_is_counted(self, test_db, tmp_path, capsys):
+        from tests.test_pdf_parser import _make_text_pdf
+
+        path = _make_text_pdf(
+            tmp_path / "statement.pdf",
+            [
+                "EXTRATO DE 2026/02/02 A 2026/02/27",
+                "2.02 2.02 COMPRA KIOSK 3.00 1 529.13",
+                "2.06 2.06 TRF MB WAY DE ALICE 20.00 1 549.13",
+            ],
+        )
+
+        ingest(test_db, [path], cards_path=tmp_path / "none.csv")
+
+        out = capsys.readouterr().out
+        assert "Warning: statement.pdf" in out
+        assert "1 warning(s)" in out
+
     def test_clean_run_has_no_warning_line(self, test_db, utf16_csv, cards_csv, capsys):
         ingest(test_db, [utf16_csv], cards_path=cards_csv)
 

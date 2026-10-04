@@ -1,6 +1,7 @@
 """Tests for expense_tracker.pdf_parser."""
 from __future__ import annotations
 
+import logging
 from datetime import date
 from pathlib import Path
 
@@ -435,3 +436,79 @@ class TestTextStatementYear:
             ("2023-11-02", "2023-11-02"),
             ("2024-02-29", "2024-02-29"),
         ]
+
+
+class TestBalanceCheck:
+    """The running balance says what each amount must be: a row that does
+    not fit is reported, not left in a debug log."""
+
+    def _warnings(self, caplog) -> list[str]:
+        return [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
+
+    def _text_statement(self, tmp_path, lines: list[str]) -> Path:
+        return _make_text_pdf(
+            tmp_path / "statement.pdf", ["EXTRATO DE 2026/02/02 A 2026/02/27"] + lines
+        )
+
+    def test_amount_signed_against_the_balance_is_reported(self, tmp_path, caplog):
+        """MB WAY money received: no credit keyword, so it is booked as spent."""
+        path = self._text_statement(
+            tmp_path,
+            [
+                "2.02 2.02 COMPRA KIOSK 3.00 1 529.13",
+                "2.06 2.06 TRF MB WAY DE ALICE 20.00 1 549.13",
+                "2.07 2.07 COMPRA CAFE 0.40 1 548.73",
+            ],
+        )
+        rows = parse_pdf_statement(path, cards_path=tmp_path / "none.csv")
+
+        assert [r["amount_signed"] for r in rows] == [-3.00, -20.00, -0.40]
+        messages = self._warnings(caplog)
+        assert len(messages) == 1
+        assert "statement.pdf" in messages[0]
+        assert "TRF MB WAY DE ALICE" in messages[0]
+        assert "-20.00" in messages[0] and "+20.00" in messages[0]
+
+    def test_wrong_sign_on_a_small_amount_is_reported(self, tmp_path, caplog):
+        path = self._text_statement(
+            tmp_path,
+            [
+                "2.02 2.02 COMPRA KIOSK 3.00 1 529.13",
+                "2.06 2.06 JUROS CREDORES 0.40 1 529.53",
+            ],
+        )
+        parse_pdf_statement(path, cards_path=tmp_path / "none.csv")
+
+        assert len(self._warnings(caplog)) == 1
+
+    def test_consistent_statement_reports_nothing(self, tmp_path, caplog):
+        path = self._text_statement(
+            tmp_path,
+            [
+                "2.02 2.02 COMPRA KIOSK 3.00 1 529.13",
+                "2.03 2.03 TRANSFERENCIA - VENCIMENTO 1 000.00 2 529.13",
+                "2.04 2.04 COMPRA CAFE 0.40 2 528.73",
+            ],
+        )
+        parse_pdf_statement(path, cards_path=tmp_path / "none.csv")
+
+        assert self._warnings(caplog) == []
+
+    def test_newest_first_statement_reports_nothing(self, pdf_statement, cards_csv, caplog):
+        """The table fixture lists the latest transaction first."""
+        rows = parse_pdf_statement(pdf_statement, cards_path=cards_csv)
+
+        assert len(rows) == 5
+        assert self._warnings(caplog) == []
+
+    def test_amount_that_does_not_explain_the_balance_is_reported(
+        self, tmp_path, cards_csv, caplog
+    ):
+        rows = list(SAMPLE_PDF_ROWS)
+        rows[1] = ("14-01-2026", "14-01-2026", "COMPRA 5678 FARMACIA DA GARE", "-1.280,00", "Compra", "1280,06")
+        path = _make_pdf_statement(tmp_path / "statement.pdf", rows)
+        parse_pdf_statement(path, cards_path=cards_csv)
+
+        messages = self._warnings(caplog)
+        assert len(messages) == 1
+        assert "FARMACIA" in messages[0]
