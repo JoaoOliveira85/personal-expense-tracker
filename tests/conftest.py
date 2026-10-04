@@ -140,3 +140,42 @@ def populated_db(test_db: Path, utf16_csv: Path, cards_csv: Path, noise_words: P
 
     ingest(test_db, [utf16_csv], cards_path=cards_csv)
     return test_db
+
+
+def add_transaction(
+    db_path: Path,
+    date: str,
+    description: str,
+    amount: float,
+    direction: str = "out",
+    category: str | None = None,
+    subcategory: str | None = None,
+    notes: str | None = None,
+) -> str:
+    """Insert one synthetic transaction (date is YYYY-MM-DD); return its id."""
+    conn = sqlite3.connect(str(db_path))
+    try:
+        ensure_schema(conn)
+        migrate_schema(conn)
+        count = conn.execute("SELECT COUNT(*) FROM transactions").fetchone()[0]
+        tid = f"synthetic-{count:05d}"
+        conn.execute(
+            "INSERT INTO transactions (transaction_id, date_posted, date_value, "
+            "month, day_of_week, description_raw, description_clean, "
+            "amount_signed, amount_abs, direction, tx_type, balance, currency, "
+            "account, category, subcategory, category_source, notes, "
+            "source_file, imported_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', NULL, 'EUR', '123456789', "
+            "?, ?, ?, ?, 'synthetic.csv', '2026-01-01T00:00:00+00:00')",
+            (
+                tid, date, date, date[:7],
+                datetime.strptime(date, "%Y-%m-%d").strftime("%a"),
+                description, description,
+                amount if direction == "in" else -amount, amount, direction,
+                category, subcategory, "manual" if category else None, notes,
+            ),
+        )
+        conn.commit()
+        return tid
+    finally:
+        conn.close()

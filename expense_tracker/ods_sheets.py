@@ -146,6 +146,15 @@ def make_cell(value, style_name="normal", value_type=None, formula=None):
     return cell
 
 
+def col_letter(index: int) -> str:
+    """Spreadsheet letters of a 1-based column: 1 -> A, 26 -> Z, 27 -> AA."""
+    letters = ""
+    while index > 0:
+        index, rem = divmod(index - 1, 26)
+        letters = chr(ord("A") + rem) + letters
+    return letters
+
+
 def make_header_row(headers):
     """Create a header row with header styling."""
     from odf.table import TableRow
@@ -259,7 +268,7 @@ def write_monthly_summary_sheet(doc, transactions):
             row.addElement(make_cell("", style_name="normal", value_type="float", formula=formula))
 
         if categories:
-            last_col = chr(ord("B") + len(categories) - 1)
+            last_col = col_letter(len(categories) + 1)
             row.addElement(make_cell(
                 "", style_name="normal", value_type="float",
                 formula=f"of:=SUM([.B{row_num}:.{last_col}{row_num}])",
@@ -273,12 +282,12 @@ def write_monthly_summary_sheet(doc, transactions):
         total_row.addElement(make_cell("TOTAL", style_name="header"))
         last_data_row = len(months) + 1
         for col_idx in range(len(categories)):
-            col_letter = chr(ord("B") + col_idx)
+            col = col_letter(col_idx + 2)
             total_row.addElement(make_cell(
                 "", style_name="header", value_type="float",
-                formula=f"of:=SUM([.{col_letter}2:.{col_letter}{last_data_row}])",
+                formula=f"of:=SUM([.{col}2:.{col}{last_data_row}])",
             ))
-        gt_col = chr(ord("B") + len(categories))
+        gt_col = col_letter(len(categories) + 2)
         total_row.addElement(make_cell(
             "", style_name="header", value_type="float",
             formula=f"of:=SUM([.{gt_col}2:.{gt_col}{last_data_row}])",

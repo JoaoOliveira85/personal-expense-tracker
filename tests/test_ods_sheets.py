@@ -16,9 +16,10 @@ from odf.text import P
 
 from expense_tracker.db import ingest, migrate_schema
 from expense_tracker.ods import generate_ods, retarget_data_ranges
+from expense_tracker.ods_sheets import col_letter
 from expense_tracker.rules import categorize_transactions, load_rules
 
-from .conftest import make_utf16_csv
+from .conftest import add_transaction, make_utf16_csv
 
 
 def _sheet(doc, name: str):
@@ -206,3 +207,35 @@ class TestRetargetDataRanges:
         assert retarget_data_ranges("of:=SUM([.Data.F2:.Data.F6])", 1) == (
             "of:=SUM([.Data.F2:.Data.F2])"
         )
+
+
+class TestMonthlySummaryColumns:
+    """One column per spending category: the sheet runs past column Z as soon
+    as there are 25 of them (A is the month, the total comes last)."""
+
+    @pytest.fixture
+    def doc(self, test_db, rules_csv, tmp_path):
+        for i in range(1, 31):
+            add_transaction(test_db, "2026-01-10", f"SHOP {i}", 10.0, category=f"Cat{i:02d}")
+        ods = tmp_path / "report.ods"
+        generate_ods(test_db, rules_csv, ods, tmp_path / "notes.csv")
+        return load_ods(str(ods))
+
+    def test_row_total_sums_all_30_category_columns(self, doc):
+        cells = _row(doc, "Monthly Summary", "2026-01")
+        assert len(cells) == 32  # month + 30 categories + total
+        assert cells[31].getAttribute("formula") == "of:=SUM([.B2:.AE2])"
+
+    def test_total_row_uses_the_letters_of_its_own_columns(self, doc):
+        cells = _row(doc, "Monthly Summary", "TOTAL")
+        assert cells[25].getAttribute("formula") == "of:=SUM([.Z2:.Z2])"
+        assert cells[26].getAttribute("formula") == "of:=SUM([.AA2:.AA2])"
+        assert cells[30].getAttribute("formula") == "of:=SUM([.AE2:.AE2])"
+        assert cells[31].getAttribute("formula") == "of:=SUM([.AF2:.AF2])"
+
+    @pytest.mark.parametrize(
+        "index, letters",
+        [(1, "A"), (26, "Z"), (27, "AA"), (52, "AZ"), (53, "BA"), (702, "ZZ"), (703, "AAA")],
+    )
+    def test_col_letter(self, index, letters):
+        assert col_letter(index) == letters
