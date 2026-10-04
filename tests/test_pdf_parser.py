@@ -512,3 +512,78 @@ class TestBalanceCheck:
         messages = self._warnings(caplog)
         assert len(messages) == 1
         assert "FARMACIA" in messages[0]
+
+
+class TestTextCarryOverLines:
+    """Only the opening balance and the page carry-over are left out: the
+    label is the whole description and the only number is a balance. A
+    transaction that merely contains the word is a transaction."""
+
+    @pytest.mark.parametrize(
+        "line, description, amount",
+        [
+            (
+                "2.05 2.05 COMPRA 1234 STCP TRANSPORTES PORTO 12.00 1 517.13",
+                "COMPRA 1234 STCP TRANSPORTES PORTO",
+                -12.00,
+            ),
+            (
+                "2.05 2.05 DD TIP TRANSPORTES INTERMODAIS 30.00 1 499.13",
+                "DD TIP TRANSPORTES INTERMODAIS",
+                -30.00,
+            ),
+            (
+                "2.05 2.05 TRANSPORTE ESCOLAR FEVEREIRO 45.00 1 484.13",
+                "TRANSPORTE ESCOLAR FEVEREIRO",
+                -45.00,
+            ),
+            (
+                "2.05 2.05 TRF P/ REFORCO SALDO INICIAL POUPANCA 100.00 1 429.13",
+                "TRF P/ REFORCO SALDO INICIAL POUPANCA",
+                -100.00,
+            ),
+            # No balance printed: still a transaction, not a carry-over
+            (
+                "2.05 2.05 >PAGAMENTO TRANSPORTES 4.68",
+                ">PAGAMENTO TRANSPORTES",
+                -4.68,
+            ),
+        ],
+    )
+    def test_transaction_that_mentions_a_carry_over_word_is_kept(
+        self, line, description, amount
+    ):
+        rows = _text_rows(line)
+
+        assert [(r["description_raw"], r["amount_signed"]) for r in rows] == [
+            (description, amount)
+        ]
+
+    @pytest.mark.parametrize(
+        "line",
+        [
+            "2.05 2.05 TRANSPORTE 1 517.13",
+            "2.01 2.01 SALDO INICIAL 1 532.13",
+            "2.01 2.01 Saldo Inicial 1 532.13",
+            "TRANSPORTE 1 517.13",
+            "SALDO INICIAL 1 532.13",
+        ],
+    )
+    def test_carry_over_line_is_not_a_transaction(self, line):
+        assert _text_rows(line) == []
+
+    def test_statement_with_carry_over_lines_keeps_every_transaction(self):
+        rows = _text_rows(
+            "\n".join(
+                [
+                    "SALDO INICIAL 1 532.13",
+                    "2.02 2.02 COMPRA KIOSK 3.00 1 529.13",
+                    "2.05 2.05 COMPRA 1234 STCP TRANSPORTES PORTO 12.00 1 517.13",
+                    "A TRANSPORTAR 1 517.13",
+                    "TRANSPORTE 1 517.13",
+                    "2.06 2.06 COMPRA CAFE 0.40 1 516.73",
+                ]
+            )
+        )
+
+        assert [r["amount_signed"] for r in rows] == [-3.00, -12.00, -0.40]

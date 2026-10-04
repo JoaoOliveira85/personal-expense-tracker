@@ -56,6 +56,15 @@ TEXT_TX_RE = re.compile(
     r"(\d[\d\s.]*,\d{2})$"
 )
 
+# The opening balance and the page carry-over of a text statement: the label
+# is the whole line (after the dates, if any) and its only number is a balance.
+CARRY_OVER_RE = re.compile(
+    r"^(?:\d{1,2}\.\d{2}\s+\d{1,2}\.\d{2}\s+)?"
+    r"(?:SALDO INICIAL|TRANSPORTE)\s+"
+    r"(\d{1,3}(?:\s\d{3})*\.\d{2})$",
+    re.IGNORECASE,
+)
+
 # Default credit patterns (used if no config file exists)
 DEFAULT_CREDIT_PATTERN_LIST = [
     "TRF. P/O",  # Transfer TO us (incoming)
@@ -393,6 +402,9 @@ def _parse_text_transactions(
         line = line.strip()
         if not line:
             continue
+
+        if CARRY_OVER_RE.match(line):
+            continue
         
         # Check if line looks like a transaction but fails to parse
         looks_like_tx = re.match(r"^\d{1,2}\.\d{2}\s+\d{1,2}\.\d{2}\s+", line)
@@ -486,21 +498,13 @@ def _parse_text_transaction_line(
     """
     if credit_patterns is None:
         credit_patterns = DEFAULT_CREDIT_PATTERN_LIST
-    # Skip known non-transaction lines
-    skip_patterns = [
-        "SALDO INICIAL",
-        "TRANSPORTE",  # Carryover line
-    ]
-    
     # Check if line starts with date pattern - if not, skip
     if not re.match(r"^\d{1,2}\.\d{2}\s+\d{1,2}\.\d{2}\s+", line):
         return None
-    
-    # Check for skip patterns
-    for pattern in skip_patterns:
-        if pattern.lower() in line.lower():
-            return None
-    
+
+    # Carry-over lines never get here (see CARRY_OVER_RE): a transaction
+    # whose text contains "TRANSPORTE" (STCP ... TRANSPORTES) is one to keep.
+
     # Extract dates from the beginning
     date_prefix = re.match(r"^(\d{1,2})\.(\d{2})\s+(\d{1,2})\.(\d{2})\s+", line)
     if not date_prefix:
