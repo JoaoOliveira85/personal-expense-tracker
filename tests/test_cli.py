@@ -209,3 +209,69 @@ class TestFetchFailure:
         monkeypatch.setattr(cli, "fetch_and_report", lambda **kwargs: [])
 
         cli.cmd_fetch(self._args(workspace))
+
+
+def _ingest_args(root: Path, files: list[Path], bank: str | None = None) -> argparse.Namespace:
+    """`ingest FILES` as typed: the rename step is on."""
+    return argparse.Namespace(
+        db=root / "data" / "ledger.sqlite",
+        files=files,
+        bank=bank,
+        no_rename=False,
+        dry_run=False,
+    )
+
+
+class TestIngestRenameStep:
+    """`ingest` renames statements before importing them. A file named on
+    the command line that the rename step leaves out is not a success."""
+
+    def test_file_skipped_by_the_rename_step_exits_non_zero(self, workspace: Path, capsys):
+        junk = workspace / "raw" / "junk.csv"
+        junk.write_text("not a bank statement\n", encoding="utf-8")
+
+        with pytest.raises(SystemExit) as exit_info:
+            cli.cmd_ingest(_ingest_args(workspace, [junk]))
+
+        assert exit_info.value.code == 1
+        out = capsys.readouterr().out
+        assert "Skipping junk.csv" in out
+        assert "1 of 1 file(s)" in out
+
+    def test_the_other_files_are_still_imported(self, workspace: Path, capsys):
+        junk = workspace / "raw" / "junk.csv"
+        junk.write_text("not a bank statement\n", encoding="utf-8")
+        good = make_utf16_csv(workspace / "raw" / "MOVS.csv", FIRST_HALF + SECOND_HALF)
+        args = _ingest_args(workspace, [junk, good])
+
+        with pytest.raises(SystemExit) as exit_info:
+            cli.cmd_ingest(args)
+
+        assert exit_info.value.code == 1
+        assert len(_dates(args.db)) == 4
+        assert "1 of 2 file(s)" in capsys.readouterr().out
+
+    def test_narrower_statement_for_an_imported_month_exits_non_zero(
+        self, workspace: Path, capsys
+    ):
+        raw = workspace / "raw"
+        make_utf16_csv(raw / "2026-01.csv", FIRST_HALF + SECOND_HALF)
+        narrower = make_utf16_csv(
+            raw / "MOVS.csv", FIRST_HALF, date_from="05-01-2026", date_to="20-01-2026"
+        )
+
+        with pytest.raises(SystemExit) as exit_info:
+            cli.cmd_ingest(_ingest_args(workspace, [narrower]))
+
+        assert exit_info.value.code == 1
+        assert "already exists" in capsys.readouterr().out
+        assert narrower.exists()
+
+    def test_renamed_statement_is_imported_with_exit_zero(self, workspace: Path):
+        good = make_utf16_csv(workspace / "raw" / "MOVS.csv", FIRST_HALF + SECOND_HALF)
+        args = _ingest_args(workspace, [good])
+
+        cli.cmd_ingest(args)
+
+        assert len(_dates(args.db)) == 4
+        assert (workspace / "raw" / "2026-01.csv").exists()

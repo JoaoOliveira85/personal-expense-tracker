@@ -291,6 +291,7 @@ def cmd_ingest(args):
         return
 
     # Auto-rename files based on date range (unless --no-rename)
+    named = len(files)
     if not args.no_rename:
         files = _rename_files(files)
 
@@ -301,6 +302,14 @@ def cmd_ingest(args):
         except IngestError as e:
             print(f"Error: {e}")
             sys.exit(1)
+
+    if len(files) < named:
+        # The rename step printed why; a file left out is not a success
+        print(
+            f"Error: {named - len(files)} of {named} file(s) were skipped and "
+            f"not imported (see the warnings above)."
+        )
+        sys.exit(1)
 
 
 def cmd_report(args):
