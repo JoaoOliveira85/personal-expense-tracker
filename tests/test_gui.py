@@ -312,3 +312,76 @@ class TestImportUploadPath:
         assert sorted(p.name for p in project.raw.iterdir()) == [
             "extrato (2).csv", "extrato.csv",
         ]
+
+
+def _click(at, label: str):
+    return next(b for b in at.button if b.label == label).click().run()
+
+
+def _transaction_count(db: Path) -> int:
+    conn = sqlite3.connect(str(db))
+    try:
+        return conn.execute("SELECT COUNT(*) FROM transactions").fetchone()[0]
+    finally:
+        conn.close()
+
+
+# A dated row with five fields instead of six: the parser reports and skips it
+SHORT_ROW = ("16-01-2026", "16-01-2026", "COMPRA 1234 CUT SHORT", "-5,00", "Compra")
+
+
+class TestImportFeedback:
+    """ingest() prints what went wrong to the console of the server: the
+    page must show it, or an import that lost rows looks clean."""
+
+    def test_clean_import_reports_success(self, project, tmp_path):
+        at = _open_page("Import")
+        at.file_uploader[0].upload(
+            "january.csv", _statement(tmp_path, "january.csv"), "text/csv"
+        ).run()
+
+        at = _click(at, "Ingest uploaded files")
+
+        assert not at.exception
+        assert [m.value for m in at.success] == [
+            "Imported 1 file(s) and regenerated report."
+        ]
+        assert not at.warning
+        assert not at.error
+        assert _transaction_count(project.db) == 5
+
+    def test_rows_that_were_not_imported_are_shown(self, project, tmp_path):
+        from .conftest import SAMPLE_ROWS
+
+        data = _statement(tmp_path, "january.csv", rows=SAMPLE_ROWS + [SHORT_ROW])
+        at = _open_page("Import")
+        at.file_uploader[0].upload("january.csv", data, "text/csv").run()
+
+        at = _click(at, "Ingest uploaded files")
+
+        assert not at.exception
+        assert _transaction_count(project.db) == 5
+        assert not at.success
+        assert len(at.warning) == 1
+        assert at.warning[0].value.startswith("1 warning(s) while importing")
+        assert any(
+            "january.csv line 11: row not imported (5 of 6 fields)" in t.value
+            for t in at.text
+        )
+
+    def test_file_that_cannot_be_imported_is_an_error(self, project, tmp_path):
+        """The other files are imported and the report is regenerated."""
+        at = _open_page("Import")
+        at.file_uploader[0].set_value([
+            ("january.csv", _statement(tmp_path, "january.csv"), "text/csv"),
+            ("notes.csv", b"this;is;not;a;statement\n", "text/csv"),
+        ]).run()
+
+        at = _click(at, "Ingest uploaded files")
+
+        assert not at.exception
+        assert len(at.error) == 1
+        assert "1 of 2 file(s) could not be imported (notes.csv:" in at.error[0].value
+        assert not at.success
+        assert _transaction_count(project.db) == 5
+        assert project.ods.exists()

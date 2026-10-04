@@ -14,6 +14,7 @@ Launch with: streamlit run expense_tracker/gui.py
 from __future__ import annotations
 
 import json
+import logging
 import os
 import sqlite3
 import subprocess
@@ -41,7 +42,7 @@ from expense_tracker.constants import (
 )
 from expense_tracker.db import (
     ensure_schema, migrate_schema, fetch_all_transactions, ingest,
-    ingested_source_files,
+    ingested_source_files, IngestError,
 )
 from expense_tracker.rules import load_rules, categorize_transactions, add_rule, remove_rule
 from expense_tracker.ods import generate_ods, sync_from_ods
@@ -120,6 +121,52 @@ def _save_upload(raw_dir: Path, name: str, data: bytes) -> Path:
         dest = raw_dir / f"{Path(name).stem} ({n}){Path(name).suffix}"
     dest.write_bytes(data)
     return dest
+
+
+class _ParserWarnings(logging.Handler):
+    """Collects what the parsers report with logger.warning()."""
+
+    def __init__(self) -> None:
+        super().__init__(level=logging.WARNING)
+        self.messages: list[str] = []
+
+    def emit(self, record: logging.LogRecord) -> None:
+        self.messages.append(record.getMessage())
+
+
+def _ingest_files(paths: list[Path]) -> dict:
+    """Run ingest() and return what it only prints to the server console.
+
+    ingest() imports the files it can, reports rows it had to skip and
+    balances that do not add up as warnings, and raises IngestError for the
+    files it could not import: none of that may pass for a clean import.
+    """
+    collected = _ParserWarnings()
+    package_logger = logging.getLogger("expense_tracker")
+    package_logger.addHandler(collected)
+    error = ""
+    try:
+        ingest(DEFAULT_DB, paths)
+    except IngestError as e:
+        error = str(e)
+    finally:
+        package_logger.removeHandler(collected)
+    return {"files": len(paths), "error": error, "warnings": collected.messages}
+
+
+def _show_import_result(result: dict) -> None:
+    """Render the outcome of _ingest_files() once the report is regenerated."""
+    if result["error"]:
+        st.error(f"Import failed: {result['error']}. The report was regenerated.")
+    if result["warnings"]:
+        st.warning(
+            f"{len(result['warnings'])} warning(s) while importing: "
+            "transactions may be missing or wrong. Check them against the statement."
+        )
+        for message in result["warnings"]:
+            st.text(message)
+    if not result["error"] and not result["warnings"]:
+        st.success(f"Imported {result['files']} file(s) and regenerated report.")
 
 
 # ---------------------------------------------------------------------------
@@ -466,6 +513,10 @@ elif page == "Rules":
 elif page == "Import":
     st.title("Import Bank Statements")
 
+    # Outcome of the import that ended in the rerun below
+    if import_result := st.session_state.pop("import_result", None):
+        _show_import_result(import_result)
+
     st.subheader("Upload Files")
     uploaded = st.file_uploader(
         "Upload CSV or PDF bank statements",
@@ -489,7 +540,7 @@ elif page == "Import":
 
         if st.button("Ingest uploaded files"):
             with st.spinner("Importing..."):
-                ingest(DEFAULT_DB, saved_files)
+                import_result = _ingest_files(saved_files)
                 # Save unsynced ODS edits before the report is regenerated
                 sync_from_ods(DEFAULT_DB, DEFAULT_ODS, DEFAULT_DESC_NOTES)
                 conn = _get_connection(db_path)
@@ -499,7 +550,8 @@ elif page == "Import":
                 conn.close()
                 generate_ods(DEFAULT_DB, DEFAULT_RULES, DEFAULT_ODS, DEFAULT_DESC_NOTES)
                 _load_transactions.clear()
-            st.success(f"Imported {len(saved_files)} file(s) and regenerated report.")
+            # A message written here would be wiped by the rerun
+            st.session_state["import_result"] = import_result
             st.rerun()
 
     st.divider()
@@ -632,7 +684,7 @@ elif page == "Tools":
                             st.caption(f"  {f.name}")
                         if auto_ingest:
                             with st.spinner("Ingesting downloaded files..."):
-                                ingest(DEFAULT_DB, downloaded)
+                                import_result = _ingest_files(downloaded)
                                 # Save unsynced ODS edits before regenerating
                                 sync_from_ods(DEFAULT_DB, DEFAULT_ODS, DEFAULT_DESC_NOTES)
                                 conn = _get_connection(db_path)
@@ -642,7 +694,7 @@ elif page == "Tools":
                                 conn.close()
                                 generate_ods(DEFAULT_DB, DEFAULT_RULES, DEFAULT_ODS, DEFAULT_DESC_NOTES)
                                 _load_transactions.clear()
-                            st.success("Files ingested and report regenerated.")
+                            _show_import_result(import_result)
                     else:
                         st.info("No new statement attachments found.")
                 except FileNotFoundError as e:
