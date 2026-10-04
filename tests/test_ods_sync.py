@@ -289,3 +289,173 @@ class TestOnlyEditedCellsAreSynced:
 
         assert sync_from_ods(db, ods, notes) == 0
         assert _category(db, tid) == "Supermarket"
+
+
+def _edit_data_rows(ods_path: Path, change) -> None:
+    """Apply change(sheet, rows) to the Data sheet, as the user would in
+    the spreadsheet, and save."""
+    doc = load_ods(str(ods_path))
+    sheet = next(
+        s
+        for s in doc.spreadsheet.getElementsByType(Table)
+        if s.getAttribute("name") == "Data"
+    )
+    change(sheet, sheet.getElementsByType(TableRow))
+    doc.save(str(ods_path))
+
+
+def _insert_column(position: int, header: str):
+    def change(sheet, rows):
+        for i, row in enumerate(rows):
+            cell = TableCell(valuetype="string")
+            cell.addElement(P(text=header if i == 0 else ""))
+            row.insertBefore(cell, row.getElementsByType(TableCell)[position])
+    return change
+
+
+def _note(db: Path, tid: str) -> str | None:
+    return _row_values(db, tid)[2]
+
+
+class TestSpreadsheetLayoutChanges:
+    """What the user can do to the Data sheet besides typing in the four
+    synced columns."""
+
+    @pytest.fixture
+    def noted(self, report):
+        """The report, with a note on the CONTINENTE row already synced."""
+        from expense_tracker.constants import COL_NOTES
+
+        db, ods, notes, tid = report
+        _set_ods_cell(ods, tid, COL_NOTES, "birthday dinner")
+        assert sync_from_ods(db, ods, notes) == 1
+        return db, ods, notes, tid
+
+    def test_inserted_column_does_not_shift_what_is_synced(self, noted):
+        """A column added before Notes moved Notes to S and Merchant Note to
+        T. Read by position, every note looked deleted and became the
+        merchant note of its row."""
+        from expense_tracker.constants import COL_NOTES
+        from expense_tracker.ods import _load_description_notes
+
+        db, ods, notes, tid = noted
+        _edit_data_rows(ods, _insert_column(COL_NOTES, "My column"))
+
+        assert sync_from_ods(db, ods, notes) == 0
+
+        assert _note(db, tid) == "birthday dinner"
+        assert _category(db, tid) == "Groceries"
+        assert _load_description_notes(notes) == {}
+
+    def test_edits_are_read_from_the_columns_where_the_headers_are(self, noted):
+        from expense_tracker.constants import COL_CATEGORY, COL_NOTES
+
+        db, ods, notes, tid = noted
+        _edit_data_rows(ods, _insert_column(COL_CATEGORY, "My column"))
+        # Category is now one column to the right, Notes too
+        _set_ods_cell_at(ods, tid, COL_CATEGORY + 1, "Household")
+        _set_ods_cell_at(ods, tid, COL_NOTES + 1, "changed")
+
+        assert sync_from_ods(db, ods, notes) == 1
+
+        assert _category(db, tid) == "Household"
+        assert _note(db, tid) == "changed"
+
+    def test_header_row_sorted_into_the_data_does_not_hide_a_row(self, report):
+        """Sorting the whole sheet moves the header row down: the first row
+        is then a transaction like any other."""
+        db, ods, notes, tid = report
+        _set_ods_category(ods, tid, "Household")
+
+        def header_last(sheet, rows):
+            sheet.removeChild(rows[0])
+            sheet.addElement(rows[0])
+        _edit_data_rows(ods, header_last)
+
+        assert sync_from_ods(db, ods, notes) == 1
+        assert _category(db, tid) == "Household"
+
+    def test_renamed_header_is_read_by_position(self, report):
+        """No header row to go by: the sheet is read as it was generated."""
+        from expense_tracker.constants import COL_NOTES
+        from expense_tracker.ods import _load_description_notes
+
+        db, ods, notes, tid = report
+        _set_ods_category(ods, tid, "Household")
+
+        def rename(sheet, rows):
+            cell = _cells(rows[0])[COL_NOTES]
+            for p in cell.getElementsByType(P):
+                cell.removeChild(p)
+            cell.addElement(P(text="Notas"))
+        _edit_data_rows(ods, rename)
+
+        assert sync_from_ods(db, ods, notes) == 1
+        assert _category(db, tid) == "Household"
+        assert _load_description_notes(notes) == {}
+
+    def test_rows_in_another_order(self, report):
+        db, ods, notes, tid = report
+        _set_ods_category(ods, tid, "Household")
+
+        def reverse(sheet, rows):
+            for row in rows[1:]:
+                sheet.removeChild(row)
+            for row in reversed(rows[1:]):
+                sheet.addElement(row)
+        _edit_data_rows(ods, reverse)
+
+        assert sync_from_ods(db, ods, notes) == 1
+        assert _category(db, tid) == "Household"
+
+    def test_deleted_row_keeps_its_transaction(self, noted, rules_csv):
+        db, ods, notes, tid = noted
+
+        def delete(sheet, rows):
+            for row in rows[1:]:
+                if str(_cells(row)[COL_TRANSACTION_ID]) == tid:
+                    sheet.removeChild(row)
+        _edit_data_rows(ods, delete)
+
+        assert sync_from_ods(db, ods, notes) == 0
+        assert _row_values(db, tid)[:3] == ("Groceries", "", "birthday dinner")
+
+        generate_ods(db, rules_csv, ods, notes)
+        assert sync_from_ods(db, ods, notes) == 0
+        assert _row_values(db, tid)[:3] == ("Groceries", "", "birthday dinner")
+
+    def test_text_typed_into_the_amount_cell_is_not_synced(self, report):
+        db, ods, notes, tid = report
+        _set_ods_cell(ods, tid, 5, "forty-five")  # F: Amount
+
+        assert sync_from_ods(db, ods, notes) == 0
+
+        conn = sqlite3.connect(str(db))
+        amount = conn.execute(
+            "SELECT amount_abs FROM transactions WHERE transaction_id = ?", (tid,)
+        ).fetchone()[0]
+        conn.close()
+        assert amount == 45.5
+
+    def test_renamed_category_is_kept_as_a_manual_edit(self, report):
+        db, ods, notes, tid = report
+        _set_ods_category(ods, tid, "Supermercado")
+
+        assert sync_from_ods(db, ods, notes) == 1
+        assert _row_values(db, tid) == ("Supermercado", "", "", "manual")
+
+
+def _set_ods_cell_at(ods_path: Path, tid: str, col: int, value: str) -> None:
+    """Like _set_ods_cell, for a sheet whose columns have moved: finds the
+    row by the transaction id wherever it is."""
+    def change(sheet, rows):
+        for row in rows[1:]:
+            cells = _cells(row)
+            if tid in [str(c) for c in cells]:
+                cell = cells[col]
+                for p in cell.getElementsByType(P):
+                    cell.removeChild(p)
+                cell.addElement(P(text=value))
+                return
+        raise AssertionError(f"transaction {tid} not found in ODS")
+    _edit_data_rows(ods_path, change)

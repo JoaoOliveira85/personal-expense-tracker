@@ -17,7 +17,7 @@ import sqlite3
 from pathlib import Path
 
 from .constants import (
-    DEFAULT_DESC_NOTES,
+    DATA_HEADERS, DEFAULT_DESC_NOTES,
     COL_DESCRIPTION_CLEAN, COL_CATEGORY, COL_SUBCATEGORY,
     COL_TRANSACTION_ID, COL_NOTES, COL_MERCHANT_NOTE,
 )
@@ -127,6 +127,61 @@ def _is_missing_or_empty(ods_path: Path) -> bool:
     return not ods_path.exists() or ods_path.stat().st_size == 0
 
 
+# Columns of the Data sheet that sync_from_ods() reads
+_SYNCED_COLUMNS = (
+    COL_DESCRIPTION_CLEAN, COL_CATEGORY, COL_SUBCATEGORY,
+    COL_TRANSACTION_ID, COL_NOTES, COL_MERCHANT_NOTE,
+)
+
+# Cells read per row: room for columns the user added, without expanding
+# the thousands of repeated empty cells a spreadsheet pads its rows with
+_MAX_COLUMNS = 64
+
+
+def _row_texts(row) -> list[str]:
+    """Text of the first cells of a Data-sheet row, one entry per column."""
+    from odf.table import TableCell
+    from odf.text import P
+
+    texts: list[str] = []
+    for cell in row.getElementsByType(TableCell):
+        # Handle repeated cells (ODF optimization for empty cells)
+        repeat = cell.getAttribute("numbercolumnsrepeated")
+        n = int(repeat) if repeat else 1
+        text_parts = []
+        for p_elem in cell.getElementsByType(P):
+            text = ""
+            for child in p_elem.childNodes:
+                if hasattr(child, "data"):
+                    text += child.data
+                elif hasattr(child, "__str__"):
+                    text += str(child)
+            text_parts.append(text)
+        texts.extend(["".join(text_parts).strip()] * min(n, _MAX_COLUMNS))
+        if len(texts) >= _MAX_COLUMNS:
+            break
+    return texts
+
+
+def _locate_columns(rows: list[list[str]]) -> tuple[int, dict[int, int]]:
+    """Find the header row and where it puts each synced column.
+
+    The sheet is edited by hand: a column inserted before Notes moves Notes
+    and Merchant Note one to the right, and sorting the whole sheet moves
+    the header row into the data. Reading by fixed position would then take
+    every note for deleted, or skip a transaction as if it were the header.
+
+    Returns (index of the header row, {generated position: actual position}).
+    Without a recognisable header row (a header renamed by hand), the sheet
+    is read as it was generated: header first, columns in their positions.
+    """
+    names = {col: DATA_HEADERS[col] for col in _SYNCED_COLUMNS}
+    for index, texts in enumerate(rows):
+        if all(texts.count(name) == 1 for name in names.values()):
+            return index, {col: texts.index(name) for col, name in names.items()}
+    return 0, {col: col for col in _SYNCED_COLUMNS}
+
+
 def sync_from_ods(
     db_path: Path,
     ods_path: Path,
@@ -148,8 +203,7 @@ def sync_from_ods(
 
     try:
         from odf.opendocument import load as load_ods
-        from odf.table import Table, TableRow, TableCell
-        from odf.text import P
+        from odf.table import Table, TableRow
     except ImportError:
         return 0
 
@@ -164,13 +218,12 @@ def sync_from_ods(
     if data_sheet is None:
         return 0
 
-    rows = data_sheet.getElementsByType(TableRow)
+    rows = [_row_texts(row) for row in data_sheet.getElementsByType(TableRow)]
     if len(rows) < 2:
         return 0
 
-    max_col = max(COL_TRANSACTION_ID, COL_NOTES, COL_MERCHANT_NOTE)
+    header_row, col = _locate_columns(rows)
 
-    # Parse each data row (skip header at index 0)
     # Each edit: (tx_id, category, subcategory, notes)
     edits: list[tuple[str, str, str, str]] = []
     # Merchant notes: description_clean -> merchant_note
@@ -179,48 +232,21 @@ def sync_from_ods(
     # the stored one is the edit, whichever row the user typed it on.
     existing_notes = _load_description_notes(desc_notes_path)
 
-    for row in rows[1:]:
-        cells = row.getElementsByType(TableCell)
-
-        # Handle repeated cells (ODF optimization for empty cells)
-        expanded: list[str] = []
-        for cell in cells:
-            repeat = cell.getAttribute("numbercolumnsrepeated")
-            n = int(repeat) if repeat else 1
-            # Extract text content from the cell
-            text_parts = []
-            for p_elem in cell.getElementsByType(P):
-                # Get all text content from the P element
-                text = ""
-                for child in p_elem.childNodes:
-                    if hasattr(child, "data"):
-                        text += child.data
-                    elif hasattr(child, "__str__"):
-                        text += str(child)
-                text_parts.append(text)
-            cell_text = "".join(text_parts).strip()
-            expanded.extend([cell_text] * n)
-            # Stop expanding if we have enough columns
-            if len(expanded) > max_col:
-                break
-
-        if len(expanded) <= COL_TRANSACTION_ID:
+    for index, expanded in enumerate(rows):
+        if index == header_row:
             continue
+        if len(expanded) <= max(col.values()):
+            # A row cut short ends in empty cells
+            expanded = expanded + [""] * (max(col.values()) + 1 - len(expanded))
 
-        tx_id = expanded[COL_TRANSACTION_ID].strip()
-        category = expanded[COL_CATEGORY].strip()
-        subcategory = expanded[COL_SUBCATEGORY].strip()
-        notes = expanded[COL_NOTES].strip() if len(expanded) > COL_NOTES else ""
+        tx_id = expanded[col[COL_TRANSACTION_ID]]
+        category = expanded[col[COL_CATEGORY]]
+        subcategory = expanded[col[COL_SUBCATEGORY]]
+        notes = expanded[col[COL_NOTES]]
 
         # Read merchant note + description_clean for the merchant notes sync
-        desc_clean = (
-            expanded[COL_DESCRIPTION_CLEAN].strip()
-            if len(expanded) > COL_DESCRIPTION_CLEAN else ""
-        )
-        merchant_note = (
-            expanded[COL_MERCHANT_NOTE].strip()
-            if len(expanded) > COL_MERCHANT_NOTE else ""
-        )
+        desc_clean = expanded[col[COL_DESCRIPTION_CLEAN]]
+        merchant_note = expanded[col[COL_MERCHANT_NOTE]]
         if (desc_clean and merchant_note
                 and merchant_note != existing_notes.get(desc_clean, "")):
             merchant_notes_from_ods[desc_clean] = merchant_note
