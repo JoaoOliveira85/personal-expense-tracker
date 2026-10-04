@@ -64,6 +64,18 @@ except ImportError:
     OPENPYXL_AVAILABLE = False
 
 
+def _text_cell(ws, row: int, column: int, value):
+    """Write data to a cell: statement text, a note, a category or rule name.
+
+    openpyxl stores every string that starts with "=" as a formula, so a
+    description such as "=1+1" would be evaluated by the spreadsheet.
+    """
+    cell = ws.cell(row=row, column=column, value=value)
+    if cell.data_type == "f":
+        cell.data_type = "s"
+    return cell
+
+
 def _load_description_notes(desc_notes_path: Path) -> dict[str, str]:
     """Load merchant notes from description-notes.csv."""
     import csv
@@ -250,7 +262,7 @@ def _write_data_sheet(ws, transactions: list[dict], styles: dict) -> None:
         
         for col_idx, col_name in enumerate(DATA_COLUMNS, start=1):
             value = tx.get(col_name, "") or ""
-            cell = ws.cell(row=row_idx, column=col_idx, value=value)
+            cell = _text_cell(ws, row_idx, col_idx, value)
             cell.fill = fill
             cell.border = styles['thin_border']
             
@@ -275,7 +287,7 @@ def _write_rules_sheet(ws, rules: list[dict], styles: dict) -> None:
     
     for row_idx, rule in enumerate(rules, start=2):
         for col_idx, key in enumerate(["pattern", "match_field", "category", "subcategory", "payment_type"], start=1):
-            cell = ws.cell(row=row_idx, column=col_idx, value=rule.get(key, ""))
+            cell = _text_cell(ws, row_idx, col_idx, rule.get(key, ""))
             cell.border = styles['thin_border']
     
     ws.freeze_panes = 'A2'
@@ -354,7 +366,7 @@ def _write_dashboard_sheet(ws, transactions: list[dict], styles: dict, n: int) -
     row += 1
     
     for cat in categories[:10]:
-        ws.cell(row=row, column=1, value=cat)
+        _text_cell(ws, row, 1, cat)
         ws.cell(row=row, column=2, value="=" + _category_spend(cat))
         ws.cell(row=row, column=2).number_format = '#,##0.00'
         ws.cell(row=row, column=3, value=f'=COUNTIFS(Data!H:H,"{cat}",Data!G:G,"out")')
@@ -380,7 +392,7 @@ def _write_dashboard_sheet(ws, transactions: list[dict], styles: dict, n: int) -
     row += 1
     
     for merchant, total in top_merchants:
-        ws.cell(row=row, column=1, value=merchant)
+        _text_cell(ws, row, 1, merchant)
         # Escape quotes in merchant name for formula
         safe_merchant = merchant.replace('"', '""')
         ws.cell(row=row, column=2, value=f'=SUMIFS(Data!F:F,Data!E:E,"{safe_merchant}",Data!G:G,"out")')
@@ -404,7 +416,7 @@ def _write_monthly_summary_sheet(ws, transactions: list[dict], styles: dict, n: 
     
     # Headers
     for col_idx, header in enumerate(headers, start=1):
-        cell = ws.cell(row=1, column=col_idx, value=header)
+        cell = _text_cell(ws, 1, col_idx, header)
         cell.font = styles['header_font']
         cell.fill = styles['header_fill']
         cell.border = styles['thin_border']
@@ -517,7 +529,7 @@ def _write_category_breakdown_sheet(ws, transactions: list[dict], styles: dict, 
     ws.freeze_panes = 'A2'
     
     for row_idx, cat in enumerate(categories, start=2):
-        ws.cell(row=row_idx, column=1, value=cat).border = styles['thin_border']
+        _text_cell(ws, row_idx, 1, cat).border = styles['thin_border']
         
         # Total Spent
         cell = ws.cell(row=row_idx, column=2)
@@ -575,8 +587,8 @@ def _write_subcategory_breakdown_sheet(ws, transactions: list[dict], styles: dic
     ws.freeze_panes = 'A2'
     
     for row_idx, (cat, subcat) in enumerate(pairs, start=2):
-        ws.cell(row=row_idx, column=1, value=cat).border = styles['thin_border']
-        ws.cell(row=row_idx, column=2, value=subcat or "(none)").border = styles['thin_border']
+        _text_cell(ws, row_idx, 1, cat).border = styles['thin_border']
+        _text_cell(ws, row_idx, 2, subcat or "(none)").border = styles['thin_border']
         
         if subcat:
             # Total Spent
@@ -730,7 +742,7 @@ def _write_recurring_sheet(ws, transactions: list[dict], styles: dict) -> None:
     )
     
     for merchant, months in sorted_merchants[:30]:  # Top 30
-        ws.cell(row=row, column=1, value=merchant).border = styles['thin_border']
+        _text_cell(ws, row, 1, merchant).border = styles['thin_border']
         ws.cell(row=row, column=2, value=len(months)).border = styles['thin_border']
         
         cell = ws.cell(row=row, column=3, value=merchant_totals[merchant])
