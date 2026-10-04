@@ -293,6 +293,14 @@ def cmd_ingest(args):
     dry = getattr(args, "dry_run", False)
     files = list(args.files)
 
+    # PDFs never reach the parser registry, so a mistyped --bank would be
+    # ignored for them; and a CSV would be renamed before it is rejected.
+    bank_id = getattr(args, "bank", None)
+    if bank_id and get_parser_by_id(bank_id) is None:
+        available = ", ".join(p.bank_id for p in get_registered_parsers())
+        print(f"Error: Unknown bank '{bank_id}'. Available: {available or 'none'}")
+        sys.exit(1)
+
     if dry:
         print(f"[dry-run] Would ingest {len(files)} file(s):")
         for f in files:
@@ -303,7 +311,6 @@ def cmd_ingest(args):
 
     # Auto-rename files based on date range (unless --no-rename)
     named = len(files)
-    bank_id = getattr(args, "bank", None)
     if not args.no_rename:
         files = _rename_files(files, bank_id)
 

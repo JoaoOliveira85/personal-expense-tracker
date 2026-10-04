@@ -336,3 +336,51 @@ class TestIngestOtherBank:
         assert exit_info.value.code == 1
         assert utf16.exists()  # not renamed for a bank it was not parsed as
         assert "UTF8 header" in capsys.readouterr().out
+
+
+class TestIngestUnknownBank:
+    """A --bank value that names no parser is an error for every file,
+    before anything is renamed or imported."""
+
+    def test_unknown_bank_is_rejected_for_a_pdf(self, workspace: Path, capsys):
+        from .test_pdf_parser import _make_text_pdf
+
+        pdf = _make_text_pdf(
+            workspace / "raw" / "statement.pdf",
+            [
+                "EXTRATO DE 2026/02/02 A 2026/02/27",
+                "2.02 2.02 COMPRA KIOSK 3.00 1 529.13",
+            ],
+        )
+        args = _ingest_args(workspace, [pdf], bank="typo")
+
+        with pytest.raises(SystemExit) as exit_info:
+            cli.cmd_ingest(args)
+
+        assert exit_info.value.code == 1
+        assert "Unknown bank 'typo'. Available: utf16, utf8" in capsys.readouterr().out
+        assert pdf.exists()
+        assert not args.db.exists()
+
+    def test_unknown_bank_is_rejected_before_a_csv_is_renamed(
+        self, workspace: Path, capsys
+    ):
+        utf16 = make_utf16_csv(workspace / "raw" / "MOVS.csv", FIRST_HALF)
+        args = _ingest_args(workspace, [utf16], bank="typo")
+
+        with pytest.raises(SystemExit) as exit_info:
+            cli.cmd_ingest(args)
+
+        assert exit_info.value.code == 1
+        assert "Unknown bank 'typo'" in capsys.readouterr().out
+        assert utf16.exists()
+
+    def test_unknown_bank_is_rejected_in_a_dry_run(self, workspace: Path, capsys):
+        utf16 = make_utf16_csv(workspace / "raw" / "MOVS.csv", FIRST_HALF)
+        args = _ingest_args(workspace, [utf16], bank="typo")
+        args.dry_run = True
+
+        with pytest.raises(SystemExit) as exit_info:
+            cli.cmd_ingest(args)
+
+        assert exit_info.value.code == 1
