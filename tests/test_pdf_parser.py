@@ -596,10 +596,15 @@ class TestTextCarryOverLines:
             "2.01 2.01 Saldo Inicial 1 532.13",
             "TRANSPORTE 1 517.13",
             "SALDO INICIAL 1 532.13",
+            # The label is the whole description: a second figure does not
+            # make it a purchase
+            "2.05 2.05 TRANSPORTE 1 517.13 1 517.13",
+            "2.01 2.01 SALDO INICIAL 0.00 1 532.13",
         ],
     )
-    def test_carry_over_line_is_not_a_transaction(self, line):
+    def test_carry_over_line_is_not_a_transaction(self, line, caplog):
         assert _text_rows(line) == []
+        assert [r for r in caplog.records if r.levelname == "WARNING"] == []
 
     def test_statement_with_carry_over_lines_keeps_every_transaction(self):
         rows = _text_rows(
@@ -668,6 +673,15 @@ class TestTextAmountSplit:
     def test_opening_or_carried_balance_settles_the_first_line(self, label, caplog):
         triples = _text_triples(
             f"{label} 1 529.13\n"
+            "2.03 2.03 COMPRA 1234 LIDL 280 150.00 1 379.13"
+        )
+
+        assert triples == [("COMPRA 1234 LIDL 280", -150.00, 1379.13)]
+        assert _text_warnings(caplog) == []
+
+    def test_balance_is_the_last_figure_of_a_carry_over_line(self, caplog):
+        triples = _text_triples(
+            "2.01 2.01 SALDO INICIAL 0.00 1 529.13\n"
             "2.03 2.03 COMPRA 1234 LIDL 280 150.00 1 379.13"
         )
 

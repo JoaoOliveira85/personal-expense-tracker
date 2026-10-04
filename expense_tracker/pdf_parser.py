@@ -57,11 +57,13 @@ TEXT_TX_RE = re.compile(
 )
 
 # The opening balance and the page carry-over of a text statement: the label
-# is the whole line (after the dates, if any) and its only number is a balance.
+# is the whole description (after the dates, if any). The last figure is the
+# balance, whether or not another one stands before it.
 CARRY_OVER_RE = re.compile(
     r"^(?:\d{1,2}\.\d{2}\s+\d{1,2}\.\d{2}\s+)?"
-    r"(?:SALDO INICIAL|TRANSPORTE)\s+"
-    r"(\d{1,3}(?:\s\d{3})*\.\d{2})$",
+    r"(?:SALDO INICIAL|TRANSPORTE)"
+    r"(?:\s+\d{1,3}(?:\s\d{3})*\.\d{2})?"
+    r"\s+(\d{1,3}(?:\s\d{3})*\.\d{2})$",
     re.IGNORECASE,
 )
 
