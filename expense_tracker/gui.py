@@ -104,6 +104,24 @@ def _upload_name(name: str) -> str:
     return "" if base in (".", "..") else base
 
 
+def _save_upload(raw_dir: Path, name: str, data: bytes) -> Path:
+    """Write an upload to raw_dir without replacing a different file.
+
+    Banks reuse download names, so a file of that name may already hold
+    another statement: this one then becomes "name (2).ext". The page saves
+    its uploads again on every rerun, so the same content is written once.
+    """
+    dest = raw_dir / name
+    n = 1
+    while dest.exists():
+        if dest.is_file() and dest.read_bytes() == data:
+            return dest
+        n += 1
+        dest = raw_dir / f"{Path(name).stem} ({n}){Path(name).suffix}"
+    dest.write_bytes(data)
+    return dest
+
+
 # ---------------------------------------------------------------------------
 # Sidebar navigation
 # ---------------------------------------------------------------------------
@@ -465,10 +483,9 @@ elif page == "Import":
             if not name:
                 st.error(f"Not saved: {f.name!r} is not a file name.")
                 continue
-            dest = raw_dir / name
-            dest.write_bytes(f.getvalue())
+            dest = _save_upload(raw_dir, name, f.getvalue())
             saved_files.append(dest)
-            st.caption(f"Saved: {name}")
+            st.caption(f"Saved: {dest.name}")
 
         if st.button("Ingest uploaded files"):
             with st.spinner("Importing..."):

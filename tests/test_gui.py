@@ -285,3 +285,30 @@ class TestImportUploadPath:
         assert not at.exception
         assert not target.exists()
         assert (project.raw / "absolute.csv").read_bytes() == data
+
+    def test_upload_never_replaces_another_statement_of_the_same_name(
+        self, project, tmp_path
+    ):
+        """Banks reuse download names: last month's raw statement must
+        survive this month's upload."""
+        january = _statement(tmp_path, "january.csv")
+        february = _statement(
+            tmp_path,
+            "february.csv",
+            rows=[("03-02-2026", "03-02-2026", "COMPRA 1234 CONTINENTE PORTO",
+                   "-20,00", "Compra", "1214,56")],
+        )
+        project.raw.mkdir()
+        (project.raw / "extrato.csv").write_bytes(january)
+
+        at = _open_page("Import")
+        at.file_uploader[0].upload("extrato.csv", february, "text/csv").run()
+
+        assert not at.exception
+        assert (project.raw / "extrato.csv").read_bytes() == january
+        assert (project.raw / "extrato (2).csv").read_bytes() == february
+
+        at.run()  # the page saves its uploads again on every rerun
+        assert sorted(p.name for p in project.raw.iterdir()) == [
+            "extrato (2).csv", "extrato.csv",
+        ]
