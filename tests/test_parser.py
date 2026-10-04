@@ -307,6 +307,56 @@ class TestParseUtf16Csv:
         assert rows[0]["amount_abs"] == abs(expected_amount)
         assert rows[0]["balance"] == expected_balance
 
+    GOOD_1 = ("15-01-2026", "15-01-2026", "COMPRA 1234 LOJA", "-10,00", "Compra", "990,00")
+    GOOD_2 = ("14-01-2026", "14-01-2026", "COMPRA 1234 CAFE", "-1,00", "Compra", "1000,00")
+
+    def _warnings(self, caplog) -> list[str]:
+        return [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
+
+    def test_rows_after_a_non_transaction_line_are_reported(
+        self, tmp_path, cards_csv, caplog
+    ):
+        """Reading stops at the first odd line: say so if transactions follow."""
+        path = make_utf16_csv(
+            tmp_path / "movs.csv",
+            [self.GOOD_1, ("second line of a description",), self.GOOD_2],
+        )
+        rows = parse_utf16_csv(path, cards_path=cards_csv)
+
+        assert [r["description_raw"] for r in rows] == ["COMPRA 1234 LOJA"]
+        messages = self._warnings(caplog)
+        assert len(messages) == 1
+        assert "movs.csv line 7" in messages[0]
+        assert "1 later line" in messages[0]
+
+    def test_truncated_row_is_reported_and_the_rest_still_read(
+        self, tmp_path, cards_csv, caplog
+    ):
+        path = make_utf16_csv(
+            tmp_path / "movs.csv",
+            [self.GOOD_1, ("14-01-2026", "14-01-2026", "COMPRA CORTADA"), self.GOOD_2],
+        )
+        rows = parse_utf16_csv(path, cards_path=cards_csv)
+
+        assert [r["description_raw"] for r in rows] == [
+            "COMPRA 1234 LOJA", "COMPRA 1234 CAFE",
+        ]
+        messages = self._warnings(caplog)
+        assert len(messages) == 1
+        assert "movs.csv line 7" in messages[0]
+        assert "COMPRA CORTADA" in messages[0]
+
+    def test_footer_after_the_last_row_reports_nothing(
+        self, tmp_path, cards_csv, caplog
+    ):
+        path = make_utf16_csv(
+            tmp_path / "movs.csv", [self.GOOD_1, ("Saldo final", "990,00")]
+        )
+        rows = parse_utf16_csv(path, cards_path=cards_csv)
+
+        assert len(rows) == 1
+        assert self._warnings(caplog) == []
+
     def test_income_direction(self, utf16_csv, cards_csv):
         rows = parse_utf16_csv(utf16_csv, cards_path=cards_csv)
         # Last row is salary (positive)

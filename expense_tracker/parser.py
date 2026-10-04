@@ -7,6 +7,7 @@ non-tabular header/footer lines, Portuguese dates and amounts.
 from __future__ import annotations
 
 import csv
+import logging
 import re
 from datetime import date, datetime
 from pathlib import Path
@@ -15,6 +16,8 @@ from typing import Optional
 from .constants import (
     DEFAULT_CARDS, DEFAULT_NOISE_WORDS, DEFAULT_CLEANING_PATTERNS, DOW_NAMES,
 )
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Header detection
@@ -344,16 +347,28 @@ def parse_utf16_csv(path: Path, cards_path: Path = DEFAULT_CARDS) -> list[dict]:
         raise ValueError(f"Could not find transaction header row in {path.name}")
 
     rows: list[dict] = []
-    for ln in lines[start_idx + 1 :]:
+    for line_no, ln in enumerate(lines[start_idx + 1 :], start=start_idx + 2):
         if not ln:
             continue
         if not ROW_RE.match(ln):
+            # The footer ends the table; anything dated after it is a loss
+            unread = sum(1 for later in lines[line_no:] if ROW_RE.match(later))
+            if unread:
+                logger.warning(
+                    "%s line %d: stopped reading at %r; %d later line(s) that "
+                    "look like transactions were not imported",
+                    path.name, line_no, ln[:60], unread,
+                )
             break
 
         # Handle quoted fields (descriptions can contain semicolons)
         parts = next(csv.reader([ln], delimiter=";"))
         if len(parts) < 6:
-            break
+            logger.warning(
+                "%s line %d: row not imported (%d of 6 fields): %s",
+                path.name, line_no, len(parts), ln,
+            )
+            continue
 
         date_posted_s, date_value_s, desc, amount_s, tx_type, balance_s = parts[:6]
 
