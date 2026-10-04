@@ -834,3 +834,61 @@ class TestTextFixturesUnchanged:
         assert _text_triples("\n".join(lines), 2024) == expected
         assert [t for ln in lines for t in _text_triples(ln, 2024)] == expected
         assert not [m for m in _text_warnings(caplog) if "could be" in m]
+
+
+class TestTextSkippedLines:
+    """A line that starts like a transaction (two month.day dates) and
+    cannot be read is reported: it may be money missing from the ledger."""
+
+    @pytest.mark.parametrize(
+        "line, reason",
+        [
+            ("2.05 2.05 COMPRA CONTINENTE 12,50 1 517,13", "no amount"),
+            ("2.05 2.05 COMPRA CONTINENTE", "no amount"),
+            ("2.05 2.05 COMPRA CONTINENTE 12.5", "no amount"),
+            ("13.05 13.05 COMPRA CONTINENTE 12.50 1 517.13", "invalid date"),
+            ("2.30 2.30 COMPRA CONTINENTE 12.50 1 517.13", "invalid date"),
+            ("2.05 2.31 COMPRA CONTINENTE 12.50 1 517.13", "invalid date"),
+        ],
+    )
+    def test_unreadable_transaction_line_is_reported(self, line, reason, caplog):
+        assert _text_rows(line) == []
+
+        messages = _text_warnings(caplog)
+        assert len(messages) == 1
+        assert "statement.pdf" in messages[0]
+        assert "not imported" in messages[0]
+        assert reason in messages[0]
+        assert line in messages[0]
+
+    def test_every_unreadable_line_is_reported(self, caplog):
+        lines = [f"2.0{d} 2.0{d} COMPRA LOJA {d} {d},50" for d in range(1, 8)]
+        rows = _text_rows(
+            "\n".join(["2.01 2.01 COMPRA KIOSK 3.00 1 529.13"] + lines)
+        )
+
+        assert len(rows) == 1
+        messages = _text_warnings(caplog)
+        assert len(messages) == 7
+        for line, message in zip(lines, messages):
+            assert line in message
+
+    def test_text_that_is_not_a_transaction_is_not_reported(self, caplog):
+        rows = _text_rows(
+            "\n".join(
+                [
+                    "EXTRATO DE 2026/02/02 A 2026/02/27",
+                    "DATA DATA",
+                    "LANC. VALOR DESCRITIVO DEBITO CREDITO SALDO",
+                    "SALDO INICIAL 1 532.13",
+                    "2.02 2.02 COMPRA KIOSK 3.00 1 529.13",
+                    "A TRANSPORTAR 1 529.13",
+                    "2.02 2.02 TRANSPORTE 1 529.13",
+                    "TAXA 12.50 3.00",
+                    "SALDO FINAL 1 529.13",
+                ]
+            )
+        )
+
+        assert len(rows) == 1
+        assert _text_warnings(caplog) == []

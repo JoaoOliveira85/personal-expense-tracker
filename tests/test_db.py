@@ -320,6 +320,25 @@ class TestIngestWarnings:
         assert "Warning: statement.pdf" in out
         assert "1 warning(s)" in out
 
+    def test_unread_pdf_line_is_counted(self, test_db, tmp_path, capsys):
+        from tests.test_pdf_parser import _make_text_pdf
+
+        path = _make_text_pdf(
+            tmp_path / "statement.pdf",
+            [
+                "EXTRATO DE 2026/02/02 A 2026/02/27",
+                "2.02 2.02 COMPRA KIOSK 3.00 1 529.13",
+                "2.05 2.05 COMPRA CONTINENTE 12,50 1 516,63",
+            ],
+        )
+
+        ingest(test_db, [path], cards_path=tmp_path / "none.csv")
+
+        out = capsys.readouterr().out
+        assert "Warning: statement.pdf: line not imported" in out
+        assert "2.05 2.05 COMPRA CONTINENTE 12,50 1 516,63" in out
+        assert "1 warning(s)" in out
+
     def test_clean_run_has_no_warning_line(self, test_db, utf16_csv, cards_csv, capsys):
         ingest(test_db, [utf16_csv], cards_path=cards_csv)
 

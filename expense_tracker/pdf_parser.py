@@ -400,7 +400,6 @@ def _parse_text_transactions(
     lines = full_text.split("\n")
     
     current_month = None
-    skipped_lines = []
     # The balance before the line being read: tells an amount from a number
     # that ends the description (see _settle_amount)
     prev_balance: Optional[float] = None
@@ -414,11 +413,9 @@ def _parse_text_transactions(
         if carry_over:
             prev_balance = _parse_amount_pdf_text(carry_over.group(1))
             continue
-        
-        # Check if line looks like a transaction but fails to parse
-        looks_like_tx = re.match(r"^\d{1,2}\.\d{2}\s+\d{1,2}\.\d{2}\s+", line)
-        
-        # Try to parse as a transaction line
+
+        # Try to parse as a transaction line (it reports a line that starts
+        # like one and cannot be read)
         parsed = _parse_text_transaction_line(
             line, statement_year, current_month, known_cards, card_owners, 
             source_file, credit_patterns, period=period,
@@ -430,18 +427,7 @@ def _parse_text_transactions(
             current_month = int(parsed["date_posted"].split("-")[1])
             if parsed["balance"]:  # 0 stands for "not printed"
                 prev_balance = parsed["balance"]
-        elif looks_like_tx:
-            # Log lines that look like transactions but failed to parse
-            skipped_lines.append(line)
-    
-    # Log skipped lines for debugging
-    if skipped_lines:
-        logger.debug(
-            f"{source_file}: {len(skipped_lines)} transaction-like lines skipped"
-        )
-        for line in skipped_lines[:5]:
-            logger.debug(f"  Skipped: {line[:60]}")
-    
+
     return rows
 
 
@@ -563,6 +549,10 @@ def _parse_text_transaction_line(
     # Carry-over lines never get here (see CARRY_OVER_RE): a transaction
     # whose text contains "TRANSPORTE" (STCP ... TRANSPORTES) is one to keep.
 
+    def _skip(reason: str) -> None:
+        # Two dates at the start: this may be a transaction left out
+        logger.warning("%s: line not imported (%s): %s", source_file, reason, line)
+
     # Extract dates from the beginning
     date_prefix = re.match(r"^(\d{1,2})\.(\d{2})\s+(\d{1,2})\.(\d{2})\s+", line)
     if not date_prefix:
@@ -605,10 +595,10 @@ def _parse_text_transaction_line(
             amount_s = one_amount.group(2)
             balance_s = "0.00"
         else:
-            return None
+            return _skip("no amount at the end")
     
     if not desc:
-        return None
+        return _skip("no description")
     
     # Parse dates - format is MONTH.DAY (e.g., "2.03" = Feb 3rd, month 2, day 03)
     try:
@@ -626,7 +616,7 @@ def _parse_text_transaction_line(
             posted = date(year, month_int, day_int)
             value = date(year, month2_int, day2_int)
     except ValueError:
-        return None
+        return _skip("invalid date")
     
     # Parse amount
     desc, amount_s = _settle_amount(
@@ -636,7 +626,7 @@ def _parse_text_transaction_line(
     )
     amount = _parse_amount_pdf_text(amount_s)
     if amount is None:
-        return None
+        return _skip("invalid amount")
     
     # Determine if debit or credit based on configurable patterns
     # Credits are incoming money - they should be positive
