@@ -500,3 +500,53 @@ class TestHistoricalCategoryTotals:
         totals = _fetch_historical_category_totals(conn)
         conn.close()
         assert totals == {"2026-01": {"Health": 70}}
+
+
+def _pdf_text(path: Path) -> str:
+    import pdfplumber
+
+    with pdfplumber.open(str(path)) as pdf:
+        return "\n".join(page.extract_text() or "" for page in pdf.pages)
+
+
+class TestCategoryAverages:
+    """'vs Avg' compares a month with the months before it."""
+
+    def _report_row(self, test_db, tmp_path, month: str, category: str) -> str:
+        output = tmp_path / f"report-{month}.pdf"
+        generate_monthly_pdf(
+            db_path=test_db,
+            month=month,
+            output_path=output,
+            desc_notes_path=tmp_path / "notes.csv",
+        )
+        # The merchants table shares the line: keep the six category cells
+        return " ".join(next(
+            line for line in _pdf_text(output).splitlines()
+            if line.startswith(category)
+        ).split()[:6])
+
+    def test_later_months_do_not_count(self, test_db, tmp_path):
+        """A report is usually written a few days into the next month, whose
+        first transactions are already in the ledger; an old month can also
+        be regenerated at any time."""
+        from .conftest import add_transaction
+
+        add_transaction(test_db, "2026-01-10", "SHOP", 100.0, category="Groceries")
+        add_transaction(test_db, "2026-02-10", "SHOP", 200.0, category="Groceries")
+        add_transaction(test_db, "2026-03-02", "SHOP", 600.0, category="Groceries")
+
+        row = self._report_row(test_db, tmp_path, "2026-02", "Groceries")
+
+        # amount, share, vs previous month (200 - 100), vs average (200 - 100)
+        assert row == "Groceries 200.00 EUR 100.0% +100 +100"
+
+    def test_first_month_has_no_average(self, test_db, tmp_path):
+        from .conftest import add_transaction
+
+        add_transaction(test_db, "2026-01-10", "SHOP", 100.0, category="Groceries")
+        add_transaction(test_db, "2026-02-10", "SHOP", 200.0, category="Groceries")
+
+        row = self._report_row(test_db, tmp_path, "2026-01", "Groceries")
+
+        assert row == "Groceries 100.00 EUR 100.0% - -"

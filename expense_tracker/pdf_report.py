@@ -437,11 +437,13 @@ def generate_monthly_pdf(
     prev = _prev_month(month)
     prev_month_totals = historical.get(prev, {})
 
-    # Compute per-category monthly averages (excluding the current month)
+    # Compute per-category monthly averages over the months before this one.
+    # Later months are no part of its history: the report is usually written
+    # a few days into the next month, and old months can be regenerated.
     category_averages: dict[str, float] = defaultdict(float)
     category_month_counts: dict[str, int] = defaultdict(int)
     for m, cats in historical.items():
-        if m == month:
+        if m >= month:
             continue
         for cat, total in cats.items():
             category_averages[cat] += total
