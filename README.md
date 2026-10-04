@@ -25,9 +25,8 @@ Or if you prefer the CLI workflow:
 
 ```bash
 # Drop your bank CSV(s) or PDF(s) into raw/, then:
-./run.sh auto
-
-# Open expense-report.ods in LibreOffice or Google Sheets
+./run.sh auto                # writes expense-report.xlsx (Excel, Numbers, Google Sheets)
+./run.sh auto --format ods   # writes expense-report.ods (LibreOffice; see "The ODS Report")
 ```
 
 ---
@@ -183,15 +182,18 @@ The shell scripts use `bank_ingest.py` under the hood. You can also use it direc
 
 ### `auto` (default)
 
-Scan for new files, import, and regenerate the report. This is what `run.sh` calls.
+Scan for new files, import, and regenerate the report. `./run.sh auto` runs it (`./run.sh` alone starts the GUI).
 
 ```bash
 python bank_ingest.py              # same as 'auto'
 python bank_ingest.py auto
+python bank_ingest.py auto --format ods   # write the ODS report (or: both)
 python bank_ingest.py auto --raw path/to/csvs
 python bank_ingest.py auto --no-backup    # skip automatic monthly backup
 python bank_ingest.py auto --dry-run      # show what would happen, change nothing
 ```
+
+The report is written as `expense-report.xlsx` unless you pass `--format ods` (writes `expense-report.ods`, the report described in [The ODS Report](#the-ods-report-expense-reportods)) or `--format both`. Whatever the format, edits made in an existing `expense-report.ods` are synced back to the database first; the ODS itself is only regenerated with `ods` or `both`.
 
 The `auto` command automatically creates a monthly backup (e.g. `backups/backup-2026-01.zip`) for the previous month if one doesn't already exist. Use `--no-backup` to skip this.
 
@@ -220,18 +222,20 @@ The `ingest` command auto-renames files based on the date range inside the CSV o
 
 ### `report`
 
-Apply rules and regenerate the ODS report (without importing new data).
+Apply rules and regenerate the report (without importing new data).
 
 ```bash
-python bank_ingest.py report
-python bank_ingest.py report --fresh       # regenerate ALL sheets from scratch
-python bank_ingest.py report --no-sync     # skip syncing manual edits from ODS
-python bank_ingest.py report --fresh --no-sync   # full nuclear reset
+python bank_ingest.py report                       # expense-report.xlsx (default)
+python bank_ingest.py report --format ods          # expense-report.ods (or: both)
+python bank_ingest.py report --format ods --fresh  # regenerate ALL ODS sheets from scratch
+python bank_ingest.py report --no-sync             # skip syncing manual edits from ODS
+python bank_ingest.py report --format ods --fresh --no-sync   # full nuclear reset
 ```
 
 | Flag | Effect |
 |------|--------|
-| `--fresh` | Creates a backup, then deletes the existing ODS and regenerates all sheets (including Dashboard, Monthly Summary/Trend, Category/Subcategory Breakdown, and any custom sheets). Manual edits are still saved to the database first. |
+| `--format` | `xlsx` (default), `ods` or `both`. The xlsx report is rewritten completely on every run. |
+| `--fresh` | With `--format ods` or `both`: creates a backup, then deletes the existing ODS and regenerates all sheets (including Dashboard, Monthly Summary/Trend, Category/Subcategory Breakdown, and any custom sheets). Manual edits are still saved to the database first. Without `--format ods` the ODS is left as it is. |
 | `--no-sync` | Skips reading manual edits from the ODS back into the database. |
 
 ### `cards`
@@ -521,13 +525,13 @@ Open this file in **LibreOffice Calc** or upload it to **Google Sheets**.
 | **Recurring Merchants** | First run only | Merchants that appear 3+ times — helps spot subscriptions, regular bills, and habitual spending. Shows count, total, average, date range, and category. |
 | *Your custom sheets* | Never touched | Add as many sheets as you want. The script will never modify or remove them. |
 
-**Rows covered by the first-run sheets.** Their formulas refer to the Data sheet by row range (e.g. `Data.F2:F250`). On every run those ranges, and nothing else in these sheets, are moved to the current last row of the Data sheet, so each total keeps covering every transaction. The lists themselves (months, categories, top merchants, recurring merchants) stay those of the first run: use `report --fresh` to rebuild them. Formulas in your own sheets are never changed, so refer to whole columns there (`Data.F:F`).
+**Rows covered by the first-run sheets.** Their formulas refer to the Data sheet by row range (e.g. `Data.F2:F250`). On every run those ranges, and nothing else in these sheets, are moved to the current last row of the Data sheet, so each total keeps covering every transaction. The lists themselves (months, categories, top merchants, recurring merchants) stay those of the first run: use `report --format ods --fresh` to rebuild them. Formulas in your own sheets are never changed, so refer to whole columns there (`Data.F:F`).
 
 **Refunds.** Money coming *in* with a spending category (e.g. a pharmacy refund or an insurance reimbursement categorized as Health) is treated as a refund: it is subtracted from that category's spending and from total expenses, and is **not** counted as income. Incoming transactions categorized `Income` or `Transfers`, or left uncategorized, count as income.
 
 **Savings.** Transactions categorized `Savings` are money moved into or out of a savings product (e.g. a savings or investment account): deposits are **not** counted as spending and withdrawals are **not** counted as income, so Net reflects only what you earned and spent. Monthly Trend's running balance therefore won't match your bank balance in months with savings movements.
 
-Both rules apply to every report (ODS, xlsx, PDF, GUI dashboard, advisor). Because the analysis sheets above are only written on the first run, regenerate an existing ODS with `python bank_ingest.py report --fresh` to pick up the refund-aware formulas.
+Both rules apply to every report (ODS, xlsx, PDF, GUI dashboard, advisor). Because the analysis sheets above are only written on the first run, regenerate an existing ODS with `python bank_ingest.py report --format ods --fresh` to pick up the refund-aware formulas.
 
 ### Manual Categorization & Notes
 
@@ -663,7 +667,7 @@ Use `--no-backup` to skip this check.
 ### Pre-destructive backups
 
 Before potentially destructive operations, a timestamped backup is created automatically:
-- `report --fresh` — backs up before deleting and regenerating the ODS
+- `report --format ods --fresh` — backs up before deleting and regenerating the ODS
 - `reclean` — backs up before modifying descriptions in the database
 
 ### Manual backups
@@ -819,6 +823,6 @@ The system creates automatic and manual backups in `backups/` (see the [Backups]
 
 **"File already exists with range..."** — You're trying to import a CSV for a month that's already been imported with the same or wider date range. If you need to re-import, delete the existing file from `raw/` first.
 
-**Formulas show `#VALUE!`** — Make sure you're opening the file in LibreOffice Calc (not a text editor). If the issue persists, run `python bank_ingest.py report --fresh` to regenerate all sheets.
+**Formulas show `#VALUE!`** — Make sure you're opening the file in LibreOffice Calc (not a text editor). If the issue persists, run `python bank_ingest.py report --format ods --fresh` to regenerate all sheets.
 
 **"externally-managed-environment" error** — You're trying to install packages on system Python. Run `./install.sh` to set up a virtual environment instead.
