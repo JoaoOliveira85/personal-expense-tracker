@@ -207,3 +207,32 @@ class TestXlsxCriteriaMatchTheNameOnly:
         assert ws.cell(row=row, column=5).value == (
             '=COUNTIFS(Data!H:H,"Kids ""R"" Us",Data!I:I,"Toys~*",Data!G:G,"out")'
         )
+
+
+class TestXlsxControlCharacters:
+    """An xlsx file cannot hold most control characters and openpyxl raises
+    on them: one such byte in a statement must not cost the whole report."""
+
+    @pytest.fixture
+    def workbook(self, test_db, tmp_path):
+        add_transaction(test_db, "2026-01-10", "BAD\x0bCHAR", 10.0,
+                        category="Mi\x01sc", notes="form\x0cfeed and \x00")
+        return _xlsx(test_db, tmp_path)
+
+    def test_report_is_written_with_the_characters_replaced(self, workbook):
+        ws = workbook["Data"]
+        assert ws["E2"].value == "BAD�CHAR"
+        assert ws["H2"].value == "Mi�sc"
+        assert ws["R2"].value == "form�feed and �"
+        assert ws["F2"].value == 10.0
+
+    def test_formulas_match_the_name_as_written_in_the_data_sheet(self, workbook):
+        ws = workbook["Dashboard"]
+        row = _xlsx_row(ws, "BAD�CHAR")
+        assert ws.cell(row=row, column=2).value == (
+            '=SUMIFS(Data!F:F,Data!E:E,"BAD�CHAR",Data!G:G,"out")'
+        )
+        row = _xlsx_row(ws, "Mi�sc")
+        assert ws.cell(row=row, column=3).value == (
+            '=COUNTIFS(Data!H:H,"Mi�sc",Data!G:G,"out")'
+        )

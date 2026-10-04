@@ -54,7 +54,7 @@ def _criterion(name: str) -> str:
     other merchant that starts with GLOVO), ~ escapes them, a leading =, <
     or > is a comparison, and a double quote ends the string.
     """
-    escaped = re.sub(r"([~*?])", r"~\1", name)
+    escaped = re.sub(r"([~*?])", r"~\1", _printable(name))
     if escaped[:1] in ("=", "<", ">"):
         escaped = "=" + escaped
     return '"' + escaped.replace('"', '""') + '"'
@@ -72,10 +72,20 @@ def _category_spend(cat: str, criteria: str = "") -> str:
 try:
     from openpyxl import Workbook
     from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
     from openpyxl.utils import get_column_letter
     OPENPYXL_AVAILABLE = True
 except ImportError:
     OPENPYXL_AVAILABLE = False
+
+
+def _printable(text: str) -> str:
+    """`text` without the control characters an xlsx file cannot hold.
+
+    openpyxl raises on them, so a single stray byte in a statement would
+    cost the whole report. They become U+FFFD, as in the ODS report.
+    """
+    return ILLEGAL_CHARACTERS_RE.sub("\ufffd", text)
 
 
 def _text_cell(ws, row: int, column: int, value):
@@ -84,6 +94,8 @@ def _text_cell(ws, row: int, column: int, value):
     openpyxl stores every string that starts with "=" as a formula, so a
     description such as "=1+1" would be evaluated by the spreadsheet.
     """
+    if isinstance(value, str):
+        value = _printable(value)
     cell = ws.cell(row=row, column=column, value=value)
     if cell.data_type == "f":
         cell.data_type = "s"
