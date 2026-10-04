@@ -94,6 +94,16 @@ def _get_connection(db_path: str) -> sqlite3.Connection:
     return conn
 
 
+def _upload_name(name: str) -> str:
+    """Last path component of an uploaded file's name ("" if it has none).
+
+    The name is chosen by the browser that sends the upload: used as it
+    comes, "../x.csv" or an absolute path would be written outside raw/.
+    """
+    base = Path(name.replace("\\", "/")).name
+    return "" if base in (".", "..") else base
+
+
 # ---------------------------------------------------------------------------
 # Sidebar navigation
 # ---------------------------------------------------------------------------
@@ -451,10 +461,14 @@ elif page == "Import":
 
         saved_files = []
         for f in uploaded:
-            dest = raw_dir / f.name
+            name = _upload_name(f.name)
+            if not name:
+                st.error(f"Not saved: {f.name!r} is not a file name.")
+                continue
+            dest = raw_dir / name
             dest.write_bytes(f.getvalue())
             saved_files.append(dest)
-            st.caption(f"Saved: {f.name}")
+            st.caption(f"Saved: {name}")
 
         if st.button("Ingest uploaded files"):
             with st.spinner("Importing..."):
