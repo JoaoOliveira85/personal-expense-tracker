@@ -275,3 +275,64 @@ class TestIngestRenameStep:
 
         assert len(_dates(args.db)) == 4
         assert (workspace / "raw" / "2026-01.csv").exists()
+
+
+UTF8_STATEMENT = (
+    "Data Mov.;Data Valor;Descrição;Débito;Crédito;Saldo Contabilístico\n"
+    "15-01-2026;15-01-2026;COMPRA CONTINENTE;45,50;;954,50\n"
+    "16-01-2026;16-01-2026;COMPRA LIDL;12,50;;942,00\n"
+)
+
+
+class TestIngestOtherBank:
+    """Renaming to YYYY-MM.csv reads the UTF-16 CSV header. A statement
+    from another bank keeps its name and is imported all the same."""
+
+    @pytest.fixture
+    def utf8_csv(self, workspace: Path) -> Path:
+        path = workspace / "raw" / "export-b.csv"
+        path.write_text(UTF8_STATEMENT, encoding="utf-8")
+        return path
+
+    def test_detected_utf8_statement_is_imported_under_its_own_name(
+        self, workspace: Path, utf8_csv: Path, capsys
+    ):
+        args = _ingest_args(workspace, [utf8_csv])
+
+        cli.cmd_ingest(args)
+
+        assert _dates(args.db) == ["2026-01-15", "2026-01-16"]
+        assert utf8_csv.exists()
+        assert "Skipping" not in capsys.readouterr().out
+
+    def test_bank_option_imports_a_utf8_statement(self, workspace: Path, utf8_csv: Path):
+        """The README's `ingest --bank utf8 raw/export-b.csv`."""
+        args = _ingest_args(workspace, [utf8_csv], bank="utf8")
+
+        cli.cmd_ingest(args)
+
+        assert _dates(args.db) == ["2026-01-15", "2026-01-16"]
+        assert utf8_csv.exists()
+
+    def test_auto_imports_a_utf8_statement_without_a_warning(
+        self, workspace: Path, utf8_csv: Path, capsys
+    ):
+        args = _auto_args(workspace)
+
+        cli.cmd_auto(args)
+
+        assert _dates(args.db) == ["2026-01-15", "2026-01-16"]
+        out = capsys.readouterr().out
+        assert "Skipping" not in out
+        assert "Could not find date range" not in out
+
+    def test_utf16_statement_forced_to_utf8_is_left_alone(self, workspace: Path, capsys):
+        utf16 = make_utf16_csv(workspace / "raw" / "MOVS.csv", FIRST_HALF)
+        args = _ingest_args(workspace, [utf16], bank="utf8")
+
+        with pytest.raises(SystemExit) as exit_info:
+            cli.cmd_ingest(args)
+
+        assert exit_info.value.code == 1
+        assert utf16.exists()  # not renamed for a bank it was not parsed as
+        assert "UTF8 header" in capsys.readouterr().out

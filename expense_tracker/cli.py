@@ -42,7 +42,7 @@ from .email_fetch import (
     load_email_config, create_email_config, fetch_and_report,
     DEFAULT_EMAIL_CONFIG,
 )
-from .parsers import get_registered_parsers
+from .parsers import detect_parser, get_parser_by_id, get_registered_parsers
 
 
 # ---------------------------------------------------------------------------
@@ -121,14 +121,25 @@ def _detail(msg: str) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _rename_files(files: list[Path]) -> list[Path]:
+def _is_other_bank_csv(path: Path, bank_id: str | None) -> bool:
+    """True for a CSV that goes to a parser other than UTF-16 CSV's."""
+    parser = get_parser_by_id(bank_id) if bank_id else detect_parser(path)
+    return parser is not None and parser.bank_id != "utf16"
+
+
+def _rename_files(files: list[Path], bank_id: str | None = None) -> list[Path]:
     """Auto-rename a list of bank statement files based on their date range.
-    Supports CSV and PDF. Returns the (possibly renamed) paths, skipping any that fail."""
+    Supports CSV and PDF. Returns the (possibly renamed) paths, skipping any that fail.
+
+    The CSV rename reads the UTF-16 CSV header, so a CSV of another bank
+    (``bank_id``, or the detected format) keeps its name and is returned as is."""
     result = []
     for f in files:
         try:
             if f.suffix.lower() == ".pdf":
                 result.append(_auto_rename_pdf(f))
+            elif _is_other_bank_csv(f, bank_id):
+                result.append(f)
             else:
                 result.append(auto_rename_csv(f))
         except ValueError as e:
@@ -292,11 +303,11 @@ def cmd_ingest(args):
 
     # Auto-rename files based on date range (unless --no-rename)
     named = len(files)
+    bank_id = getattr(args, "bank", None)
     if not args.no_rename:
-        files = _rename_files(files)
+        files = _rename_files(files, bank_id)
 
     if files:
-        bank_id = getattr(args, "bank", None)
         try:
             ingest(args.db, files, bank_id=bank_id)
         except IngestError as e:
