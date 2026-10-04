@@ -178,6 +178,75 @@ class TestLoadCardHolders:
 
 
 # ---------------------------------------------------------------------------
+# parse_amount
+# ---------------------------------------------------------------------------
+
+
+class TestParseAmount:
+    @pytest.mark.parametrize(
+        "text, expected",
+        [
+            ("-45,50", -45.50),
+            ("+45,50", 45.50),
+            ("- 45,50", -45.50),
+            ("2500,00", 2500.00),
+            ("1.234,56", 1234.56),
+            ("1.002.500,00", 1002500.00),
+            ("1 234,56", 1234.56),
+            ("1\u00a0234,56", 1234.56),
+            ("45,5", 45.5),
+            ("45.50", 45.50),
+            ("12.5", 12.5),
+            ("-.50", -0.50),
+            ("1 529.13", 1529.13),
+            ("1529.13", 1529.13),
+            ("45", 45.0),
+            ("1.234", 1234.0),
+            ("1.000", 1000.0),
+            ("1.234.567", 1234567.0),
+            ("  -45,50\n", -45.50),
+        ],
+    )
+    def test_statement_formats(self, text, expected):
+        from expense_tracker.parser import parse_amount
+
+        assert parse_amount(text) == expected
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "1,234.56",  # comma thousands: used to come back as 1.23456
+            "1,500.00",
+            "1,234",  # three decimals, or comma thousands: a guess either way
+            "45,505",
+            "1.234,567",
+            "1.2345",  # dots that do not group thousands
+            "1.2.3,4",
+            "4 5,5 0",
+            "1e5",
+            "1.0e2",
+            "nan",
+            "inf",
+            "Infinity",
+            "1_000",
+            "\u0661\u0662,\u0665\u0660",  # non-ASCII digits
+            "12,50 D",
+            "45,50-",
+            "(45,50)",
+            "45.50EUR",
+            "5.",
+            "-",
+            "",
+        ],
+    )
+    def test_anything_else_is_an_error_not_a_guess(self, text):
+        from expense_tracker.parser import parse_amount
+
+        with pytest.raises(ValueError):
+            parse_amount(text)
+
+
+# ---------------------------------------------------------------------------
 # extract_date_range
 # ---------------------------------------------------------------------------
 

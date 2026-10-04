@@ -155,19 +155,39 @@ def load_card_holders(cards_path: Path = DEFAULT_CARDS) -> dict[str, str]:
 # ---------------------------------------------------------------------------
 
 
+# The amount formats of the supported statements. Digits are grouped in
+# threes or not at all, and there are at most two decimals; anything else
+# (comma thousands, exponents, "nan", a trailing "D") is not an amount.
+_SIGN = r"[+-]?\s*"
+_COMMA_DECIMAL_RE = re.compile(  # -45,50  1.234,56  1 234,56
+    _SIGN + r"(?:[0-9]{1,3}(?:[. \u00a0][0-9]{3})+|[0-9]+),[0-9]{1,2}"
+)
+_DOT_DECIMAL_RE = re.compile(  # 45.50  1 529.13  -.50
+    _SIGN + r"(?:[0-9]{1,3}(?:[ \u00a0][0-9]{3})+|[0-9]*)\.[0-9]{1,2}"
+)
+_NO_DECIMALS_RE = re.compile(  # 45  1.234  1 234
+    _SIGN + r"(?:[0-9]{1,3}(?:[. \u00a0][0-9]{3})+|[0-9]+)"
+)
+
+
 def parse_amount(text: str) -> float:
     """Parse a statement amount: '-45,50', '1.234,56', '45.50' or '1 529.13'.
 
     With a comma, the comma is the decimal mark and dots group thousands.
     Without one, a dot followed by one or two final digits is the decimal
-    mark; otherwise dots group thousands. Raises ValueError if unparseable.
+    mark; otherwise dots group thousands. Raises ValueError for anything
+    that is not written in one of those forms: a wrong guess is a wrong sum.
     """
-    s = text.strip().replace(" ", "").replace("\u00a0", "")
-    if "," in s:
-        s = s.replace(".", "").replace(",", ".")
-    elif not re.search(r"\.\d{1,2}$", s):
-        s = s.replace(".", "")
-    return float(s)
+    s = text.strip()
+    if _COMMA_DECIMAL_RE.fullmatch(s):
+        number = re.sub(r"[.\s]", "", s).replace(",", ".")
+    elif _DOT_DECIMAL_RE.fullmatch(s):
+        number = re.sub(r"\s", "", s)
+    elif _NO_DECIMALS_RE.fullmatch(s):
+        number = re.sub(r"[.\s]", "", s)
+    else:
+        raise ValueError(f"not an amount: {text!r}")
+    return float(number)
 
 
 def detect_payment_type(description: str) -> str:
