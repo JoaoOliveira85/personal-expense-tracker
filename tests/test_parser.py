@@ -304,6 +304,42 @@ class TestAutoRenameCsv:
         result = auto_rename_csv(new_csv)
         assert result.name == "2026-01.csv"
 
+    def test_replaced_statement_is_kept(self, tmp_path):
+        """raw/ holds the bank's own files: a narrower one is set aside, not deleted."""
+        narrow = make_utf16_csv(
+            tmp_path / "2026-01.csv", SAMPLE_ROWS[:1],
+            date_from="10-01-2026", date_to="20-01-2026",
+        )
+        narrow_bytes = narrow.read_bytes()
+        wide = make_utf16_csv(
+            tmp_path / "EXPORT_new.csv", SAMPLE_ROWS[:2],
+            date_from="01-01-2026", date_to="31-01-2026",
+        )
+        wide_bytes = wide.read_bytes()
+
+        result = auto_rename_csv(wide)
+
+        assert result.read_bytes() == wide_bytes
+        assert (tmp_path / "2026-01.csv.replaced").read_bytes() == narrow_bytes
+        assert sorted(p.name for p in tmp_path.iterdir()) == [
+            "2026-01.csv", "2026-01.csv.replaced",
+        ]
+
+    def test_second_replacement_keeps_both_earlier_statements(self, tmp_path):
+        ranges = [("10-01-2026", "20-01-2026"), ("05-01-2026", "25-01-2026"),
+                  ("01-01-2026", "31-01-2026")]
+        make_utf16_csv(tmp_path / "2026-01.csv", SAMPLE_ROWS[:1],
+                     date_from=ranges[0][0], date_to=ranges[0][1])
+        for i, (date_from, date_to) in enumerate(ranges[1:]):
+            auto_rename_csv(make_utf16_csv(
+                tmp_path / f"EXPORT_{i}.csv", SAMPLE_ROWS[:1],
+                date_from=date_from, date_to=date_to,
+            ))
+
+        assert sorted(p.name for p in tmp_path.iterdir()) == [
+            "2026-01.csv", "2026-01.csv.replaced", "2026-01.csv.replaced-2",
+        ]
+
     def test_target_exists_narrower_raises(self, tmp_path):
         # Create existing wide-range file
         make_utf16_csv(

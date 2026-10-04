@@ -216,7 +216,7 @@ python bank_ingest.py ingest --dry-run raw/EXPORT_0_1022026.csv  # preview only
 | `--no-rename` | — | Skip auto-renaming files based on date range |
 | `--dry-run` | — | Preview what would happen, change nothing |
 
-The `ingest` command auto-renames files based on the date range inside the CSV or PDF (e.g. `EXPORT_0_1022026.csv` → `2026-01.csv`). Use `--no-rename` to skip this.
+The `ingest` command auto-renames files based on the date range inside the CSV or PDF (e.g. `EXPORT_0_1022026.csv` → `2026-01.csv`). Use `--no-rename` to skip this. When a CSV with a wider date range takes the name of an existing `YYYY-MM.csv`, the file it replaces is kept beside it as `YYYY-MM.csv.replaced`.
 
 ### `report`
 

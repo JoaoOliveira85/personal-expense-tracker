@@ -78,7 +78,9 @@ class TestAutoWiderStatement:
         assert _dates(args.db) == [
             "2026-01-10", "2026-01-15", "2026-01-20", "2026-01-28",
         ]
-        assert sorted(p.name for p in args.raw.iterdir()) == ["2026-01.csv"]
+        assert sorted(p.name for p in args.raw.iterdir()) == [
+            "2026-01.csv", "2026-01.csv.replaced",
+        ]
 
     def test_second_run_is_idempotent(self, workspace: Path):
         args = _auto_args(workspace)

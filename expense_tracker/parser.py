@@ -282,6 +282,21 @@ def extract_date_range(path: Path) -> tuple[date, date]:
     return date_from, date_to
 
 
+def _set_aside(path: Path) -> Path:
+    """Rename a statement to <name>.replaced (or .replaced-N) and return that.
+
+    The new name no longer ends in .csv, so the file is not picked up as a
+    statement to import again; backups still include it.
+    """
+    kept = path.with_name(path.name + ".replaced")
+    n = 1
+    while kept.exists():
+        n += 1
+        kept = path.with_name(f"{path.name}.replaced-{n}")
+    path.rename(kept)
+    return kept
+
+
 def auto_rename_csv(path: Path) -> Path:
     """
     Auto-rename a UTF-16 CSV file based on its date range.
@@ -289,7 +304,8 @@ def auto_rename_csv(path: Path) -> Path:
     Rules:
     - If both dates are in the same month → target name is YYYY-MM.csv
     - If target doesn't exist → rename
-    - If target exists and new file has a wider date range → replace
+    - If target exists and new file has a wider date range → replace; the
+      file it replaces is kept beside it as YYYY-MM.csv.replaced
     - If target exists and new file doesn't extend the range → raise error
     - If dates span multiple months → leave filename as-is
 
@@ -323,11 +339,15 @@ def auto_rename_csv(path: Path) -> Path:
                     and (date_from < existing_from or date_to > existing_to))
 
     if new_is_wider:
-        target_path.unlink()
+        # Statements in raw/ are the bank's own record: never delete one.
+        # "Wider" is judged by the declared range alone, so the old file may
+        # still hold rows the new one lacks.
+        kept = _set_aside(target_path)
         path.rename(target_path)
         print(f"  Replaced {target_name} with {path.name} "
               f"(wider range: {date_from} to {date_to}, "
-              f"was {existing_from} to {existing_to})")
+              f"was {existing_from} to {existing_to}); "
+              f"previous file kept as {kept.name}")
         return target_path
 
     raise ValueError(
