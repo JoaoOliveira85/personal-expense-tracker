@@ -174,33 +174,55 @@ Create the file `cron/daily-sync.sh`:
 
 set -e
 cd /app
+if [ -d .venv ]; then
+    source scripts/env.sh
+else
+    # The Docker image installs dependencies into the system Python and
+    # ships neither .venv nor scripts/.
+    py() { python "$@"; }
+fi
 
 HOUR="${SYNC_HOUR:-8}"
 MINUTE="${SYNC_MINUTE:-0}"
 
 echo "Expense Tracker daily sync"
-echo "Schedule: every day at ${HOUR}:$(printf '%02d' ${MINUTE})"
+echo "Schedule: every day at ${HOUR}:$(printf '%02d' "${MINUTE}")"
 echo "Timezone: ${TZ:-UTC}"
 echo ""
 
 sync_once() {
+    # A step that fails must neither end the script (set -e) nor pass for a
+    # success: the other steps still run, the loop goes on to the next day,
+    # and the log says ERROR.
+    local failed=0
+
     echo "=== Sync started at $(date) ==="
 
     # 1. Fetch new statements from email (if configured)
     if [ -f "data/email-config.json" ]; then
         echo "[1/4] Fetching statements from email..."
-        python bank_ingest.py fetch --quiet || echo "  Warning: email fetch failed (will retry tomorrow)"
+        if ! py bank_ingest.py --quiet fetch; then
+            echo "  ERROR: fetch failed, see the messages above (will retry tomorrow)"
+            failed=1
+        fi
     else
         echo "[1/4] Skipping email fetch (no email-config.json found)"
     fi
 
     # 2. Ingest, categorize, and regenerate ODS report
     echo "[2/4] Running auto ingest + report..."
-    python bank_ingest.py auto --quiet
+    if ! py bank_ingest.py --quiet auto; then
+        # Exits 1 when a statement could not be imported: the others are in
+        echo "  ERROR: auto failed, see the messages above"
+        failed=1
+    fi
 
     # 3. Generate monthly PDF
     echo "[3/4] Generating PDF report..."
-    python bank_ingest.py pdf --quiet || echo "  Warning: PDF generation failed (possibly no data for this month)"
+    if ! py bank_ingest.py --quiet pdf; then
+        echo "  ERROR: pdf failed, see the messages above"
+        failed=1
+    fi
 
     # 4. Copy to shared folder (if configured)
     if [ -n "${SHARED_FOLDER}" ] && [ -d "${SHARED_FOLDER}" ]; then
@@ -213,7 +235,11 @@ sync_once() {
         echo "[4/4] No shared folder configured, skipping copy"
     fi
 
-    echo "=== Sync complete at $(date) ==="
+    if [ "$failed" -ne 0 ]; then
+        echo "=== Sync finished WITH ERRORS at $(date) ==="
+    else
+        echo "=== Sync complete at $(date) ==="
+    fi
     echo ""
 }
 
@@ -224,8 +250,8 @@ sync_once
 while true; do
     # Calculate seconds until next run
     now=$(date +%s)
-    target=$(date -d "today ${HOUR}:$(printf '%02d' ${MINUTE})" +%s 2>/dev/null || \
-             date -j -f "%H:%M" "${HOUR}:$(printf '%02d' ${MINUTE})" +%s 2>/dev/null)
+    target=$(date -d "today ${HOUR}:$(printf '%02d' "${MINUTE}")" +%s 2>/dev/null || \
+             date -j -f "%H:%M" "${HOUR}:$(printf '%02d' "${MINUTE}")" +%s 2>/dev/null)
 
     if [ "$target" -le "$now" ]; then
         # Already passed today, schedule for tomorrow
@@ -233,7 +259,8 @@ while true; do
     fi
 
     sleep_secs=$((target - now))
-    echo "Next sync in $(( sleep_secs / 3600 ))h $(( (sleep_secs % 3600) / 60 ))m (at $(date -d @${target} 2>/dev/null || date -r ${target}))"
+    next_time=$(date -d "@${target}" 2>/dev/null || date -r "${target}" 2>/dev/null || echo "unknown")
+    echo "Next sync in $(( sleep_secs / 3600 ))h $(( (sleep_secs % 3600) / 60 ))m (at ${next_time})"
     sleep "$sleep_secs"
 
     sync_once
@@ -246,6 +273,8 @@ Make it executable:
 mkdir -p cron
 chmod +x cron/daily-sync.sh
 ```
+
+A step that fails does not stop the others, or the daily loop: it is logged as `ERROR: <step> failed`, and the run ends with `=== Sync finished WITH ERRORS` instead of `=== Sync complete`. `auto` fails when a statement in `raw/` could not be imported (the others are imported, and the report is regenerated). Look for `ERROR` in `docker compose logs cron`.
 
 ---
 
@@ -425,9 +454,16 @@ Wants=network-online.target
 Type=oneshot
 User=YOUR_USERNAME
 WorkingDirectory=/home/YOUR_USERNAME/expense-tracking
-ExecStart=/home/YOUR_USERNAME/expense-tracking/cron/daily-sync-native.sh
+# One line per step, run in order. The "-" lets the next step run when that
+# one fails; its error stays in the journal. Leave out the fetch line if you
+# have not configured email.
+ExecStart=-/home/YOUR_USERNAME/expense-tracking/.venv/bin/python bank_ingest.py --quiet fetch
+ExecStart=-/home/YOUR_USERNAME/expense-tracking/.venv/bin/python bank_ingest.py --quiet auto
+ExecStart=/home/YOUR_USERNAME/expense-tracking/.venv/bin/python bank_ingest.py --quiet pdf
 Environment=HOME=/home/YOUR_USERNAME
 ```
+
+(`cron/daily-sync.sh` is for the Docker container: it changes to `/app` and never exits.) Read the output of a run with `journalctl -u expense-tracker-sync`.
 
 Create `/etc/systemd/system/expense-tracker-sync.timer`:
 
@@ -488,8 +524,8 @@ docker compose up -d --build
 docker compose logs -f cron
 
 # Trigger a manual sync (outside the schedule)
-docker compose exec cron python bank_ingest.py fetch --quiet
-docker compose exec cron python bank_ingest.py auto --quiet
+docker compose exec cron python bank_ingest.py --quiet fetch
+docker compose exec cron python bank_ingest.py --quiet auto
 
 # Run any CLI command inside the container
 docker compose exec gui python bank_ingest.py rules list

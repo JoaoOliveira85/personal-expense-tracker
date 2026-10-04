@@ -124,3 +124,13 @@ def test_successful_sync_reports_no_error(tmp_path):
 
     assert "ERROR" not in output
     assert "=== Sync complete at " in output
+
+
+def test_deployment_guide_lists_the_script_as_shipped():
+    """DEPLOYMENT.md tells the reader to create cron/daily-sync.sh from its
+    listing: a stale copy there deploys the bugs fixed here."""
+    guide = (SCRIPT.parent.parent / "DEPLOYMENT.md").read_text(encoding="utf-8")
+    section = guide.split("## 4. Daily Sync Script", 1)[1]
+    listing = section.split("```bash\n", 1)[1].split("```", 1)[0]
+
+    assert listing == SCRIPT.read_text(encoding="utf-8")
