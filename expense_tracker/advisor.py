@@ -12,6 +12,7 @@ Usage:
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 from datetime import date, timedelta
 from pathlib import Path
@@ -69,8 +70,15 @@ def save_context(
     if context["created_at"] is None:
         context["created_at"] = context["last_updated"]
     
-    with context_path.open("w", encoding="utf-8") as f:
-        json.dump(context, f, indent=2, ensure_ascii=False)
+    # Write beside the file and swap it in: a save that fails or is
+    # interrupted must not leave a truncated context behind
+    text = json.dumps(context, indent=2, ensure_ascii=False)
+    tmp_path = context_path.with_name(context_path.name + ".tmp")
+    try:
+        tmp_path.write_text(text, encoding="utf-8")
+        os.replace(tmp_path, context_path)
+    finally:
+        tmp_path.unlink(missing_ok=True)
 
 
 def is_first_run(context: dict[str, Any]) -> bool:

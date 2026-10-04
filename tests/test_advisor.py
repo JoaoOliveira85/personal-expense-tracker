@@ -61,3 +61,38 @@ class TestUncategorizedSpending:
             ("Uncategorized", 140),
             ("Health", 10),
         ]
+
+
+class TestSaveContext:
+    """context.json holds the profile, goals and insights typed in over
+    many sessions: nothing else has them."""
+
+    def test_round_trip(self, tmp_path, monkeypatch):
+        import expense_tracker.advisor as advisor
+
+        monkeypatch.setattr(advisor, "DEFAULT_ADVISOR_DIR", tmp_path)
+        path = tmp_path / "context.json"
+        context = advisor.load_context(path)
+        context["goals"]["short_term"].append("Férias em agosto")
+
+        advisor.save_context(context, path)
+
+        assert advisor.load_context(path)["goals"]["short_term"] == ["Férias em agosto"]
+        assert [p.name for p in tmp_path.iterdir()] == ["context.json"]
+
+    def test_failed_save_keeps_the_stored_context(self, tmp_path, monkeypatch):
+        import expense_tracker.advisor as advisor
+
+        monkeypatch.setattr(advisor, "DEFAULT_ADVISOR_DIR", tmp_path)
+        path = tmp_path / "context.json"
+        context = advisor.load_context(path)
+        context["insights"].append("Groceries crept up over the summer")
+        advisor.save_context(context, path)
+        stored = path.read_text(encoding="utf-8")
+
+        context["insights"].append(object())  # cannot be written as JSON
+        with pytest.raises(TypeError):
+            advisor.save_context(context, path)
+
+        assert path.read_text(encoding="utf-8") == stored
+        assert [p.name for p in tmp_path.iterdir()] == ["context.json"]
