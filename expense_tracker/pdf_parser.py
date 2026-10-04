@@ -414,7 +414,19 @@ def _parse_amount_pdf_text(s: str) -> Optional[float]:
 
 def _nearest_date(anchor: date, month: int, day: int) -> date:
     """The month/day in the year closest to ``anchor`` (raises ValueError)."""
-    candidate = date(anchor.year, month, day)
+    try:
+        candidate = date(anchor.year, month, day)
+    except ValueError:
+        # 29 February when the anchor's year has none: a statement running
+        # over the new year (Nov 2023 to Feb 2024) can still contain one.
+        for year in (anchor.year - 1, anchor.year + 1):
+            try:
+                neighbour = date(year, month, day)
+            except ValueError:
+                continue
+            if abs((neighbour - anchor).days) <= 183:
+                return neighbour
+        raise
     if (candidate - anchor).days > 183:
         candidate = date(anchor.year - 1, month, day)
     elif (anchor - candidate).days > 183:

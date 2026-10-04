@@ -420,3 +420,18 @@ class TestTextStatementYear:
             ["2.03 2.03 COMPRA KIOSK 3.00 1 529.13"],
         )
         assert dates == [("2026-02-03", "2026-02-03")]
+
+    def test_leap_day_in_statement_whose_midpoint_is_not_a_leap_year(self, tmp_path):
+        """Nov 2023 to Feb 2024: the midpoint is in 2023, which has no 29 Feb."""
+        dates = self._dates(
+            tmp_path,
+            "EXTRATO DE 2023/11/01 A 2024/02/29",
+            [
+                "11.02 11.02 COMPRA CONTINENTE 10.00 990.00",
+                "2.29 2.29 COMPRA LIDL 5.00 985.00",
+            ],
+        )
+        assert dates == [
+            ("2023-11-02", "2023-11-02"),
+            ("2024-02-29", "2024-02-29"),
+        ]
