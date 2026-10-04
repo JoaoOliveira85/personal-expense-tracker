@@ -96,3 +96,60 @@ class TestXlsxCellsHoldText:
         cell = workbook["Monthly Summary"]["B1"]
         assert (cell.data_type, cell.value) == ("s", "=Misc")
 
+
+
+class TestOdsFormulasQuoteNames:
+    """A name is written into the formulas as a string: a double quote in
+    it must be doubled, or the rest of the name becomes formula text."""
+
+    @pytest.fixture
+    def doc(self, test_db, tmp_path):
+        add_transaction(test_db, "2026-01-10", 'A")+1+("', 10.0,
+                        category='Kids "R" Us', subcategory='7" tablets')
+        return _ods(test_db, tmp_path)
+
+    def test_data_cell_is_a_string(self, doc):
+        sheet = next(
+            s for s in doc.spreadsheet.getElementsByType(Table)
+            if s.getAttribute("name") == "Data"
+        )
+        cells = sheet.getElementsByType(TableRow)[1].getElementsByType(TableCell)
+        assert str(cells[4]) == 'A")+1+("'
+        assert cells[4].getAttribute("valuetype") == "string"
+        assert cells[4].getAttribute("formula") is None
+
+    def test_merchant_name_stays_inside_its_string(self, doc):
+        cells = _ods_cells(doc, "Dashboard", 'A")+1+("')
+        assert cells[1].getAttribute("formula") == (
+            'of:=SUMPRODUCT(([.Data.E2:.Data.E2]="A"")+1+(""")'
+            '*([.Data.G2:.Data.G2]="out")*[.Data.F2:.Data.F2])'
+        )
+        assert cells[2].getAttribute("formula") == (
+            'of:=SUMPRODUCT(([.Data.E2:.Data.E2]="A"")+1+(""")'
+            '*([.Data.G2:.Data.G2]="out"))'
+        )
+
+    @pytest.mark.parametrize(
+        "sheet, label, column",
+        [
+            ("Dashboard", 'Kids "R" Us', 1),
+            ("Dashboard", 'Kids "R" Us', 2),
+            ("Category Breakdown", 'Kids "R" Us', 1),
+            ("Category Breakdown", 'Kids "R" Us', 4),
+            ("Subcategory Breakdown", 'Kids "R" Us', 2),
+            ("Subcategory Breakdown", 'Kids "R" Us', 3),
+            ("Subcategory Breakdown", 'Kids "R" Us', 4),
+            ("Monthly Summary", "2026-01", 1),
+        ],
+    )
+    def test_category_name_stays_inside_its_string(self, doc, sheet, label, column):
+        formula = _ods_cells(doc, sheet, label)[column].getAttribute("formula")
+        assert '="Kids ""R"" Us")' in formula
+        assert '"Kids "R" Us"' not in formula
+
+    def test_subcategory_name_stays_inside_its_string(self, doc):
+        cells = _ods_cells(doc, "Subcategory Breakdown", 'Kids "R" Us')
+        for column in (2, 4):
+            assert '[.Data.I2:.Data.I2]="7"" tablets")' in (
+                cells[column].getAttribute("formula")
+            )

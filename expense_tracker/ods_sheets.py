@@ -28,6 +28,16 @@ from .db import counts_as_spending, is_savings
 # ---------------------------------------------------------------------------
 
 
+def _lit(text: str) -> str:
+    """`text` as a string literal of a formula.
+
+    Names of merchants, categories and subcategories are data: a double
+    quote in one must be doubled, or it ends the string and the rest of the
+    name is read as part of the formula.
+    """
+    return '"' + text.replace('"', '""') + '"'
+
+
 def _not_in(n: int, categories: tuple[str, ...]) -> str:
     """1 for rows whose category is none of `categories`, 0 otherwise."""
     return "".join(f'*([.Data.H2:.Data.H{n}]<>"{c}")' for c in categories)
@@ -261,8 +271,8 @@ def write_monthly_summary_sheet(doc, transactions):
         for cat in categories:
             formula = (
                 f'of:=SUMPRODUCT('
-                f'([.Data.B2:.Data.B{n}]="{month}")'
-                f'*([.Data.H2:.Data.H{n}]="{cat}")'
+                f'([.Data.B2:.Data.B{n}]={_lit(month)})'
+                f'*([.Data.H2:.Data.H{n}]={_lit(cat)})'
                 f'*{_spend(n)})'
             )
             row.addElement(make_cell("", style_name="normal", value_type="float", formula=formula))
@@ -324,7 +334,7 @@ def write_category_breakdown_sheet(doc, transactions):
         # Total Spent
         row.addElement(make_cell("", style_name="normal", value_type="float", formula=(
             f'of:=SUMPRODUCT('
-            f'([.Data.H2:.Data.H{n}]="{cat}")'
+            f'([.Data.H2:.Data.H{n}]={_lit(cat)})'
             f'*{_spend(n)})'
         )))
 
@@ -341,7 +351,7 @@ def write_category_breakdown_sheet(doc, transactions):
         # # Transactions
         row.addElement(make_cell("", style_name="normal", value_type="float", formula=(
             f'of:=SUMPRODUCT('
-            f'([.Data.H2:.Data.H{n}]="{cat}")'
+            f'([.Data.H2:.Data.H{n}]={_lit(cat)})'
             f'*([.Data.G2:.Data.G{n}]="out"))'
         )))
 
@@ -453,12 +463,12 @@ def write_dashboard_sheet(doc, transactions):
         row.addElement(make_cell(cat, style_name="normal"))
         row.addElement(make_cell("", style_name="normal", value_type="float", formula=(
             f'of:=SUMPRODUCT('
-            f'([.Data.H2:.Data.H{n}]="{cat}")'
+            f'([.Data.H2:.Data.H{n}]={_lit(cat)})'
             f'*{_spend(n)})'
         )))
         row.addElement(make_cell("", style_name="normal", value_type="float", formula=(
             f'of:=SUMPRODUCT('
-            f'([.Data.H2:.Data.H{n}]="{cat}")'
+            f'([.Data.H2:.Data.H{n}]={_lit(cat)})'
             f'*([.Data.G2:.Data.G{n}]="out"))'
         )))
         table.addElement(row)
@@ -487,13 +497,13 @@ def write_dashboard_sheet(doc, transactions):
         row.addElement(make_cell(merchant, style_name="normal"))
         row.addElement(make_cell("", style_name="normal", value_type="float", formula=(
             f'of:=SUMPRODUCT('
-            f'([.Data.E2:.Data.E{n}]="{merchant}")'
+            f'([.Data.E2:.Data.E{n}]={_lit(merchant)})'
             f'*([.Data.G2:.Data.G{n}]="out")'
             f'*[.Data.F2:.Data.F{n}])'
         )))
         row.addElement(make_cell("", style_name="normal", value_type="float", formula=(
             f'of:=SUMPRODUCT('
-            f'([.Data.E2:.Data.E{n}]="{merchant}")'
+            f'([.Data.E2:.Data.E{n}]={_lit(merchant)})'
             f'*([.Data.G2:.Data.G{n}]="out"))'
         )))
         table.addElement(row)
@@ -547,14 +557,14 @@ def write_monthly_trend_sheet(doc, transactions):
         # Income
         row.addElement(make_cell("", style_name="normal", value_type="float", formula=(
             f'of:=SUMPRODUCT('
-            f'([.Data.B2:.Data.B{n}]="{month}")'
+            f'([.Data.B2:.Data.B{n}]={_lit(month)})'
             f'*{_income(n)})'
         )))
 
         # Expenses
         row.addElement(make_cell("", style_name="normal", value_type="float", formula=(
             f'of:=SUMPRODUCT('
-            f'([.Data.B2:.Data.B{n}]="{month}")'
+            f'([.Data.B2:.Data.B{n}]={_lit(month)})'
             f'*{_spend(n)})'
         )))
 
@@ -619,43 +629,43 @@ def write_subcategory_breakdown_sheet(doc, transactions):
             # Total Spent for this category+subcategory
             row.addElement(make_cell("", style_name="normal", value_type="float", formula=(
                 f'of:=SUMPRODUCT('
-                f'([.Data.H2:.Data.H{n}]="{cat}")'
-                f'*([.Data.I2:.Data.I{n}]="{subcat}")'
+                f'([.Data.H2:.Data.H{n}]={_lit(cat)})'
+                f'*([.Data.I2:.Data.I{n}]={_lit(subcat)})'
                 f'*{_spend(n)})'
             )))
 
             # % of Category
             row.addElement(make_cell("", style_name="normal", value_type="float", formula=(
                 f'of:=[.C{row_num}]/'
-                f'SUMPRODUCT(([.Data.H2:.Data.H{n}]="{cat}")'
+                f'SUMPRODUCT(([.Data.H2:.Data.H{n}]={_lit(cat)})'
                 f'*{_spend(n)})*100'
             )))
 
             # # Transactions
             row.addElement(make_cell("", style_name="normal", value_type="float", formula=(
                 f'of:=SUMPRODUCT('
-                f'([.Data.H2:.Data.H{n}]="{cat}")'
-                f'*([.Data.I2:.Data.I{n}]="{subcat}")'
+                f'([.Data.H2:.Data.H{n}]={_lit(cat)})'
+                f'*([.Data.I2:.Data.I{n}]={_lit(subcat)})'
                 f'*([.Data.G2:.Data.G{n}]="out"))'
             )))
         else:
             # No subcategory -- sum everything in category with empty subcategory
             row.addElement(make_cell("", style_name="normal", value_type="float", formula=(
                 f'of:=SUMPRODUCT('
-                f'([.Data.H2:.Data.H{n}]="{cat}")'
+                f'([.Data.H2:.Data.H{n}]={_lit(cat)})'
                 f'*([.Data.I2:.Data.I{n}]="")'
                 f'*{_spend(n)})'
             )))
 
             row.addElement(make_cell("", style_name="normal", value_type="float", formula=(
                 f'of:=[.C{row_num}]/'
-                f'SUMPRODUCT(([.Data.H2:.Data.H{n}]="{cat}")'
+                f'SUMPRODUCT(([.Data.H2:.Data.H{n}]={_lit(cat)})'
                 f'*{_spend(n)})*100'
             )))
 
             row.addElement(make_cell("", style_name="normal", value_type="float", formula=(
                 f'of:=SUMPRODUCT('
-                f'([.Data.H2:.Data.H{n}]="{cat}")'
+                f'([.Data.H2:.Data.H{n}]={_lit(cat)})'
                 f'*([.Data.I2:.Data.I{n}]="")'
                 f'*([.Data.G2:.Data.G{n}]="out"))'
             )))
