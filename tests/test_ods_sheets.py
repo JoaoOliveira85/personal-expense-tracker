@@ -239,3 +239,19 @@ class TestMonthlySummaryColumns:
     )
     def test_col_letter(self, index, letters):
         assert col_letter(index) == letters
+
+
+class TestDashboardCounts:
+    def test_total_transactions_is_counted_by_a_formula(
+        self, report, rules_csv, cards_csv, tmp_path
+    ):
+        """A number written on the first run would never change again."""
+        db, ods, notes = report
+        cells = _row(load_ods(str(ods)), "Dashboard", "Total Transactions")
+        assert cells[1].getAttribute("formula") == "of:=COUNTA([.Data.Q2:.Data.Q6])"
+
+        _import_one_more(db, cards_csv, tmp_path)
+        generate_ods(db, rules_csv, ods, notes)
+
+        cells = _row(load_ods(str(ods)), "Dashboard", "Total Transactions")
+        assert cells[1].getAttribute("formula") == "of:=COUNTA([.Data.Q2:.Data.Q7])"

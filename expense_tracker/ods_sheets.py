@@ -423,7 +423,9 @@ def write_dashboard_sheet(doc, transactions):
     # Total Transactions
     row = TableRow()
     row.addElement(make_cell("Total Transactions", style_name="normal"))
-    row.addElement(make_cell(len(transactions), style_name="normal"))
+    row.addElement(make_cell("", style_name="normal", value_type="float", formula=(
+        f'of:=COUNTA([.Data.Q2:.Data.Q{n}])'  # Q: transaction ID, never empty
+    )))
     row.addElement(make_cell("", style_name="normal"))
     table.addElement(row)
 
