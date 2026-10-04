@@ -399,6 +399,26 @@ def _font(pdf) -> str:
     return "Helvetica"
 
 
+def _new_pdf():
+    """A4 document that prints "?" for characters its font cannot encode.
+
+    The built-in Helvetica covers latin-1 only, and fpdf2 raises on any
+    other character: one merchant name in another alphabet, a euro sign or
+    a typographic dash would otherwise cost the whole report wherever no
+    system font was found.
+    """
+    from fpdf import FPDF
+
+    class ReportPDF(FPDF):
+        def normalize_text(self, text):
+            if not self.is_ttf_font and self.core_fonts_encoding:
+                encoding = self.core_fonts_encoding
+                text = text.encode(encoding, "replace").decode(encoding)
+            return super().normalize_text(text)
+
+    return ReportPDF(orientation="P", unit="mm", format="A4")
+
+
 def generate_monthly_pdf(
     db_path: Path = DEFAULT_DB,
     month: str | None = None,
@@ -416,7 +436,6 @@ def generate_monthly_pdf(
     Returns:
         The path to the generated PDF file.
     """
-    from fpdf import FPDF
     from fpdf.enums import XPos, YPos
 
     if month is None:
@@ -458,7 +477,7 @@ def generate_monthly_pdf(
     )
 
     # Create PDF
-    pdf = FPDF(orientation="P", unit="mm", format="A4")
+    pdf = _new_pdf()
     pdf.set_auto_page_break(auto=False)
     _setup_fonts(pdf)
     f = _font(pdf)
@@ -825,7 +844,9 @@ def _add_advisor_pages(
         elif stripped.startswith("- ") or stripped.startswith("* "):
             pdf.set_font(font, "", 9)
             pdf.set_xy(margin + 4, y)
-            pdf.cell(4, 4, "•", new_x=XPos.RIGHT, new_y=YPos.TOP)
+            # The built-in font has no bullet glyph
+            bullet = "•" if font == "CustomSans" else "-"
+            pdf.cell(4, 4, bullet, new_x=XPos.RIGHT, new_y=YPos.TOP)
             pdf.set_xy(margin + 10, y)
             pdf.multi_cell(usable_w - 10, 4, stripped[2:], new_x=XPos.LEFT, new_y=YPos.NEXT)
             y = pdf.get_y() + 1

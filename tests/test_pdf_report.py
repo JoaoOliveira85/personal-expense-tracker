@@ -550,3 +550,58 @@ class TestCategoryAverages:
         row = self._report_row(test_db, tmp_path, "2026-01", "Groceries")
 
         assert row == "Groceries 100.00 EUR 100.0% - -"
+
+
+class TestBuiltInFont:
+    """Without a system Unicode font (the Docker image has none) the report
+    uses the built-in Helvetica, which only covers latin-1."""
+
+    @pytest.fixture(autouse=True)
+    def no_system_font(self, monkeypatch):
+        import expense_tracker.pdf_report as pdf_report
+
+        monkeypatch.setattr(pdf_report, "_setup_fonts", lambda pdf: None)
+
+    def test_other_alphabets_do_not_stop_the_report(self, test_db, tmp_path):
+        from .conftest import add_transaction
+
+        add_transaction(test_db, "2026-01-10", "CAFÉ “O PIPO” – ŁÓDŹ", 10.0,
+                        category="Żabka €", notes="#prenda’s")
+        output = tmp_path / "report.pdf"
+
+        generate_monthly_pdf(
+            db_path=test_db, month="2026-01", output_path=output,
+            desc_notes_path=tmp_path / "notes.csv",
+        )
+
+        text = _pdf_text(output)
+        assert "CAFÉ ?O PIPO? ? ?ÓD?" in text  # latin-1 kept, the rest marked
+        assert "?abka ?" in text
+        assert "10.00 EUR" in text
+
+    def test_advisor_notes_with_a_list_do_not_stop_the_report(
+        self, test_db, tmp_path, monkeypatch
+    ):
+        import expense_tracker.pdf_report as pdf_report
+
+        from .conftest import add_transaction
+
+        add_transaction(test_db, "2026-01-10", "SHOP", 10.0, category="Groceries")
+        advisor_dir = tmp_path / "advisor"
+        advisor_dir.mkdir()
+        (advisor_dir / "response-2026-01.md").write_text(
+            "## Summary\n\n- Groceries are up — cut back\n- Savings → fine\n",
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(pdf_report, "DEFAULT_ADVISOR_DIR", advisor_dir)
+        output = tmp_path / "report.pdf"
+
+        generate_monthly_pdf(
+            db_path=test_db, month="2026-01", output_path=output,
+            desc_notes_path=tmp_path / "notes.csv",
+        )
+
+        text = _pdf_text(output)
+        assert "Financial Advisor Notes" in text
+        assert "- Groceries are up ? cut back" in text
+        assert "- Savings ? fine" in text
