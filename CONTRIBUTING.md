@@ -108,7 +108,7 @@ SQLite storage layer. Handles schema creation, migrations, ingestion, and querie
 - `tx_id(row)` — Generates a 16-character hex hash (SHA-1) for deduplication. The hash key includes account, dates, description, amount, and balance.
 - `ensure_schema(conn)` — Creates the `transactions` table if it doesn't exist.
 - `migrate_schema(conn)` — Adds columns that may be missing from an older schema (for forward compatibility), and the `ods_baseline` table used by ODS sync-back.
-- `ingest(db_path, paths, cards_path, bank_id)` — Parses files using the multi-bank parser framework (auto-detection or explicit `bank_id`) and inserts rows with `INSERT OR IGNORE` for deduplication. Falls back to the legacy UTF-16 parser for backward compatibility.
+- `ingest(db_path, paths, cards_path, bank_id)` — Parses files using the multi-bank parser framework (auto-detection or explicit `bank_id`) and inserts rows with `INSERT OR IGNORE` for deduplication. PDFs go to the PDF parser; a file that is neither `.csv` nor `.pdf` goes to the legacy UTF-16 parser when no `bank_id` is given. Each file is imported in its own transaction: a file that fails is reported and skipped, and `IngestError` is raised once the others are in.
 - `reclean_descriptions(db_path)` — Re-runs `clean_description()` on all rows and updates only those that changed.
 - `fetch_all_transactions(conn)` — Returns all transactions as a list of dicts, sorted by date descending. Adds a computed `status` field.
 

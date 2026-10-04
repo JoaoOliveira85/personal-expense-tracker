@@ -230,6 +230,54 @@ class TestIngestBadFile:
         assert self._sources(test_db) == [("good.csv", 2)]
 
 
+class TestIngestParserChoice:
+    """--bank is an instruction, and a failed parse is not retried as UTF-16."""
+
+    @pytest.fixture(autouse=True)
+    def _setup_cleaning(self, noise_words, cleaning_patterns):
+        reset_cleaning_cache()
+        _get_cleaning_patterns(noise_words, cleaning_patterns)
+        yield
+        reset_cleaning_cache()
+
+    def _count(self, db_path) -> int:
+        conn = sqlite3.connect(str(db_path))
+        try:
+            return conn.execute("SELECT COUNT(*) FROM transactions").fetchone()[0]
+        finally:
+            conn.close()
+
+    def test_unknown_bank_is_an_error(self, test_db, utf16_csv, cards_csv):
+        with pytest.raises(IngestError, match="Unknown bank 'nonexistent'"):
+            ingest(test_db, [utf16_csv], cards_path=cards_csv, bank_id="nonexistent")
+
+        assert self._count(test_db) == 0
+
+    def test_chosen_parser_is_not_replaced_by_utf16(self, test_db, utf16_csv, cards_csv):
+        with pytest.raises(IngestError, match="Could not find UTF8 header row"):
+            ingest(test_db, [utf16_csv], cards_path=cards_csv, bank_id="utf8")
+
+        assert self._count(test_db) == 0
+
+    def test_unrecognised_csv_is_reported_as_unrecognised(
+        self, test_db, tmp_path, cards_csv
+    ):
+        path = tmp_path / "random.csv"
+        path.write_text("not,a,bank,statement\n", encoding="utf-8")
+
+        with pytest.raises(IngestError, match="Could not detect bank format"):
+            ingest(test_db, [path], cards_path=cards_csv)
+
+    def test_utf16_statement_under_another_extension_still_imports(
+        self, test_db, tmp_path, cards_csv
+    ):
+        path = make_utf16_csv(tmp_path / "movs.txt", SAMPLE_ROWS)
+
+        ingest(test_db, [path], cards_path=cards_csv)
+
+        assert self._count(test_db) == 5
+
+
 class TestIngestWarnings:
     """Parser warnings are printed with the run and counted in its summary."""
 

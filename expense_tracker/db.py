@@ -114,14 +114,24 @@ def migrate_schema(conn: sqlite3.Connection) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _parse_file(path: Path, cards_path: Path) -> list[dict]:
-    """Route to the correct parser based on file extension."""
+def _parse_file(
+    path: Path, cards_path: Path, bank_id: str | None = None
+) -> list[dict]:
+    """Parse one statement with the parser its extension and bank_id call for.
+
+    An error from that parser is the answer: it is not retried with the
+    UTF-16 parser, which would hide an unknown or mistaken bank_id and report
+    a missing UTF-16 header for a file that is not UTF-16 at all.
+    """
     suffix = path.suffix.lower()
     if suffix == ".pdf":
         from .pdf_parser import parse_pdf_statement
         return parse_pdf_statement(path, cards_path=cards_path)
-    else:
+    if bank_id is None and suffix != ".csv":
+        # The registered parsers only claim .csv files: a UTF-16 export saved
+        # under another extension still goes to the legacy UTF-16 parser.
         return parse_utf16_csv(path, cards_path=cards_path)
+    return parse_statement(path, cards_path=cards_path, bank_id=bank_id)
 
 
 class IngestError(Exception):
@@ -195,12 +205,7 @@ def ingest(
             # One transaction per file: a file that cannot be read must not
             # undo, or block, the import of the files around it.
             try:
-                # Try multi-bank parser first, fall back to legacy UTF-16 parser / PDF
-                try:
-                    rows = parse_statement(p, cards_path=cards_path, bank_id=bank_id)
-                except ValueError:
-                    # Fall back to extension-based detection (CSV vs PDF)
-                    rows = _parse_file(p, cards_path)
+                rows = _parse_file(p, cards_path, bank_id)
                 inserted = 0
                 for r in rows:
                     r["transaction_id"] = tx_id(r)
