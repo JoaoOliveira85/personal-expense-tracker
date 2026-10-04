@@ -132,3 +132,44 @@ class TestRecleanKeepsOdsEdits:
         cli.cmd_reclean(args)
 
         assert _category(args.db, tid) == "Groceries"
+
+
+class TestFetchFailure:
+    """The cron sync runs `fetch || echo warning`: a failure must not exit 0."""
+
+    def _args(self, root: Path) -> argparse.Namespace:
+        return argparse.Namespace(
+            setup=False,
+            config=root / "data" / "email-config.json",
+            raw=root / "raw",
+            db=root / "data" / "ledger.sqlite",
+            days=60,
+            dry_run=False,
+            no_ingest=False,
+            quiet=True,
+            verbose=False,
+        )
+
+    def test_failed_fetch_exits_non_zero(self, workspace: Path, monkeypatch, capsys):
+        def refuse(**kwargs):
+            raise OSError("connection refused")
+
+        monkeypatch.setattr(cli, "fetch_and_report", refuse)
+
+        with pytest.raises(SystemExit) as exit_info:
+            cli.cmd_fetch(self._args(workspace))
+
+        assert exit_info.value.code == 1
+        assert "connection refused" in capsys.readouterr().out
+
+    def test_missing_config_exits_non_zero(self, workspace: Path, capsys):
+        with pytest.raises(SystemExit) as exit_info:
+            cli.cmd_fetch(self._args(workspace))
+
+        assert exit_info.value.code == 1
+        assert "Email config not found" in capsys.readouterr().out
+
+    def test_nothing_to_download_is_not_a_failure(self, workspace: Path, monkeypatch):
+        monkeypatch.setattr(cli, "fetch_and_report", lambda **kwargs: [])
+
+        cli.cmd_fetch(self._args(workspace))

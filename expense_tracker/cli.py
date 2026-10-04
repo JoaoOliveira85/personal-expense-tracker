@@ -717,10 +717,11 @@ def cmd_fetch(args):
         )
     except FileNotFoundError as e:
         print(f"Error: {e}")
-        return
+        sys.exit(1)
     except Exception as e:
+        # Exit non-zero: the cron sync tells a failed fetch by its status
         print(f"Error fetching email: {e}")
-        return
+        sys.exit(1)
 
     if not downloaded:
         _info("No new statement attachments found.")
