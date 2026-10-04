@@ -149,7 +149,7 @@ All ODS sheet builders, styles, and cell helpers. Split from `ods.py` for mainta
 
 **Hybrid regeneration strategy:**
 - **Always rebuilt:** Intro, Data, Rules — these reflect the current state of the DB
-- **First run only:** Dashboard, Monthly Summary, Monthly Trend, Category Breakdown, Subcategory Breakdown, Tags, Recurring Merchants — generated with starter formulas/data, then never touched again
+- **First run only:** Dashboard, Monthly Summary, Monthly Trend, Category Breakdown, Subcategory Breakdown, Tags, Recurring Merchants — generated with starter formulas/data, then kept. On later runs only the row ranges of their references to the Data sheet (`[.Data.F2:.Data.F250]`) are moved to the current last row (`retarget_data_ranges()` in `ods.py`), so the totals keep covering every transaction
 - **Never touched:** Any sheets the user adds manually
 
 This means users can customize the analysis sheets (change formulas, add charts, reformat) without losing their work. The `--fresh` flag forces a full regeneration by deleting the ODS first.

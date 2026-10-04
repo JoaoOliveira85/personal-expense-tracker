@@ -521,6 +521,8 @@ Open this file in **LibreOffice Calc** or upload it to **Google Sheets**.
 | **Recurring Merchants** | First run only | Merchants that appear 3+ times — helps spot subscriptions, regular bills, and habitual spending. Shows count, total, average, date range, and category. |
 | *Your custom sheets* | Never touched | Add as many sheets as you want. The script will never modify or remove them. |
 
+**Rows covered by the first-run sheets.** Their formulas refer to the Data sheet by row range (e.g. `Data.F2:F250`). On every run those ranges, and nothing else in these sheets, are moved to the current last row of the Data sheet, so each total keeps covering every transaction. The lists themselves (months, categories, top merchants, recurring merchants) stay those of the first run: use `report --fresh` to rebuild them. Formulas in your own sheets are never changed, so refer to whole columns there (`Data.F:F`).
+
 **Refunds.** Money coming *in* with a spending category (e.g. a pharmacy refund or an insurance reimbursement categorized as Health) is treated as a refund: it is subtracted from that category's spending and from total expenses, and is **not** counted as income. Incoming transactions categorized `Income` or `Transfers`, or left uncategorized, count as income.
 
 **Savings.** Transactions categorized `Savings` are money moved into or out of a savings product (e.g. a savings or investment account): deposits are **not** counted as spending and withdrawals are **not** counted as income, so Net reflects only what you earned and spent. Monthly Trend's running balance therefore won't match your bank balance in months with savings movements.

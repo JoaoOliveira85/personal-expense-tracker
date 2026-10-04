@@ -12,6 +12,7 @@ sync-back of manual edits from the ODS into SQLite / description-notes.csv.
 from __future__ import annotations
 
 import csv
+import re
 import sqlite3
 from pathlib import Path
 
@@ -31,6 +32,39 @@ from .ods_sheets import (
     write_tags_sheet, write_recurring_sheet,
 )
 from .rules import load_rules
+
+
+# ---------------------------------------------------------------------------
+# Analysis sheets: keep their references to the Data sheet on the data
+# ---------------------------------------------------------------------------
+
+# Written on the first run, then kept (see generate_ods).
+ANALYSIS_SHEETS = (
+    "Dashboard", "Monthly Summary", "Monthly Trend", "Category Breakdown",
+    "Subcategory Breakdown", "Tags", "Recurring Merchants",
+)
+
+# A range of Data-sheet rows that starts at the first data row:
+# [.Data.F2:.Data.F6] as ods_sheets writes it, [Data.F2:Data.F6] or
+# [$Data.$F$2:.$F$6] once LibreOffice has saved the file. Group 1 is
+# everything up to the number of the last row.
+_DATA_ROWS_RANGE = re.compile(
+    r"(\[\.?\$?(?:Data|'Data')\.\$?[A-Z]+\$?2:"
+    r"(?:\.?\$?(?:Data|'Data'))?\.\$?[A-Z]+\$?)\d+(?=\])"
+)
+
+
+def retarget_data_ranges(formula: str, last_row: int) -> str:
+    """Make every Data-sheet range that starts at row 2 end at `last_row`.
+
+    The Data sheet is rebuilt on every run, newest transaction first, while
+    the formulas of the analysis sheets are written once: a range left at
+    the row count of the first run stops covering the oldest transactions
+    as soon as new ones are imported.
+    """
+    return _DATA_ROWS_RANGE.sub(
+        lambda m: f"{m.group(1)}{max(last_row, 2)}", formula
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -258,7 +292,7 @@ def generate_ods(
     """Generate (or update) an ODS expense report."""
     try:
         from odf.opendocument import OpenDocumentSpreadsheet, load as load_ods
-        from odf.table import Table
+        from odf.table import Table, TableCell
     except ImportError:
         print("Error: odfpy is required for ODS generation.")
         print("Install it with: pip install odfpy")
@@ -322,6 +356,18 @@ def generate_ods(
             doc.spreadsheet.addElement(intro_sheet)
             doc.spreadsheet.addElement(data_sheet)
             doc.spreadsheet.addElement(rules_sheet)
+
+        # The kept analysis sheets must go on covering every Data row
+        last_row = len(transactions) + 1  # row 1 is the header
+        for sheet in existing_sheets:
+            if sheet.getAttribute("name") not in ANALYSIS_SHEETS:
+                continue
+            for cell in sheet.getElementsByType(TableCell):
+                formula = cell.getAttribute("formula")
+                if formula:
+                    retargeted = retarget_data_ranges(formula, last_row)
+                    if retargeted != formula:
+                        cell.setAttribute("formula", retargeted)
 
     ods_path.parent.mkdir(parents=True, exist_ok=True)
     doc.save(str(ods_path))
