@@ -129,12 +129,12 @@ def _fetch_monthly_summary(
     # Get category breakdown (expenses net of refunds)
     categories = conn.execute(f"""
         SELECT 
-            COALESCE(category, 'Uncategorized') as category,
+            COALESCE(NULLIF(category, ''), 'Uncategorized') as category,
             SUM({SPEND_SQL}) as total,
             SUM(direction = 'out') as count
         FROM transactions
         WHERE month = ? AND (direction = 'out' OR {REFUND_SQL}) AND {NOT_SAVINGS_SQL}
-        GROUP BY category
+        GROUP BY 1
         ORDER BY total DESC
     """, (month,)).fetchall()
     
@@ -198,13 +198,13 @@ def _fetch_historical_summary(
     # Get average category spending (net of refunds)
     categories = conn.execute(f"""
         SELECT 
-            COALESCE(category, 'Uncategorized') as category,
+            COALESCE(NULLIF(category, ''), 'Uncategorized') as category,
             SUM({SPEND_SQL}) as total,
             AVG(CASE WHEN direction = 'out' THEN amount_abs END) as avg_per_tx,
             SUM(direction = 'out') as count
         FROM transactions
         WHERE month < ? AND (direction = 'out' OR {REFUND_SQL}) AND {NOT_SAVINGS_SQL}
-        GROUP BY category
+        GROUP BY 1
         ORDER BY total DESC
     """, (before_month,)).fetchall()
     
