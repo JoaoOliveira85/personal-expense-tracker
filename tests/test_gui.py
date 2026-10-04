@@ -385,3 +385,132 @@ class TestImportFeedback:
         assert not at.success
         assert _transaction_count(project.db) == 5
         assert project.ods.exists()
+
+
+FEBRUARY_ROWS = [
+    ("03-02-2026", "03-02-2026", "COMPRA 1234 CONTINENTE PORTO", "-20,00", "Compra", "1214,56"),
+]
+
+
+@pytest.fixture
+def edited_report(project, tmp_path, cards_csv):
+    """January imported and categorized, its ODS generated, and then a
+    category changed in the spreadsheet that no sync has read yet."""
+    from expense_tracker.db import ingest
+    from expense_tracker.ods import generate_ods
+    from expense_tracker.rules import categorize_transactions, load_rules
+
+    from .conftest import SAMPLE_ROWS, make_utf16_csv
+    from .test_ods_sync import _set_ods_category
+
+    january = make_utf16_csv(tmp_path / "EXPORT_0_1012026.csv", SAMPLE_ROWS)
+    ingest(project.db, [january], cards_path=cards_csv)
+    conn = sqlite3.connect(str(project.db))
+    migrate_schema(conn)
+    categorize_transactions(conn, load_rules(project.rules))
+    tid = conn.execute(
+        "SELECT transaction_id FROM transactions "
+        "WHERE description_raw LIKE '%CONTINENTE%'"
+    ).fetchone()[0]
+    conn.close()
+    generate_ods(project.db, project.rules, project.ods, project.notes)
+
+    _set_ods_category(project.ods, tid, "Household")
+    return tid
+
+
+def _assert_edit_survived(project, tid: str) -> None:
+    from odf.opendocument import load as load_ods
+    from odf.table import Table, TableRow
+
+    from expense_tracker.constants import COL_CATEGORY, COL_TRANSACTION_ID
+
+    from .test_ods_sync import _category, _cells
+
+    assert _transaction_count(project.db) == 6  # the new statement is in
+    assert _category(project.db, tid) == "Household"
+    data = next(
+        s
+        for s in load_ods(str(project.ods)).spreadsheet.getElementsByType(Table)
+        if s.getAttribute("name") == "Data"
+    )
+    rows = data.getElementsByType(TableRow)
+    assert len(rows) == 7  # regenerated: header + 6 transactions
+    shown = {
+        str(cells[COL_TRANSACTION_ID]): str(cells[COL_CATEGORY])
+        for cells in map(_cells, rows[1:])
+    }
+    assert shown[tid] == "Household"
+
+
+class TestUnsyncedSpreadsheetEdits:
+    """Both pages regenerate the ODS after an import: a category the user
+    changed in the spreadsheet since the last run must be read first, or
+    the regenerated report overwrites it."""
+
+    def test_import_page_syncs_before_regenerating(
+        self, project, edited_report, tmp_path
+    ):
+        at = _open_page("Import")
+        at.file_uploader[0].upload(
+            "february.csv",
+            _statement(tmp_path, "february.csv", rows=FEBRUARY_ROWS),
+            "text/csv",
+        ).run()
+
+        at = _click(at, "Ingest uploaded files")
+
+        assert not at.exception
+        _assert_edit_survived(project, edited_report)
+
+    def test_fetch_from_email_syncs_before_regenerating(
+        self, project, edited_report, tmp_path, monkeypatch
+    ):
+        import expense_tracker.email_fetch as email_fetch
+
+        from .conftest import make_utf16_csv
+
+        email_fetch.create_email_config(
+            project.email_config, "imap.example.org", "me@example.org", "not-a-secret"
+        )
+        project.raw.mkdir()
+        downloaded = make_utf16_csv(project.raw / "february.csv", FEBRUARY_ROWS)
+        monkeypatch.setattr(
+            email_fetch, "fetch_and_report", lambda **kwargs: [downloaded]
+        )
+
+        at = _click(_open_page("Tools"), "Fetch from Email")
+
+        assert not at.exception
+        assert not at.error
+        assert "Imported 1 file(s) and regenerated report." in [
+            m.value for m in at.success
+        ]
+        _assert_edit_survived(project, edited_report)
+
+    def test_fetch_from_email_shows_rows_that_were_not_imported(
+        self, project, tmp_path, monkeypatch
+    ):
+        import expense_tracker.email_fetch as email_fetch
+
+        from .conftest import make_utf16_csv
+
+        email_fetch.create_email_config(
+            project.email_config, "imap.example.org", "me@example.org", "not-a-secret"
+        )
+        project.raw.mkdir()
+        downloaded = make_utf16_csv(
+            project.raw / "february.csv", FEBRUARY_ROWS + [SHORT_ROW]
+        )
+        monkeypatch.setattr(
+            email_fetch, "fetch_and_report", lambda **kwargs: [downloaded]
+        )
+
+        at = _click(_open_page("Tools"), "Fetch from Email")
+
+        assert not at.exception
+        assert [m.value for m in at.warning if "while importing" in m.value]
+        assert any("row not imported (5 of 6 fields)" in t.value for t in at.text)
+        assert "Imported 1 file(s) and regenerated report." not in [
+            m.value for m in at.success
+        ]
