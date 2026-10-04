@@ -14,7 +14,7 @@ from .constants import (
     NON_SPENDING_CATEGORIES,
     SAVINGS_CATEGORIES,
 )
-from .db import counts_as_spending, is_savings
+from .db import counts_as_spending, is_savings, spend_amount
 
 
 # ---------------------------------------------------------------------------
@@ -154,6 +154,15 @@ def make_cell(value, style_name="normal", value_type=None, formula=None):
         cell.addElement(P(text=str(value)))
 
     return cell
+
+
+def top_categories(transactions, limit: int = 10) -> list[str]:
+    """The `limit` categories with the most spending, largest first."""
+    totals: dict[str, float] = defaultdict(float)
+    for tx in transactions:
+        if tx.get("category") and counts_as_spending(tx):
+            totals[tx["category"]] += spend_amount(tx)
+    return sorted(totals, key=lambda cat: (-totals[cat], cat))[:limit]
 
 
 def col_letter(index: int) -> str:
@@ -451,14 +460,9 @@ def write_dashboard_sheet(doc, transactions):
     table.addElement(TableRow())  # blank row
 
     # --- Top categories ---
-    categories = sorted(set(
-        tx["category"] for tx in transactions
-        if tx.get("category") and counts_as_spending(tx)
-    ))
-
     table.addElement(make_header_row(["Top Categories", "Total Spent", "# Transactions"]))
 
-    for cat in categories[:10]:  # top 10 max
+    for cat in top_categories(transactions):
         row = TableRow()
         row.addElement(make_cell(cat, style_name="normal"))
         row.addElement(make_cell("", style_name="normal", value_type="float", formula=(

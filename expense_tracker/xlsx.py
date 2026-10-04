@@ -22,6 +22,7 @@ from .constants import (
     SAVINGS_CATEGORIES,
 )
 from .db import migrate_schema, fetch_all_transactions, counts_as_spending, is_savings
+from .ods_sheets import top_categories
 from .rules import load_rules
 
 # SUMIFS criteria excluding savings, and selecting refunds (see db.py)
@@ -380,18 +381,13 @@ def _write_dashboard_sheet(ws, transactions: list[dict], styles: dict, n: int) -
     row += 2
     
     # Top Categories
-    categories = sorted(set(
-        tx["category"] for tx in transactions
-        if tx.get("category") and counts_as_spending(tx)
-    ))
-    
     for col, header in enumerate(["Top Categories", "Total Spent", "# Transactions"], start=1):
         cell = ws.cell(row=row, column=col, value=header)
         cell.font = styles['header_font']
         cell.fill = styles['header_fill']
     row += 1
     
-    for cat in categories[:10]:
+    for cat in top_categories(transactions):
         _text_cell(ws, row, 1, cat)
         ws.cell(row=row, column=2, value="=" + _category_spend(cat))
         ws.cell(row=row, column=2).number_format = '#,##0.00'
