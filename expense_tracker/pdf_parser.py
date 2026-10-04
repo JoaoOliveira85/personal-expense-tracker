@@ -384,14 +384,21 @@ def _parse_text_transactions(
 
     Lines carry only month.day; with the statement ``period`` known, each
     date gets the year that puts it nearest the period (see _nearest_date).
+    With neither a period nor a year, each date gets the latest year that
+    does not put it after today (see _latest_date), and the guess is reported.
     
     Handles lines like:
     "2.02 2.02 COMPRA 1234 TIGER LISBOA 3.00 1 500.00"
     """
     rows: list[dict] = []
     
+    assumed_end: Optional[date] = None
     if statement_year is None:
         statement_year = date.today().year
+        if period is None:
+            # Today's year would put a December statement read in January
+            # eleven months into the future
+            assumed_end = date.today()
     
     if credit_patterns is None:
         credit_patterns = DEFAULT_CREDIT_PATTERN_LIST
@@ -419,7 +426,7 @@ def _parse_text_transactions(
         parsed = _parse_text_transaction_line(
             line, statement_year, current_month, known_cards, card_owners, 
             source_file, credit_patterns, period=period,
-            prev_balance=prev_balance,
+            prev_balance=prev_balance, not_after=assumed_end,
         )
         if parsed:
             rows.append(parsed)
@@ -427,6 +434,14 @@ def _parse_text_transactions(
             current_month = int(parsed["date_posted"].split("-")[1])
             if parsed["balance"]:  # 0 stands for "not printed"
                 prev_balance = parsed["balance"]
+
+    if assumed_end and rows:
+        logger.warning(
+            "%s: no statement period found, and its lines carry no year: "
+            "dated as the 12 months up to %s; check the dates if the "
+            "statement is older than that",
+            source_file, assumed_end.isoformat(),
+        )
 
     return rows
 
@@ -448,6 +463,19 @@ def _parse_amount_pdf_text(s: str) -> Optional[float]:
         return float(cleaned)
     except ValueError:
         return None
+
+
+def _latest_date(not_after: date, month: int, day: int) -> date:
+    """The month/day on its latest occurrence up to ``not_after`` (raises ValueError)."""
+    # Nine years reach the previous 29 February even across 2100
+    for year in range(not_after.year, not_after.year - 9, -1):
+        try:
+            candidate = date(year, month, day)
+        except ValueError:
+            continue
+        if candidate <= not_after:
+            return candidate
+    raise ValueError(f"no such date: month {month}, day {day}")
 
 
 def _settle_amount(
@@ -527,6 +555,7 @@ def _parse_text_transaction_line(
     credit_patterns: list[str] = None,
     period: Optional[tuple[date, date]] = None,
     prev_balance: Optional[float] = None,
+    not_after: Optional[date] = None,
 ) -> Optional[dict]:
     """
     Parse a single text line as a transaction.
@@ -611,6 +640,10 @@ def _parse_text_transaction_line(
             # value date can fall in the year before its posting date.
             start, end = period
             posted = _nearest_date(start + (end - start) / 2, month_int, day_int)
+            value = _nearest_date(posted, month2_int, day2_int)
+        elif not_after is not None:
+            # No period and no year: a statement holds nothing from the future
+            posted = _latest_date(not_after, month_int, day_int)
             value = _nearest_date(posted, month2_int, day2_int)
         else:
             posted = date(year, month_int, day_int)

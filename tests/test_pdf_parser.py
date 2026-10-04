@@ -934,3 +934,82 @@ class TestTableSkippedRows:
     def test_readable_statement_reports_nothing(self, pdf_statement, cards_csv, caplog):
         assert len(parse_pdf_statement(pdf_statement, cards_path=cards_csv)) == 5
         assert _text_warnings(caplog) == []
+
+
+class TestTextStatementWithoutPeriod:
+    """Text lines carry no year. When the statement does not state its
+    period either, no line may be dated in the future, and the guess is
+    reported."""
+
+    @pytest.fixture(autouse=True)
+    def read_on_20_january_2027(self, monkeypatch):
+        class FrozenDate(date):
+            @classmethod
+            def today(cls):
+                return cls(2027, 1, 20)
+
+        monkeypatch.setattr("expense_tracker.pdf_parser.date", FrozenDate)
+
+    def _dates(self, tmp_path, lines: list[str]) -> list[tuple[str, str]]:
+        path = _make_text_pdf(tmp_path / "statement.pdf", ["CONTA 123456789"] + lines)
+        rows = parse_pdf_statement(path, cards_path=tmp_path / "none.csv")
+        return [(r["date_posted"], r["date_value"]) for r in rows]
+
+    def test_december_statement_read_in_january_is_dated_last_year(self, tmp_path):
+        dates = self._dates(
+            tmp_path,
+            [
+                "12.30 12.30 COMPRA CONTINENTE 10.00 990.00",
+                "1.05 1.05 COMPRA PINGO DOCE 20.00 970.00",
+            ],
+        )
+
+        assert dates == [
+            ("2026-12-30", "2026-12-30"),
+            ("2027-01-05", "2027-01-05"),
+        ]
+
+    def test_value_date_stays_next_to_the_posting_date(self, tmp_path):
+        dates = self._dates(tmp_path, ["1.02 12.31 COMPRA LIDL 5.00 965.00"])
+
+        assert dates == [("2027-01-02", "2026-12-31")]
+
+    def test_today_is_this_year_and_tomorrow_is_last_year(self, tmp_path):
+        dates = self._dates(
+            tmp_path,
+            [
+                "1.21 1.21 COMPRA CONTINENTE 10.00 990.00",
+                "1.20 1.20 COMPRA PINGO DOCE 20.00 970.00",
+            ],
+        )
+
+        assert dates == [
+            ("2026-01-21", "2026-01-21"),
+            ("2027-01-20", "2027-01-20"),
+        ]
+
+    def test_leap_day_gets_the_latest_year_that_has_one(self, tmp_path):
+        dates = self._dates(tmp_path, ["2.29 2.29 COMPRA LIDL 5.00 985.00"])
+
+        assert dates == [("2024-02-29", "2024-02-29")]
+
+    def test_missing_period_is_reported(self, tmp_path, caplog):
+        self._dates(tmp_path, ["12.30 12.30 COMPRA CONTINENTE 10.00 990.00"])
+
+        messages = [m for m in _text_warnings(caplog) if "period" in m]
+        assert len(messages) == 1
+        assert "statement.pdf" in messages[0]
+        assert "2027-01-20" in messages[0]
+
+    def test_statement_with_a_period_reports_nothing(self, tmp_path, caplog):
+        path = _make_text_pdf(
+            tmp_path / "statement.pdf",
+            [
+                "EXTRATO DE 2025/12/29 A 2026/01/28",
+                "12.30 12.30 COMPRA CONTINENTE 10.00 990.00",
+            ],
+        )
+        rows = parse_pdf_statement(path, cards_path=tmp_path / "none.csv")
+
+        assert [r["date_posted"] for r in rows] == ["2025-12-30"]
+        assert _text_warnings(caplog) == []
