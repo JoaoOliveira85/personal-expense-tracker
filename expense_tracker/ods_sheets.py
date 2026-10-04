@@ -433,7 +433,7 @@ def write_dashboard_sheet(doc, transactions):
     row = TableRow()
     row.addElement(make_cell("Uncategorized Transactions", style_name="normal"))
     row.addElement(make_cell("", style_name="normal", value_type="float", formula=(
-        f'of:=COUNTIF([.Data.M2:.Data.M{n}],"uncategorized")'
+        f'of:=COUNTIF([.Data.M2:.Data.M{n}];"uncategorized")'
     )))
     row.addElement(make_cell("", style_name="normal"))
     table.addElement(row)

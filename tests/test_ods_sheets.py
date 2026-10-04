@@ -255,3 +255,12 @@ class TestDashboardCounts:
 
         cells = _row(load_ods(str(ods)), "Dashboard", "Total Transactions")
         assert cells[1].getAttribute("formula") == "of:=COUNTA([.Data.Q2:.Data.Q7])"
+
+    def test_uncategorized_count_separates_arguments_with_semicolons(self, report):
+        """OpenFormula separates function arguments with ';' (a comma is the
+        Excel spelling and not valid in an ODS formula)."""
+        _, ods, _ = report
+        cells = _row(load_ods(str(ods)), "Dashboard", "Uncategorized Transactions")
+        assert cells[1].getAttribute("formula") == (
+            'of:=COUNTIF([.Data.M2:.Data.M6];"uncategorized")'
+        )
