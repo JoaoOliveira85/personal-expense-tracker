@@ -587,3 +587,250 @@ class TestTextCarryOverLines:
         )
 
         assert [r["amount_signed"] for r in rows] == [-3.00, -12.00, -0.40]
+
+
+def _text_triples(text: str, year: int = 2026) -> list[tuple[str, float, float]]:
+    return [
+        (r["description_raw"], r["amount_signed"], r["balance"])
+        for r in _text_rows(text, year)
+    ]
+
+
+def _text_warnings(caplog) -> list[str]:
+    return [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
+
+
+class TestTextAmountSplit:
+    """A description can end in a number ("LIDL 280") and an amount can have
+    a thousands group ("1 529.13"), so "LIDL 280 150.00" reads two ways. The
+    running balance says which one it is."""
+
+    def test_number_ending_the_description_is_not_read_as_thousands(self, caplog):
+        triples = _text_triples(
+            "2.02 2.02 COMPRA KIOSK 3.00 1 529.13\n"
+            "2.03 2.03 COMPRA 1234 LIDL 280 150.00 1 379.13"
+        )
+
+        assert triples == [
+            ("COMPRA KIOSK", -3.00, 1529.13),
+            ("COMPRA 1234 LIDL 280", -150.00, 1379.13),
+        ]
+        assert _text_warnings(caplog) == []
+
+    def test_thousands_amount_confirmed_by_the_balance(self, caplog):
+        triples = _text_triples(
+            "2.02 2.02 COMPRA KIOSK 3.00 281 529.13\n"
+            "2.03 2.03 TRF P/ CONTA POUPANCA 280 150.00 1 379.13"
+        )
+
+        assert triples[1] == ("TRF P/ CONTA POUPANCA", -280150.00, 1379.13)
+        assert _text_warnings(caplog) == []
+
+    def test_credit_with_thousands_confirmed_by_the_balance(self, caplog):
+        triples = _text_triples(
+            "2.02 2.02 COMPRA KIOSK 3.00 1 529.13\n"
+            "2.03 2.03 TRANSFERENCIA - VENCIMENTO 12 1 000.00 2 529.13"
+        )
+
+        assert triples[1] == ("TRANSFERENCIA - VENCIMENTO 12", 1000.00, 2529.13)
+        assert _text_warnings(caplog) == []
+
+    @pytest.mark.parametrize("label", ["SALDO INICIAL", "TRANSPORTE"])
+    def test_opening_or_carried_balance_settles_the_first_line(self, label, caplog):
+        triples = _text_triples(
+            f"{label} 1 529.13\n"
+            "2.03 2.03 COMPRA 1234 LIDL 280 150.00 1 379.13"
+        )
+
+        assert triples == [("COMPRA 1234 LIDL 280", -150.00, 1379.13)]
+        assert _text_warnings(caplog) == []
+
+    def test_every_split_of_a_long_amount_is_tried(self):
+        triples = _text_triples(
+            "SALDO INICIAL 300 000.00\n"
+            "2.03 2.03 TRF P/ CONTA 12 234 567.89 65 432.11\n"
+            "2.04 2.04 PRESTACAO 12 234 567.89 64 864.22"
+        )
+
+        assert triples == [
+            ("TRF P/ CONTA 12", -234567.89, 65432.11),
+            ("PRESTACAO 12 234", -567.89, 64864.22),
+        ]
+
+    def test_group_with_a_leading_zero_belongs_to_the_amount(self, caplog):
+        """ "050.00" is never printed on its own: no balance needed."""
+        triples = _text_triples("2.03 2.03 TRF P/ CONTA POUPANCA 1 050.00 479.13")
+
+        assert triples == [("TRF P/ CONTA POUPANCA", -1050.00, 479.13)]
+        assert _text_warnings(caplog) == []
+
+    def test_number_with_a_leading_zero_belongs_to_the_description(self, caplog):
+        """ "007 150.00" is not how 7 150.00 is printed."""
+        triples = _text_triples("2.03 2.03 COMPRA POSTO 007 150.00 1 379.13")
+
+        assert triples == [("COMPRA POSTO 007", -150.00, 1379.13)]
+        assert _text_warnings(caplog) == []
+
+    def test_amount_that_cannot_be_settled_is_reported(self, caplog):
+        """First line and no opening balance: the old reading, and a warning."""
+        triples = _text_triples("2.03 2.03 COMPRA 1234 LIDL 280 150.00 1 379.13")
+
+        assert triples == [("COMPRA 1234 LIDL", -280150.00, 1379.13)]
+        messages = _text_warnings(caplog)
+        assert len(messages) == 1
+        assert "statement.pdf" in messages[0]
+        assert "COMPRA 1234 LIDL 280 150.00 1 379.13" in messages[0]
+        assert "280 150.00" in messages[0] and "could be 150.00" in messages[0]
+
+    def test_balance_that_fits_no_reading_is_reported(self, caplog):
+        _text_triples(
+            "2.02 2.02 COMPRA KIOSK 3.00 1 529.13\n"
+            "2.03 2.03 COMPRA 1234 LIDL 280 150.00 1 000.00"
+        )
+
+        assert len(_text_warnings(caplog)) == 1
+
+    def test_ambiguous_line_without_balance_is_reported(self, caplog):
+        triples = _text_triples(
+            "2.02 2.02 COMPRA KIOSK 3.00 1 529.13\n"
+            "2.03 2.03 >PAGAMENTO CARTAO 280 150.00"
+        )
+
+        assert triples[1] == (">PAGAMENTO CARTAO", -280150.00, 0.0)
+        assert len(_text_warnings(caplog)) == 1
+
+    def test_line_without_balance_does_not_reset_the_running_balance(self, caplog):
+        triples = _text_triples(
+            "2.02 2.02 COMPRA KIOSK 3.00 1 529.13\n"
+            "2.02 2.02 >PAGAMENTO CARTAO DE CREDITO 4.68\n"
+            "2.03 2.03 COMPRA 1234 LIDL 280 150.00 1 379.13"
+        )
+
+        assert triples[2] == ("COMPRA 1234 LIDL 280", -150.00, 1379.13)
+        assert _text_warnings(caplog) == []
+
+    def test_statement_pdf_end_to_end(self, tmp_path, caplog):
+        path = _make_text_pdf(
+            tmp_path / "statement.pdf",
+            [
+                "EXTRATO DE 2026/02/02 A 2026/02/27",
+                "SALDO INICIAL 1 532.13",
+                "2.02 2.02 COMPRA KIOSK 3.00 1 529.13",
+                "2.03 2.03 COMPRA 1234 LIDL 280 150.00 1 379.13",
+                "2.05 2.05 COMPRA 1234 STCP TRANSPORTES PORTO 12.00 1 367.13",
+                "2.06 2.06 TRANSFERENCIA - VENCIMENTO 2 150.00 3 517.13",
+            ],
+        )
+        rows = parse_pdf_statement(path, cards_path=tmp_path / "none.csv")
+
+        assert [(r["description_raw"], r["amount_signed"]) for r in rows] == [
+            ("COMPRA KIOSK", -3.00),
+            ("COMPRA 1234 LIDL 280", -150.00),
+            ("COMPRA 1234 STCP TRANSPORTES PORTO", -12.00),
+            ("TRANSFERENCIA - VENCIMENTO", 2150.00),
+        ]
+        assert _text_warnings(caplog) == []
+
+
+class TestTextFixturesUnchanged:
+    """Every text line the tests and the parser's docstrings used before the
+    amount split looked at the balance, with what the parser made of it
+    then (description, amount, balance): none of them may move."""
+
+    @pytest.mark.parametrize(
+        "lines, expected",
+        [
+            (
+                ["2.03 2.03 VENDA OLX BICICLETA 50.00 1 050.00"],
+                [("VENDA OLX BICICLETA", -50.00, 1050.00)],
+            ),
+            (
+                ["2.03 2.03 TRF. P/O EXEMPLO 84.00 966.00"],
+                [("TRF. P/O EXEMPLO", 84.00, 966.00)],
+            ),
+            (
+                [
+                    "12.30 12.30 COMPRA CONTINENTE 10.00 990.00",
+                    "1.05 1.05 COMPRA PINGO DOCE 20.00 970.00",
+                ],
+                [
+                    ("COMPRA CONTINENTE", -10.00, 990.00),
+                    ("COMPRA PINGO DOCE", -20.00, 970.00),
+                ],
+            ),
+            (
+                ["1.02 12.31 COMPRA LIDL 5.00 965.00"],
+                [("COMPRA LIDL", -5.00, 965.00)],
+            ),
+            (
+                ["2.03 2.03 COMPRA KIOSK 3.00 1 529.13"],
+                [("COMPRA KIOSK", -3.00, 1529.13)],
+            ),
+            (
+                [
+                    "11.02 11.02 COMPRA CONTINENTE 10.00 990.00",
+                    "2.29 2.29 COMPRA LIDL 5.00 985.00",
+                ],
+                [
+                    ("COMPRA CONTINENTE", -10.00, 990.00),
+                    ("COMPRA LIDL", -5.00, 985.00),
+                ],
+            ),
+            (
+                [
+                    "2.02 2.02 COMPRA KIOSK 3.00 1 529.13",
+                    "2.06 2.06 TRF MB WAY DE ALICE 20.00 1 549.13",
+                    "2.07 2.07 COMPRA CAFE 0.40 1 548.73",
+                ],
+                [
+                    ("COMPRA KIOSK", -3.00, 1529.13),
+                    ("TRF MB WAY DE ALICE", -20.00, 1549.13),
+                    ("COMPRA CAFE", -0.40, 1548.73),
+                ],
+            ),
+            (
+                [
+                    "2.02 2.02 COMPRA KIOSK 3.00 1 529.13",
+                    "2.06 2.06 JUROS CREDORES 0.40 1 529.53",
+                ],
+                [
+                    ("COMPRA KIOSK", -3.00, 1529.13),
+                    ("JUROS CREDORES", -0.40, 1529.53),
+                ],
+            ),
+            (
+                [
+                    "2.02 2.02 COMPRA KIOSK 3.00 1 529.13",
+                    "2.03 2.03 TRANSFERENCIA - VENCIMENTO 1 000.00 2 529.13",
+                    "2.04 2.04 COMPRA CAFE 0.40 2 528.73",
+                ],
+                [
+                    ("COMPRA KIOSK", -3.00, 1529.13),
+                    ("TRANSFERENCIA - VENCIMENTO", 1000.00, 2529.13),
+                    ("COMPRA CAFE", -0.40, 2528.73),
+                ],
+            ),
+            (
+                [
+                    "2.02 2.02 COMPRA 1234 KIOSK LISBOA 3.00 1 529.13",
+                    "2.02 2.02 COMPRA 1234 DESCRIPTION 3.00 1 529.13",
+                    "2.02 2.02 DESCRIPTION 3.00 1 529.13",
+                    "2.02 2.02 >PAGAMENTO CARTAO DE CREDITO 4.68",
+                    "2.02 2.02 COMISSAO TRF MBWAY 123.45 APP MB WAY 1.00 1 429.14",
+                ],
+                [
+                    ("COMPRA 1234 KIOSK LISBOA", -3.00, 1529.13),
+                    ("COMPRA 1234 DESCRIPTION", -3.00, 1529.13),
+                    ("DESCRIPTION", -3.00, 1529.13),
+                    (">PAGAMENTO CARTAO DE CREDITO", -4.68, 0.0),
+                    ("COMISSAO TRF MBWAY 123.45 APP MB WAY", -1.00, 1429.14),
+                ],
+            ),
+        ],
+    )
+    def test_parses_as_before(self, lines, expected, caplog):
+        # As one statement, and each line on its own (no balance before it).
+        # 2024, so that the fixture with a 29 February has one.
+        assert _text_triples("\n".join(lines), 2024) == expected
+        assert [t for ln in lines for t in _text_triples(ln, 2024)] == expected
+        assert not [m for m in _text_warnings(caplog) if "could be" in m]

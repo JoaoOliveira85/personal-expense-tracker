@@ -65,6 +65,10 @@ CARRY_OVER_RE = re.compile(
     re.IGNORECASE,
 )
 
+# An amount as the statement prints it: "0.40", "150.00", "1 529.13". A group
+# with a leading zero ("050.00") only occurs after another group.
+PRINTED_AMOUNT_RE = re.compile(r"^(?:0|[1-9]\d{0,2}(?:\s\d{3})*)\.\d{2}$")
+
 # Default credit patterns (used if no config file exists)
 DEFAULT_CREDIT_PATTERN_LIST = [
     "TRF. P/O",  # Transfer TO us (incoming)
@@ -397,13 +401,18 @@ def _parse_text_transactions(
     
     current_month = None
     skipped_lines = []
+    # The balance before the line being read: tells an amount from a number
+    # that ends the description (see _settle_amount)
+    prev_balance: Optional[float] = None
     
     for line in lines:
         line = line.strip()
         if not line:
             continue
 
-        if CARRY_OVER_RE.match(line):
+        carry_over = CARRY_OVER_RE.match(line)
+        if carry_over:
+            prev_balance = _parse_amount_pdf_text(carry_over.group(1))
             continue
         
         # Check if line looks like a transaction but fails to parse
@@ -413,11 +422,14 @@ def _parse_text_transactions(
         parsed = _parse_text_transaction_line(
             line, statement_year, current_month, known_cards, card_owners, 
             source_file, credit_patterns, period=period,
+            prev_balance=prev_balance,
         )
         if parsed:
             rows.append(parsed)
             # Update current month from parsed transaction
             current_month = int(parsed["date_posted"].split("-")[1])
+            if parsed["balance"]:  # 0 stands for "not printed"
+                prev_balance = parsed["balance"]
         elif looks_like_tx:
             # Log lines that look like transactions but failed to parse
             skipped_lines.append(line)
@@ -452,6 +464,51 @@ def _parse_amount_pdf_text(s: str) -> Optional[float]:
         return None
 
 
+def _settle_amount(
+    desc: str,
+    amount_s: str,
+    balance: Optional[float],
+    prev_balance: Optional[float],
+    line: str,
+    source_file: str,
+) -> tuple[str, str]:
+    """Decide where the description ends and the amount starts.
+
+    A number that ends the description reads as a thousands group of the
+    amount: "COMPRA LIDL 280 150.00" is 150.00 spent at "LIDL 280", or
+    280 150.00 spent at "LIDL". ``amount_s`` is the longest reading. The one
+    that explains the change in the running balance wins (lines are listed
+    oldest first); failing that, the only one printed the way an amount is;
+    failing that, the longest, as before, with a warning.
+    """
+    groups = amount_s.split()
+    readings = [
+        (" ".join([desc] + groups[:i]), " ".join(groups[i:]))
+        for i in range(len(groups))
+    ]
+    if len(readings) == 1:
+        return desc, amount_s
+
+    if balance is not None and prev_balance is not None:
+        change = abs(balance - prev_balance)
+        for reading in readings:
+            if abs(_parse_amount_pdf_text(reading[1]) - change) < 0.005:
+                return reading
+
+    printable = [r for r in readings if PRINTED_AMOUNT_RE.match(r[1])]
+    if len(printable) == 1:
+        return printable[0]
+
+    candidates = printable or readings
+    logger.warning(
+        "%s: cannot tell the amount from the description in '%s': read as %s, "
+        "could be %s",
+        source_file, line, candidates[0][1],
+        " or ".join(r[1] for r in candidates[1:]),
+    )
+    return candidates[0]
+
+
 def _nearest_date(anchor: date, month: int, day: int) -> date:
     """The month/day in the year closest to ``anchor`` (raises ValueError)."""
     try:
@@ -483,6 +540,7 @@ def _parse_text_transaction_line(
     source_file: str,
     credit_patterns: list[str] = None,
     period: Optional[tuple[date, date]] = None,
+    prev_balance: Optional[float] = None,
 ) -> Optional[dict]:
     """
     Parse a single text line as a transaction.
@@ -571,6 +629,11 @@ def _parse_text_transaction_line(
         return None
     
     # Parse amount
+    desc, amount_s = _settle_amount(
+        desc, amount_s,
+        _parse_amount_pdf_text(balance_s) if two_amounts else None,
+        prev_balance, line, source_file,
+    )
     amount = _parse_amount_pdf_text(amount_s)
     if amount is None:
         return None
