@@ -243,7 +243,8 @@ def sync_from_ods(
         migrate_schema(conn)
         baseline = _load_baseline(conn)
         for tx_id, category, subcategory, notes in edits:
-            if baseline.get(tx_id) == (category, subcategory, notes):
+            shown = baseline.get(tx_id)
+            if shown == (category, subcategory, notes):
                 continue
 
             existing = conn.execute(
@@ -258,6 +259,16 @@ def sync_from_ods(
             existing_cat = (existing[0] or "").strip()
             existing_subcat = (existing[1] or "").strip()
             existing_notes = (existing[2] or "").strip()
+
+            if shown is not None:
+                # Only the cells that differ from what the ODS was written
+                # with were edited: the others must not undo the DB
+                if category == shown[0]:
+                    category = existing_cat
+                if subcategory == shown[1]:
+                    subcategory = existing_subcat
+                if notes == shown[2]:
+                    notes = existing_notes
 
             if (category != existing_cat or subcategory != existing_subcat
                     or notes != existing_notes):

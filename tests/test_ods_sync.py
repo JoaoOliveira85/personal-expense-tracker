@@ -226,3 +226,66 @@ class TestMerchantNoteSync:
         sync_from_ods(db, ods, notes)
 
         assert _load_description_notes(notes) == {"MERCEARIA DO BAIRRO": "new note"}
+
+
+def _row_values(db: Path, tid: str) -> tuple:
+    conn = sqlite3.connect(str(db))
+    try:
+        return conn.execute(
+            "SELECT category, subcategory, notes, category_source "
+            "FROM transactions WHERE transaction_id = ?",
+            (tid,),
+        ).fetchone()
+    finally:
+        conn.close()
+
+
+class TestOnlyEditedCellsAreSynced:
+    """A row has three synced cells. Editing one of them must not write the
+    other two back: they still show what the ODS was generated with, and the
+    DB may have moved on since (a rule added in the GUI, the xlsx report in
+    use while the ODS is not regenerated)."""
+
+    def test_note_added_on_a_stale_row_keeps_the_newer_category(self, report):
+        from expense_tracker.constants import COL_NOTES
+
+        db, ods, notes, tid = report
+        conn = sqlite3.connect(str(db))
+        conn.execute(
+            "UPDATE transactions SET category = 'Supermarket', subcategory = 'Food', "
+            "category_source = 'rule' WHERE transaction_id = ?",
+            (tid,),
+        )
+        conn.commit()
+        conn.close()
+        _set_ods_cell(ods, tid, COL_NOTES, "birthday dinner")
+
+        assert sync_from_ods(db, ods, notes) == 1
+
+        assert _row_values(db, tid) == ("Supermarket", "Food", "birthday dinner", "rule")
+
+    def test_category_edit_keeps_a_newer_note(self, report):
+        db, ods, notes, tid = report
+        conn = sqlite3.connect(str(db))
+        conn.execute(
+            "UPDATE transactions SET notes = 'kept' WHERE transaction_id = ?", (tid,)
+        )
+        conn.commit()
+        conn.close()
+        _set_ods_category(ods, tid, "Household")
+
+        assert sync_from_ods(db, ods, notes) == 1
+
+        category, _, note, source = _row_values(db, tid)
+        assert (category, note, source) == ("Household", "kept", "manual")
+
+    def test_stale_row_is_not_applied_on_the_next_sync_either(self, report):
+        from expense_tracker.constants import COL_NOTES
+
+        db, ods, notes, tid = report
+        _set_db_category(db, tid, "Supermarket")
+        _set_ods_cell(ods, tid, COL_NOTES, "birthday dinner")
+        sync_from_ods(db, ods, notes)
+
+        assert sync_from_ods(db, ods, notes) == 0
+        assert _category(db, tid) == "Supermarket"
