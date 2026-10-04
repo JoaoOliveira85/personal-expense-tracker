@@ -153,3 +153,57 @@ class TestOdsFormulasQuoteNames:
             assert '[.Data.I2:.Data.I2]="7"" tablets")' in (
                 cells[column].getAttribute("formula")
             )
+
+
+class TestXlsxCriteriaMatchTheNameOnly:
+    """In a SUMIFS/COUNTIFS criterion * and ? are wildcards, a leading
+    =, < or > is an operator and a double quote ends the string."""
+
+    @pytest.fixture
+    def workbook(self, test_db, tmp_path):
+        add_transaction(test_db, "2026-01-10", "PAYPAL *SPOTIFY?", 10.0,
+                        category='Kids "R" Us', subcategory="Toys*")
+        add_transaction(test_db, "2026-01-11", "=1+1", 5.0, category="A~B")
+        return _xlsx(test_db, tmp_path)
+
+    def test_wildcards_in_a_merchant_name_are_escaped(self, workbook):
+        ws = workbook["Dashboard"]
+        row = _xlsx_row(ws, "PAYPAL *SPOTIFY?")
+        assert ws.cell(row=row, column=2).value == (
+            '=SUMIFS(Data!F:F,Data!E:E,"PAYPAL ~*SPOTIFY~?",Data!G:G,"out")'
+        )
+        assert ws.cell(row=row, column=3).value == (
+            '=COUNTIFS(Data!E:E,"PAYPAL ~*SPOTIFY~?",Data!G:G,"out")'
+        )
+
+    def test_merchant_that_starts_with_an_operator_is_matched_as_text(self, workbook):
+        ws = workbook["Dashboard"]
+        row = _xlsx_row(ws, "=1+1")
+        assert ws.cell(row=row, column=2).value == (
+            '=SUMIFS(Data!F:F,Data!E:E,"==1+1",Data!G:G,"out")'
+        )
+
+    def test_quotes_in_a_category_name_are_doubled(self, workbook):
+        ws = workbook["Category Breakdown"]
+        row = _xlsx_row(ws, 'Kids "R" Us')
+        assert ws.cell(row=row, column=2).value == (
+            '=SUMIFS(Data!F:F,Data!H:H,"Kids ""R"" Us",Data!G:G,"out")'
+            '-SUMIFS(Data!F:F,Data!H:H,"Kids ""R"" Us",Data!G:G,"in")'
+        )
+        assert ws.cell(row=row, column=5).value == (
+            '=COUNTIFS(Data!H:H,"Kids ""R"" Us",Data!G:G,"out")'
+        )
+
+    def test_tilde_in_a_category_name_is_escaped(self, workbook):
+        ws = workbook["Dashboard"]
+        row = _xlsx_row(ws, "A~B")
+        assert ws.cell(row=row, column=3).value == (
+            '=COUNTIFS(Data!H:H,"A~~B",Data!G:G,"out")'
+        )
+
+    def test_subcategory_is_escaped(self, workbook):
+        ws = workbook["Subcategory Breakdown"]
+        row = _xlsx_row(ws, 'Kids "R" Us')
+        assert ws.cell(row=row, column=5).value == (
+            '=COUNTIFS(Data!H:H,"Kids ""R"" Us",Data!I:I,"Toys~*",Data!G:G,"out")'
+        )

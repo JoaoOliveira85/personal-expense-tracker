@@ -8,6 +8,7 @@ This generates all the same sheets as the ODS version with working Excel formula
 """
 from __future__ import annotations
 
+import re
 import sqlite3
 from collections import defaultdict
 from pathlib import Path
@@ -46,9 +47,22 @@ def _income(criteria: str = "") -> str:
     )
 
 
+def _criterion(name: str) -> str:
+    """`name` as a quoted SUMIFS/COUNTIFS criterion that matches only itself.
+
+    In a criterion * and ? are wildcards ("GLOVO*" would also add up every
+    other merchant that starts with GLOVO), ~ escapes them, a leading =, <
+    or > is a comparison, and a double quote ends the string.
+    """
+    escaped = re.sub(r"([~*?])", r"~\1", name)
+    if escaped[:1] in ("=", "<", ">"):
+        escaped = "=" + escaped
+    return '"' + escaped.replace('"', '""') + '"'
+
+
 def _category_spend(cat: str, criteria: str = "") -> str:
     """SUMIFS spending in one category net of its refunds."""
-    criteria = f'{criteria}Data!H:H,"{cat}",'
+    criteria = f'{criteria}Data!H:H,{_criterion(cat)},'
     out = f'SUMIFS(Data!F:F,{criteria}Data!G:G,"out")'
     if cat in NON_SPENDING_CATEGORIES:
         return out
@@ -369,7 +383,7 @@ def _write_dashboard_sheet(ws, transactions: list[dict], styles: dict, n: int) -
         _text_cell(ws, row, 1, cat)
         ws.cell(row=row, column=2, value="=" + _category_spend(cat))
         ws.cell(row=row, column=2).number_format = '#,##0.00'
-        ws.cell(row=row, column=3, value=f'=COUNTIFS(Data!H:H,"{cat}",Data!G:G,"out")')
+        ws.cell(row=row, column=3, value=f'=COUNTIFS(Data!H:H,{_criterion(cat)},Data!G:G,"out")')
         row += 1
     
     row += 1
@@ -393,11 +407,10 @@ def _write_dashboard_sheet(ws, transactions: list[dict], styles: dict, n: int) -
     
     for merchant, total in top_merchants:
         _text_cell(ws, row, 1, merchant)
-        # Escape quotes in merchant name for formula
-        safe_merchant = merchant.replace('"', '""')
-        ws.cell(row=row, column=2, value=f'=SUMIFS(Data!F:F,Data!E:E,"{safe_merchant}",Data!G:G,"out")')
+        match = _criterion(merchant)
+        ws.cell(row=row, column=2, value=f'=SUMIFS(Data!F:F,Data!E:E,{match},Data!G:G,"out")')
         ws.cell(row=row, column=2).number_format = '#,##0.00'
-        ws.cell(row=row, column=3, value=f'=COUNTIFS(Data!E:E,"{safe_merchant}",Data!G:G,"out")')
+        ws.cell(row=row, column=3, value=f'=COUNTIFS(Data!E:E,{match},Data!G:G,"out")')
         row += 1
 
 
@@ -551,7 +564,7 @@ def _write_category_breakdown_sheet(ws, transactions: list[dict], styles: dict, 
         
         # # Transactions
         cell = ws.cell(row=row_idx, column=5)
-        cell.value = f'=COUNTIFS(Data!H:H,"{cat}",Data!G:G,"out")'
+        cell.value = f'=COUNTIFS(Data!H:H,{_criterion(cat)},Data!G:G,"out")'
         cell.border = styles['thin_border']
     
     # Total row
@@ -593,7 +606,7 @@ def _write_subcategory_breakdown_sheet(ws, transactions: list[dict], styles: dic
         if subcat:
             # Total Spent
             cell = ws.cell(row=row_idx, column=3)
-            cell.value = "=" + _category_spend(cat, f'Data!I:I,"{subcat}",')
+            cell.value = "=" + _category_spend(cat, f'Data!I:I,{_criterion(subcat)},')
             cell.number_format = '#,##0.00'
             cell.border = styles['thin_border']
             
@@ -605,7 +618,10 @@ def _write_subcategory_breakdown_sheet(ws, transactions: list[dict], styles: dic
             
             # # Transactions
             cell = ws.cell(row=row_idx, column=5)
-            cell.value = f'=COUNTIFS(Data!H:H,"{cat}",Data!I:I,"{subcat}",Data!G:G,"out")'
+            cell.value = (
+                f'=COUNTIFS(Data!H:H,{_criterion(cat)},'
+                f'Data!I:I,{_criterion(subcat)},Data!G:G,"out")'
+            )
             cell.border = styles['thin_border']
         else:
             # No subcategory - match empty
@@ -620,7 +636,7 @@ def _write_subcategory_breakdown_sheet(ws, transactions: list[dict], styles: dic
             cell.border = styles['thin_border']
             
             cell = ws.cell(row=row_idx, column=5)
-            cell.value = f'=COUNTIFS(Data!H:H,"{cat}",Data!I:I,"",Data!G:G,"out")'
+            cell.value = f'=COUNTIFS(Data!H:H,{_criterion(cat)},Data!I:I,"",Data!G:G,"out")'
             cell.border = styles['thin_border']
 
 
