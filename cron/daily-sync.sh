@@ -28,23 +28,38 @@ echo "Timezone: ${TZ:-UTC}"
 echo ""
 
 sync_once() {
+    # A step that fails must neither end the script (set -e) nor pass for a
+    # success: the other steps still run, the loop goes on to the next day,
+    # and the log says ERROR.
+    local failed=0
+
     echo "=== Sync started at $(date) ==="
 
     # 1. Fetch new statements from email (if configured)
     if [ -f "data/email-config.json" ]; then
         echo "[1/4] Fetching statements from email..."
-        py bank_ingest.py --quiet fetch || echo "  Warning: email fetch failed (will retry tomorrow)"
+        if ! py bank_ingest.py --quiet fetch; then
+            echo "  ERROR: fetch failed, see the messages above (will retry tomorrow)"
+            failed=1
+        fi
     else
         echo "[1/4] Skipping email fetch (no email-config.json found)"
     fi
 
     # 2. Ingest, categorize, and regenerate ODS report
     echo "[2/4] Running auto ingest + report..."
-    py bank_ingest.py --quiet auto
+    if ! py bank_ingest.py --quiet auto; then
+        # Exits 1 when a statement could not be imported: the others are in
+        echo "  ERROR: auto failed, see the messages above"
+        failed=1
+    fi
 
     # 3. Generate monthly PDF
     echo "[3/4] Generating PDF report..."
-    py bank_ingest.py --quiet pdf || echo "  Warning: PDF generation failed (possibly no data for this month)"
+    if ! py bank_ingest.py --quiet pdf; then
+        echo "  ERROR: pdf failed, see the messages above"
+        failed=1
+    fi
 
     # 4. Copy to shared folder (if configured)
     if [ -n "${SHARED_FOLDER}" ] && [ -d "${SHARED_FOLDER}" ]; then
@@ -57,7 +72,11 @@ sync_once() {
         echo "[4/4] No shared folder configured, skipping copy"
     fi
 
-    echo "=== Sync complete at $(date) ==="
+    if [ "$failed" -ne 0 ]; then
+        echo "=== Sync finished WITH ERRORS at $(date) ==="
+    else
+        echo "=== Sync complete at $(date) ==="
+    fi
     echo ""
 }
 
