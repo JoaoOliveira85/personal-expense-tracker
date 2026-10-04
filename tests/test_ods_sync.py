@@ -459,3 +459,32 @@ def _set_ods_cell_at(ods_path: Path, tid: str, col: int, value: str) -> None:
                 return
         raise AssertionError(f"transaction {tid} not found in ODS")
     _edit_data_rows(ods_path, change)
+
+
+class TestSaveDescriptionNotes:
+    """description-notes.csv is the only copy of the merchant notes."""
+
+    def test_round_trip(self, tmp_path):
+        from expense_tracker.ods import _load_description_notes, _save_description_notes
+
+        path = tmp_path / "description-notes.csv"
+        _save_description_notes({"CAFÉ, O PIPO": 'says "hi"', "A": "#recurring"}, path)
+
+        assert _load_description_notes(path) == {
+            "CAFÉ, O PIPO": 'says "hi"', "A": "#recurring",
+        }
+        assert [p.name for p in tmp_path.iterdir()] == ["description-notes.csv"]
+
+    def test_failed_save_keeps_the_stored_notes(self, tmp_path):
+        from expense_tracker.ods import _save_description_notes
+
+        path = tmp_path / "description-notes.csv"
+        _save_description_notes({"B": "#recurring"}, path)
+        stored = path.read_bytes()
+
+        with pytest.raises(UnicodeEncodeError):
+            # a lone surrogate cannot be written as UTF-8
+            _save_description_notes({"A": "\ud800", "B": "#recurring"}, path)
+
+        assert path.read_bytes() == stored
+        assert [p.name for p in tmp_path.iterdir()] == ["description-notes.csv"]

@@ -12,6 +12,8 @@ sync-back of manual edits from the ODS into SQLite / description-notes.csv.
 from __future__ import annotations
 
 import csv
+import io
+import os
 import re
 import sqlite3
 from pathlib import Path
@@ -97,11 +99,21 @@ def _save_description_notes(
     desc_notes_path: Path = DEFAULT_DESC_NOTES,
 ) -> None:
     """Write merchant notes dict to description-notes.csv."""
-    with desc_notes_path.open("w", encoding="utf-8", newline="") as f:
-        writer = csv.writer(f)
-        writer.writerow(["description_clean", "merchant_note"])
-        for key in sorted(notes):
-            writer.writerow([key, notes[key]])
+    buffer = io.StringIO(newline="")
+    writer = csv.writer(buffer)
+    writer.writerow(["description_clean", "merchant_note"])
+    for key in sorted(notes):
+        writer.writerow([key, notes[key]])
+    data = buffer.getvalue().encode("utf-8")
+
+    # The file is the only copy of the notes: write beside it and swap it
+    # in, so a save that fails or is interrupted leaves the old one whole
+    tmp_path = desc_notes_path.with_name(desc_notes_path.name + ".tmp")
+    try:
+        tmp_path.write_bytes(data)
+        os.replace(tmp_path, desc_notes_path)
+    finally:
+        tmp_path.unlink(missing_ok=True)
 
 
 def _load_baseline(conn: sqlite3.Connection) -> dict[str, tuple[str, str, str]]:
