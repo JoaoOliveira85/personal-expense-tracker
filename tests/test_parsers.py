@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import csv
+import logging
 from datetime import date
 from pathlib import Path
 
@@ -313,3 +314,72 @@ class TestUtf8Amounts:
         assert [(r["amount_signed"], r["balance"]) for r in rows] == [
             (expected_amount, expected_balance)
         ]
+
+
+class TestUtf8SkippedRows:
+    """A row that cannot be imported must be reported, never dropped quietly."""
+
+    HEADER = "Data Mov.;Data Valor;Descrição;Débito;Crédito;Saldo Contabilístico\n"
+    GOOD = "15-01-2026;15-01-2026;COMPRA CONTINENTE;45,50;;954,50\n"
+
+    def _parse(self, tmp_path, body: str) -> list[dict]:
+        path = tmp_path / "utf8.csv"
+        path.write_text(self.HEADER + body, encoding="utf-8")
+        return Utf8CsvParser().parse(path, cards_path=tmp_path / "none.csv")
+
+    @pytest.mark.parametrize(
+        "debit, reason",
+        [("12,50 D", "unreadable amount"), ("0,00", "zero amount"), ("", "no amount")],
+    )
+    def test_row_without_a_usable_amount_is_reported(
+        self, tmp_path, caplog, debit, reason
+    ):
+        with caplog.at_level(logging.WARNING, logger="expense_tracker"):
+            rows = self._parse(
+                tmp_path,
+                self.GOOD + f"16-01-2026;16-01-2026;COMPRA LIDL;{debit};;942,00\n",
+            )
+
+        assert [r["description_raw"] for r in rows] == ["COMPRA CONTINENTE"]
+        messages = [r.getMessage() for r in caplog.records]
+        assert len(messages) == 1
+        assert "utf8.csv line 3" in messages[0]
+        assert reason in messages[0]
+        assert "COMPRA LIDL" in messages[0]
+
+    def test_row_with_an_invalid_value_date_is_reported(self, tmp_path, caplog):
+        with caplog.at_level(logging.WARNING, logger="expense_tracker"):
+            rows = self._parse(
+                tmp_path,
+                self.GOOD + "16-01-2026;31-02-2026;COMPRA LIDL;12,50;;942,00\n",
+            )
+
+        assert len(rows) == 1
+        messages = [r.getMessage() for r in caplog.records]
+        assert len(messages) == 1
+        assert "utf8.csv line 3" in messages[0]
+        assert "invalid value date" in messages[0]
+
+    def test_rows_after_a_non_transaction_line_are_reported(self, tmp_path, caplog):
+        with caplog.at_level(logging.WARNING, logger="expense_tracker"):
+            rows = self._parse(
+                tmp_path,
+                self.GOOD
+                + "continuation of the description above\n"
+                + "16-01-2026;16-01-2026;COMPRA LIDL;12,50;;942,00\n",
+            )
+
+        assert len(rows) == 1
+        messages = [r.getMessage() for r in caplog.records]
+        assert len(messages) == 1
+        assert "utf8.csv line 3" in messages[0]
+        assert "1 later line" in messages[0]
+
+    def test_clean_statement_reports_nothing(self, tmp_path, caplog):
+        with caplog.at_level(logging.WARNING, logger="expense_tracker"):
+            rows = self._parse(
+                tmp_path, self.GOOD + ";;;;;Saldo contabilístico;954,50 EUR\n"
+            )
+
+        assert len(rows) == 1
+        assert caplog.records == []

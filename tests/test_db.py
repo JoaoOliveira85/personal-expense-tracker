@@ -176,6 +176,38 @@ class TestIngest:
         assert count == 0
 
 
+class TestIngestWarnings:
+    """Parser warnings are printed with the run and counted in its summary."""
+
+    UTF8_HEADER = "Data Mov.;Data Valor;Descrição;Débito;Crédito;Saldo Contabilístico\n"
+
+    def test_skipped_row_is_printed_and_counted(self, test_db, tmp_path, capsys):
+        path = tmp_path / "utf8.csv"
+        path.write_text(
+            self.UTF8_HEADER
+            + "15-01-2026;15-01-2026;COMPRA CONTINENTE;45,50;;954,50\n"
+            + "16-01-2026;16-01-2026;COMPRA LIDL;12,50 D;;942,00\n",
+            encoding="utf-8",
+        )
+
+        ingest(test_db, [path], cards_path=tmp_path / "none.csv")
+
+        out = capsys.readouterr().out
+        assert "Warning: utf8.csv line 3" in out
+        assert "1 warning(s)" in out
+        conn = sqlite3.connect(str(test_db))
+        count = conn.execute("SELECT COUNT(*) FROM transactions").fetchone()[0]
+        conn.close()
+        assert count == 1
+
+    def test_clean_run_has_no_warning_line(self, test_db, utf16_csv, cards_csv, capsys):
+        ingest(test_db, [utf16_csv], cards_path=cards_csv)
+
+        out = capsys.readouterr().out
+        assert "Warning:" not in out
+        assert "warning(s)" not in out
+
+
 # ---------------------------------------------------------------------------
 # ingested_source_files
 # ---------------------------------------------------------------------------

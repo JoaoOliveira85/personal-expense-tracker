@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import sqlite3
 from datetime import datetime
 from pathlib import Path
@@ -121,6 +122,18 @@ def _parse_file(path: Path, cards_path: Path) -> list[dict]:
         return parse_utf16_csv(path, cards_path=cards_path)
 
 
+class _WarningTally(logging.Handler):
+    """Print parser warnings as they happen and count them for the summary."""
+
+    def __init__(self) -> None:
+        super().__init__(level=logging.WARNING)
+        self.count = 0
+
+    def emit(self, record: logging.LogRecord) -> None:
+        self.count += 1
+        print(f"  Warning: {record.getMessage()}")
+
+
 def ingest(
     db_path: Path,
     file_paths: Iterable[Path],
@@ -138,6 +151,10 @@ def ingest(
 
     db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(db_path))
+    # Parsers report rows they could not import with logger.warning()
+    warnings = _WarningTally()
+    package_logger = logging.getLogger(__package__)
+    package_logger.addHandler(warnings)
     try:
         ensure_schema(conn)
         migrate_schema(conn)
@@ -184,7 +201,10 @@ def ingest(
         conn.commit()
         print(f"Parsed {total_parsed} transactions from {len(paths)} file(s).")
         print(f"Inserted {total_inserted} new transactions into {db_path}.")
+        if warnings.count:
+            print(f"{warnings.count} warning(s) while parsing: see the lines above.")
     finally:
+        package_logger.removeHandler(warnings)
         conn.close()
 
 

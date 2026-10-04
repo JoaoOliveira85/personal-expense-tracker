@@ -11,6 +11,7 @@ UTF8 CSV exports differ from UTF-16:
 from __future__ import annotations
 
 import csv
+import logging
 import re
 from datetime import date, datetime
 from pathlib import Path
@@ -21,6 +22,8 @@ from ..parser import (
     clean_description, detect_card, detect_payment_type, load_card_holders,
     parse_amount,
 )
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # UTF8-specific patterns
@@ -139,17 +142,26 @@ class Utf8CsvParser:
         col_map = self._map_columns(header_parts)
 
         rows: list[dict] = []
-        for ln in lines[header_idx + 1:]:
+        for line_no, ln in enumerate(lines[header_idx + 1:], start=header_idx + 2):
             if not ln:
                 continue
             if not ROW_RE.match(ln):
                 # Could be footer or empty line
                 if rows:  # We've already parsed some rows
+                    unread = sum(1 for later in lines[line_no:] if ROW_RE.match(later))
+                    if unread:
+                        logger.warning(
+                            "%s line %d: stopped reading at %r; %d later line(s) "
+                            "that look like transactions were not imported",
+                            path.name, line_no, ln[:60], unread,
+                        )
                     break
                 continue
 
             parts = next(csv.reader([ln], delimiter=";"))
-            tx = self._parse_row(parts, col_map, known_cards, card_owners, path.name)
+            tx = self._parse_row(
+                parts, col_map, known_cards, card_owners, path.name, line_no
+            )
             if tx:
                 rows.append(tx)
 
@@ -199,8 +211,12 @@ class Utf8CsvParser:
         known_cards: set[str],
         card_owners: dict[str, str],
         source_file: str,
+        line_no: int = 0,
     ) -> Optional[dict]:
-        """Parse a single CSV row into a transaction dict."""
+        """Parse a single CSV row into a transaction dict.
+
+        A row that cannot be imported is reported with a warning and skipped.
+        """
 
         def _get(key: str) -> str:
             idx = col_map.get(key)
@@ -208,28 +224,41 @@ class Utf8CsvParser:
                 return ""
             return parts[idx].strip()
 
+        def _skip(reason: str) -> None:
+            logger.warning(
+                "%s line %d: row not imported (%s): %s",
+                source_file, line_no, reason, ";".join(parts),
+            )
+
         # Date
         posted = _parse_date(_get("date_posted"))
         if not posted:
-            return None
+            return _skip("invalid date")
 
         value_str = _get("date_value")
         value = _parse_date(value_str) if value_str else posted
+        if not value:
+            return _skip("invalid value date")
 
         # Description
         desc = _get("description")
         if not desc:
-            return None
+            return _skip("no description")
 
         # Amount (UTF8 uses separate debit/credit columns)
-        debit = _parse_amount(_get("debit"))
-        credit = _parse_amount(_get("credit"))
+        debit_s, credit_s = _get("debit"), _get("credit")
+        debit = _parse_amount(debit_s)
+        credit = _parse_amount(credit_s)
         if debit:
             amount = -abs(debit)
         elif credit:
             amount = abs(credit)
+        elif (debit_s and debit is None) or (credit_s and credit is None):
+            return _skip("unreadable amount")
+        elif debit_s or credit_s:
+            return _skip("zero amount")
         else:
-            return None
+            return _skip("no amount")
 
         # Balance
         balance_s = _get("balance")
