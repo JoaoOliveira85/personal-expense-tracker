@@ -384,3 +384,22 @@ class TestIngestUnknownBank:
             cli.cmd_ingest(args)
 
         assert exit_info.value.code == 1
+
+
+class TestGuiBindsToLocalhost:
+    """`gui` prints a localhost URL, so the server must listen there only."""
+
+    def test_streamlit_is_told_to_listen_on_localhost(self, monkeypatch, capsys):
+        import subprocess
+
+        launched: list[list[str]] = []
+        monkeypatch.setattr(
+            subprocess, "run", lambda argv, **kwargs: launched.append(list(argv))
+        )
+
+        cli.cmd_gui(argparse.Namespace(port=8765))
+
+        (argv,) = launched
+        assert "--server.address" in argv
+        assert argv[argv.index("--server.address") + 1] == "localhost"
+        assert "http://localhost:8765" in capsys.readouterr().out

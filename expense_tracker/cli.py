@@ -802,6 +802,9 @@ def cmd_gui(args):
         sys.executable, "-m", "streamlit", "run",
         str(gui_path),
         "--server.port", str(port),
+        # Streamlit listens on every interface unless told otherwise; the URL
+        # printed above says localhost, and this serves the whole ledger.
+        "--server.address", "localhost",
         "--server.headless", "true",
         "--browser.gatherUsageStats", "false",
     ], cwd=project_root)
