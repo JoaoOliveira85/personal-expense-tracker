@@ -690,13 +690,20 @@ def _parse_table_row(
     if not posted:
         return None  # Not a data row
 
+    def _skip(reason: str) -> None:
+        # A dated row: this may be a transaction left out
+        logger.warning(
+            "%s: row not imported (%s): %s",
+            source_file, reason, " | ".join((cell or "").strip() for cell in row),
+        )
+
     date_value_s = _get("date_value")
     value = _parse_date(date_value_s) if date_value_s else posted
 
     # --- Description ---
     desc = _get("description")
     if not desc:
-        return None
+        return _skip("no description")
 
     # --- Amount ---
     amount = None
@@ -712,7 +719,7 @@ def _parse_table_row(
             amount = abs(credit)
 
     if amount is None:
-        return None
+        return _skip("no readable amount")
 
     # --- Type and balance ---
     tx_type = _get("type")

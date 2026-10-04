@@ -892,3 +892,45 @@ class TestTextSkippedLines:
 
         assert len(rows) == 1
         assert _text_warnings(caplog) == []
+
+
+class TestTableSkippedRows:
+    """A table row with a date is a transaction: when it cannot be read,
+    it is reported, not left out in silence."""
+
+    def _parse(self, tmp_path, cards_csv, row) -> list[dict]:
+        rows = list(SAMPLE_PDF_ROWS)
+        rows[1] = row
+        path = _make_pdf_statement(tmp_path / "statement.pdf", rows)
+        return parse_pdf_statement(path, cards_path=cards_csv)
+
+    @pytest.mark.parametrize("amount", ["12,80 D", "1,280.00", "n/d"])
+    def test_row_with_unreadable_amount_is_reported(
+        self, tmp_path, cards_csv, caplog, amount
+    ):
+        parsed = self._parse(
+            tmp_path, cards_csv,
+            ("14-01-2026", "14-01-2026", "COMPRA 5678 FARMACIA DA GARE", amount, "Compra", "1280,06"),
+        )
+
+        assert len(parsed) == 4
+        messages = [m for m in _text_warnings(caplog) if "not imported" in m]
+        assert len(messages) == 1
+        assert "statement.pdf" in messages[0]
+        assert "COMPRA 5678 FARMACIA DA GARE" in messages[0]
+        assert amount in messages[0]
+
+    def test_row_without_description_is_reported(self, tmp_path, cards_csv, caplog):
+        parsed = self._parse(
+            tmp_path, cards_csv,
+            ("14-01-2026", "14-01-2026", "", "-12,80", "Compra", "1280,06"),
+        )
+
+        assert len(parsed) == 4
+        messages = [m for m in _text_warnings(caplog) if "not imported" in m]
+        assert len(messages) == 1
+        assert "-12,80" in messages[0]
+
+    def test_readable_statement_reports_nothing(self, pdf_statement, cards_csv, caplog):
+        assert len(parse_pdf_statement(pdf_statement, cards_path=cards_csv)) == 5
+        assert _text_warnings(caplog) == []
