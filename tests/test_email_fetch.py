@@ -309,6 +309,46 @@ class TestFetchStatements:
 
         assert len(downloaded) == 0
 
+    UTF16_CONFIG = {
+        "imap_host": "imap.test.com",
+        "imap_port": 993,
+        "email": "test@test.com",
+        "password": "pass",
+        "bank_senders": ["bank-a.example"],
+        "folder": "INBOX",
+    }
+
+    def _fetch(self, raw_dir, attachments: list[tuple[str, bytes]]) -> list[Path]:
+        msg = _make_email_message(
+            "Bank A <noreply@bank-a.example>", "Extrato mensal", attachments
+        )
+        mock_conn = self._mock_imap([msg])
+        with patch("expense_tracker.email_fetch.imaplib.IMAP4_SSL", return_value=mock_conn):
+            return fetch_statements(self.UTF16_CONFIG, raw_dir)
+
+    def test_reused_attachment_name_does_not_hide_a_new_statement(self, tmp_path):
+        """A bank that names every statement alike: February is not January."""
+        raw_dir = tmp_path / "raw"
+        raw_dir.mkdir()
+        (raw_dir / "extrato.pdf").write_bytes(b"january")
+
+        downloaded = self._fetch(raw_dir, [("extrato.pdf", b"february")])
+
+        assert downloaded == [raw_dir / "extrato (2).pdf"]
+        assert (raw_dir / "extrato (2).pdf").read_bytes() == b"february"
+        assert (raw_dir / "extrato.pdf").read_bytes() == b"january"
+        # The same email is seen again on every run of the look-back window
+        assert self._fetch(raw_dir, [("extrato.pdf", b"february")]) == []
+
+    def test_statement_already_present_under_another_name_is_skipped(self, tmp_path):
+        """auto renames statements to YYYY-MM.pdf: same bytes, other name."""
+        raw_dir = tmp_path / "raw"
+        raw_dir.mkdir()
+        (raw_dir / "2026-01.pdf").write_bytes(b"january")
+
+        assert self._fetch(raw_dir, [("extrato.pdf", b"january")]) == []
+        assert sorted(p.name for p in raw_dir.iterdir()) == ["2026-01.pdf"]
+
     def test_skips_already_downloaded(self, tmp_path):
         raw_dir = tmp_path / "raw"
         raw_dir.mkdir()
@@ -318,7 +358,7 @@ class TestFetchStatements:
         msg = _make_email_message(
             "Bank A <noreply@bank-a.example>",
             "Extrato mensal",
-            [("extrato.pdf", b"new")],
+            [("extrato.pdf", b"old")],
         )
 
         mock_conn = self._mock_imap([msg])

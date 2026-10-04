@@ -9,6 +9,7 @@ Uses only Python standard library (imaplib, email).
 from __future__ import annotations
 
 import email
+import hashlib
 import imaplib
 import json
 import os
@@ -151,6 +152,20 @@ def _matches_subject(subject: str, extra_patterns: list[str] | None = None) -> b
     return any(p.search(subject) for p in patterns)
 
 
+def _digest(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def _unused_path(output_dir: Path, filename: str, taken: set[str]) -> Path:
+    """output_dir/filename, or "name (2).ext", "name (3).ext"... if taken."""
+    candidate = Path(filename)
+    n = 1
+    while candidate.name in taken:
+        n += 1
+        candidate = Path(f"{Path(filename).stem} ({n}){Path(filename).suffix}")
+    return output_dir / candidate.name
+
+
 # ---------------------------------------------------------------------------
 # Core fetch logic
 # ---------------------------------------------------------------------------
@@ -164,7 +179,9 @@ def fetch_statements(
 ) -> list[Path]:
     """
     Connect to IMAP, search for bank statement emails, and download
-    PDF/CSV attachments to output_dir.
+    PDF/CSV attachments to output_dir. An attachment whose bytes are already
+    in output_dir (under any name) is skipped; one whose name is taken by
+    other content is saved as "name (2).ext".
 
     Args:
         config: Email configuration dict (from load_email_config).
@@ -198,6 +215,11 @@ def fetch_statements(
 
         downloaded: list[Path] = []
         existing_files = {p.name for p in output_dir.iterdir()} if output_dir.is_dir() else set()
+        # "Already downloaded" is decided by content: a bank may give every
+        # statement the same attachment name, and auto renames what it imports.
+        existing_digests = {
+            _digest(p.read_bytes()) for p in output_dir.iterdir() if p.is_file()
+        } if output_dir.is_dir() else set()
 
         for msg_id in msg_ids[0].split():
             status, msg_data = conn.fetch(msg_id, "(RFC822)")
@@ -230,25 +252,31 @@ def fetch_statements(
                 if not _is_statement_attachment(filename):
                     continue
 
-                # Skip already-downloaded files
-                if filename in existing_files:
+                payload = part.get_payload(decode=True)
+                if not payload:
                     continue
 
+                # Skip already-downloaded files
+                digest = _digest(payload)
+                if digest in existing_digests:
+                    continue
+                existing_digests.add(digest)
+
+                # Never overwrite: other content under a taken name gets its own
+                file_path = _unused_path(output_dir, filename, existing_files)
+                existing_files.add(file_path.name)
+
                 if dry_run:
-                    print(f"  [dry-run] Would download: {filename}")
+                    print(f"  [dry-run] Would download: {file_path.name}")
                     print(f"    From: {from_addr}")
                     print(f"    Subject: {subject}")
-                    downloaded.append(output_dir / filename)
+                    downloaded.append(file_path)
                     continue
 
                 # Save attachment
                 output_dir.mkdir(parents=True, exist_ok=True)
-                file_path = output_dir / filename
-                payload = part.get_payload(decode=True)
-                if payload:
-                    file_path.write_bytes(payload)
-                    downloaded.append(file_path)
-                    existing_files.add(filename)
+                file_path.write_bytes(payload)
+                downloaded.append(file_path)
 
         return downloaded
 

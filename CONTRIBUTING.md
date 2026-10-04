@@ -237,7 +237,7 @@ Handles fetching bank statement attachments from email via IMAP. Uses only Pytho
 **Key functions:**
 - `load_email_config(path)` — Loads and validates `data/email-config.json` (IMAP host, email, password, bank senders).
 - `create_email_config(path, ...)` — Creates the config file interactively or programmatically.
-- `fetch_statements(config, output_dir, days_back, dry_run)` — Connects to the IMAP server, searches for emails from known bank senders with relevant subjects, downloads PDF/CSV attachments to `raw/`, skipping files that already exist. Returns list of downloaded paths.
+- `fetch_statements(config, output_dir, days_back, dry_run)` — Connects to the IMAP server, searches for emails from known bank senders with relevant subjects, downloads PDF/CSV attachments to `raw/`, skipping those whose content is already there under any name (a different statement under a taken name is saved as `name (2).ext`). Returns list of downloaded paths.
 
 **Internal helpers:**
 - `_decode_header_value(raw)` — Decodes RFC 2047 encoded email headers.
