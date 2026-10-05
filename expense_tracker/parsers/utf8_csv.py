@@ -1,7 +1,7 @@
 """
 UTF-8 CSV bank statement parser.
 
-UTF8 CSV exports differ from UTF-16:
+UTF-8 CSV exports differ from UTF-16:
 - UTF-8 encoding (usually)
 - Different header: "Data Mov.;Data Valor;Descrição;Débito;Crédito;Saldo Contabilístico;..."
 - Separate debit/credit columns instead of a single amount
@@ -100,7 +100,7 @@ def _parse_amount(s: str) -> Optional[float]:
 
 
 class Utf8CsvParser:
-    """Parser for UTF-8 CSV CSV exports."""
+    """Parser for UTF-8 CSV exports."""
 
     @property
     def name(self) -> str:
