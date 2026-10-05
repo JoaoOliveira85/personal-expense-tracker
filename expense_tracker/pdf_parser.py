@@ -18,7 +18,7 @@ from typing import Optional
 import csv
 import logging
 
-from .constants import DEFAULT_CARDS, DOW_NAMES
+from .constants import DEFAULT_CARDS, DOW_NAMES, account_type
 from .parser import (
     clean_description,
     detect_card,
@@ -702,7 +702,7 @@ def _parse_text_transaction_line(
         "tx_type": "",
         "balance": balance,
         "currency": "EUR",
-        "account": "checkings_account",
+        "account": account_type(),
         "card_last4": card_last4,
         "payment_type": payment_type,
         "who": who,
@@ -786,7 +786,7 @@ def _parse_table_row(
         "tx_type": tx_type,
         "balance": balance or 0.0,
         "currency": "EUR",
-        "account": "checkings_account",
+        "account": account_type(),
         "card_last4": card_last4,
         "payment_type": payment_type,
         "who": who,

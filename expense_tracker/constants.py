@@ -1,6 +1,7 @@
 """Shared constants and configuration."""
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
@@ -96,3 +97,15 @@ COL_SUBCATEGORY = 8        # I
 COL_TRANSACTION_ID = 16    # Q
 COL_NOTES = 17             # R
 COL_MERCHANT_NOTE = 18     # S
+
+
+# ---------------------------------------------------------------------------
+# Account label
+# ---------------------------------------------------------------------------
+
+DEFAULT_ACCOUNT_TYPE = "checkings_account"
+
+
+def account_type() -> str:
+    """Account label written on imported rows (EXPENSE_TRACKER_ACCOUNT_TYPE)."""
+    return os.environ.get("EXPENSE_TRACKER_ACCOUNT_TYPE", DEFAULT_ACCOUNT_TYPE)

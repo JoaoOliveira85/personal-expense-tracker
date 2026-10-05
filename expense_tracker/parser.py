@@ -15,6 +15,7 @@ from typing import Optional
 
 from .constants import (
     DEFAULT_CARDS, DEFAULT_NOISE_WORDS, DEFAULT_CLEANING_PATTERNS, DOW_NAMES,
+    account_type,
 )
 
 logger = logging.getLogger(__name__)
@@ -438,7 +439,7 @@ def parse_utf16_csv(path: Path, cards_path: Path = DEFAULT_CARDS) -> list[dict]:
                 "tx_type": tx_type,
                 "balance": balance,
                 "currency": "EUR",
-                "account": "checkings_account",
+                "account": account_type(),
                 "card_last4": card_last4,
                 "payment_type": payment_type,
                 "who": who,

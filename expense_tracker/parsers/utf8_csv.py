@@ -17,7 +17,7 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Optional
 
-from ..constants import DEFAULT_CARDS, DOW_NAMES
+from ..constants import DEFAULT_CARDS, DOW_NAMES, account_type
 from ..parser import (
     clean_description, detect_card, detect_payment_type, load_card_holders,
     parse_amount,
@@ -284,7 +284,7 @@ class Utf8CsvParser:
             "tx_type": "",
             "balance": balance or 0.0,
             "currency": "EUR",
-            "account": "checkings_account",
+            "account": account_type(),
             "card_last4": card_last4,
             "payment_type": payment_type,
             "who": who,

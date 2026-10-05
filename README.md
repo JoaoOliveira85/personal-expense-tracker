@@ -167,6 +167,8 @@ What it does:
 | `EXPENSE_TRACKER_UPSTREAM` | `git@github.com:JoaoOliveira85/personal-expense-tracker.git` | Development repo URL |
 | `EXPENSE_TRACKER_BRANCH` | `main` | Branch to follow |
 
+Imported rows are labelled `checkings_account` in the `account` column. Set `EXPENSE_TRACKER_ACCOUNT_TYPE` (for example to `savings_account`) to use another label; the Docker and cron setups need it in their environment too.
+
 ---
 
 ## Python CLI Reference
