@@ -27,12 +27,9 @@ from .constants import DEFAULT_RAW
 
 DEFAULT_EMAIL_CONFIG = Path("data/email-config.json")
 
-# Default bank sender patterns (case-insensitive)
-DEFAULT_BANK_SENDERS = [
-    "bank-a",
-    "bank-a.example",
-    "bank-a.example",
-]
+# No bank is built in: the sender patterns (case-insensitive substrings of the
+# From address) come from "bank_senders" in the email config.
+DEFAULT_BANK_SENDERS: list[str] = []
 
 # Attachment patterns to download
 ATTACHMENT_PATTERNS = [
@@ -64,7 +61,7 @@ def load_email_config(config_path: Path = DEFAULT_EMAIL_CONFIG) -> dict:
         "imap_port": 993,
         "email": "user@gmail.com",
         "password": "app-specific-password",
-        "bank_senders": ["bank-a.example"],
+        "bank_senders": ["mybank.example"],
         "folder": "INBOX"
     }
     """
@@ -197,6 +194,11 @@ def fetch_statements(
     email_addr = config["email"]
     password = config["password"]
     bank_senders = config.get("bank_senders", DEFAULT_BANK_SENDERS)
+    if not bank_senders:
+        raise ValueError(
+            "No bank sender patterns configured: set 'bank_senders' in the "
+            'email config (e.g. ["mybank.example"]).'
+        )
     folder = config.get("folder", "INBOX")
     extra_subject_patterns = config.get("subject_patterns", [])
 

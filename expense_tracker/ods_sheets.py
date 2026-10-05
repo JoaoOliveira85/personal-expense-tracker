@@ -909,7 +909,7 @@ def build_intro_sheet(doc):
         "  Merchant Notes apply the same tags to ALL transactions from that merchant.",
         "",
         "EVERYDAY WORKFLOW:",
-        "  1. Download bank CSV from UTF-16 CSV -> save to raw/ folder",
+        "  1. Download the bank CSV -> save to raw/ folder",
         "  2. Double-click ./run.sh (or run it from Terminal)",
         "  3. Open this file - your analysis sheets are preserved with fresh data!",
         "",

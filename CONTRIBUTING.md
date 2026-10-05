@@ -73,7 +73,7 @@ Implements `BankParser` for UTF-16 CSV files. Wraps the existing logic in `expen
 
 #### `expense_tracker/parsers/utf8_csv.py`
 
-Implements `BankParser` for UTF-8 CSV CSV files. Handles UTF8's specific format: UTF-8 encoding, different header patterns, separate debit/credit columns.
+Implements `BankParser` for UTF-8 CSV files. Handles its specific format: UTF-8 encoding, different header patterns, separate debit/credit columns.
 
 ### `expense_tracker/parser.py` (legacy)
 
@@ -216,7 +216,7 @@ Analyzes transaction data to detect patterns and suggest categorization rules. U
 
 ### `expense_tracker/pdf_parser.py`
 
-Parses UTF-16 CSV monthly PDF bank statements using `pdfplumber`. The PDF parser extracts transaction tables from each page, detects column mappings, and produces the same `list[dict]` output format as the CSV parser.
+Parses monthly PDF bank statements using `pdfplumber`. The PDF parser extracts transaction tables from each page, detects column mappings, and produces the same `list[dict]` output format as the CSV parser.
 
 **Key functions:**
 - `parse_pdf_statement(path, cards_path)` — Main entry point. Extracts tables from the PDF, identifies transaction rows, parses dates/amounts, and cleans descriptions (reuses `clean_description`, `detect_card`, `detect_payment_type` from `parser.py`).

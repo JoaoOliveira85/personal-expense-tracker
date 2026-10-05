@@ -1,1 +1,1 @@
-"""Expense tracking pipeline for UTF-16 CSV bank statements."""
+"""Expense tracking pipeline for Portuguese bank statements."""

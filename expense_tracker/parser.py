@@ -1,5 +1,5 @@
 """
-UTF-16 CSV bank CSV parser.
+UTF-16 CSV bank statement parser.
 
 Handles the quirky format: UTF-16 LE encoding, semicolon delimiters,
 non-tabular header/footer lines, Portuguese dates and amounts.

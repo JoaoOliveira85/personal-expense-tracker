@@ -54,8 +54,8 @@ expense-tracking/
 │   ├── pdf_parser.py       # PDF statement parser
 │   ├── parsers/            # Multi-bank parser framework
 │   │   ├── __init__.py     # BankParser protocol, registry, auto-detection
-│   │   ├── utf16_csv.py # UTF-16 CSV parser
-│   │   └── utf8.py          # UTF-8 CSV parser
+│   │   ├── utf16_csv.py     # UTF-16 CSV parser
+│   │   └── utf8_csv.py      # UTF-8 CSV parser
 │   ├── db.py               # SQLite storage and queries
 │   ├── rules.py            # Rule & card management + categorization
 │   ├── ods.py              # ODS report orchestration + sync-back
@@ -207,7 +207,7 @@ Manually import specific CSV or PDF files. The bank format is auto-detected for 
 python bank_ingest.py ingest raw/EXPORT_0_1022026.csv
 python bank_ingest.py ingest raw/statement-jan.pdf           # PDF statements supported too
 python bank_ingest.py ingest raw/*.csv raw/*.pdf
-python bank_ingest.py ingest --bank utf8 raw/export-b.csv   # force UTF8 parser
+python bank_ingest.py ingest --bank utf8 raw/export-b.csv   # force the UTF-8 parser
 python bank_ingest.py ingest --no-rename raw/some-file.csv   # skip auto-rename
 python bank_ingest.py ingest --dry-run raw/EXPORT_0_1022026.csv  # preview only
 ```
@@ -395,7 +395,7 @@ python bank_ingest.py fetch --dry-run        # preview what would be downloaded
 Run `fetch --setup` to create `data/email-config.json` interactively. You'll need:
 - Your email server (IMAP host, e.g. `imap.gmail.com`)
 - Your email address and password (or app-specific password)
-- The sender address your bank uses (pre-filled with UTF-16 CSV's default)
+- The sender address your bank uses (required: a part of the From address, e.g. `mybank.example`)
 
 The config file is gitignored. For Gmail, you'll need an [App Password](https://myaccount.google.com/apppasswords).
 

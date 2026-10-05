@@ -122,7 +122,7 @@ def _detail(msg: str) -> None:
 
 
 def _is_other_bank_csv(path: Path, bank_id: str | None) -> bool:
-    """True for a CSV that goes to a parser other than UTF-16 CSV's."""
+    """True for a CSV that goes to a parser other than the UTF-16 one."""
     parser = get_parser_by_id(bank_id) if bank_id else detect_parser(path)
     return parser is not None and parser.bank_id != "utf16"
 

@@ -633,7 +633,7 @@ elif page == "Tools":
                 folder = st.text_input("Mailbox Folder", value="INBOX", key="email_folder")
                 bank_senders = st.text_input(
                     "Bank sender patterns (comma-separated)",
-                    value="bank-a.example, bank-a.example",
+                    placeholder="mybank.example",
                     key="email_senders",
                 )
 

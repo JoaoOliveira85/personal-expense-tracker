@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Expense tracking pipeline for UTF-16 CSV bank statements.
+Expense tracking pipeline for Portuguese bank statements.
 
 This is a convenience wrapper. The actual code lives in the
 expense_tracker/ package. You can also run:

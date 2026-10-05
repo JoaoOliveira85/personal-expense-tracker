@@ -69,6 +69,17 @@ class TestEmailConfig:
         with pytest.raises(ValueError, match="Missing required key"):
             load_email_config(config_path)
 
+    def test_fetch_without_bank_senders_raises(self, tmp_path):
+        config = {
+            "imap_host": "imap.example.com",
+            "imap_port": 993,
+            "email": "a@b.com",
+            "password": "p",
+            "bank_senders": [],
+        }
+        with pytest.raises(ValueError, match="No bank sender patterns"):
+            fetch_statements(config, tmp_path)
+
     def test_custom_bank_senders(self, tmp_path):
         config_path = tmp_path / "email-config.json"
         create_email_config(
