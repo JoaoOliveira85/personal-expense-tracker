@@ -34,7 +34,7 @@ Or if you prefer the CLI workflow:
 ## Project Structure
 
 ```
-expense-tracking/
+personal-expense-tracker/
 ├── raw/                    # Drop bank CSVs/PDFs here (e.g. EXPORT_0_1022026.csv)
 ├── data/
 │   ├── ledger.sqlite       # Source of truth — all transactions
@@ -108,12 +108,12 @@ Run this once when you first clone the project (or on a new computer).
 ```bash
 ./install.sh                    # install from the current branch
 ./install.sh --branch main      # checkout a specific branch first
-./install.sh -b integration     # short form
+./install.sh -b main               # short form
 ```
 
 | Flag | Description |
 |------|-------------|
-| `-b` / `--branch` | Git branch to checkout before installing (e.g. `main`, `integration`) |
+| `-b` / `--branch` | Git branch to checkout before installing (e.g. `main`) |
 
 What it does:
 1. Optionally checks out the specified git branch (if `--branch` is given)
@@ -720,7 +720,7 @@ The expense tracker can run as a containerized service on a home server (NUC, Ra
 
 ```bash
 # 1. Clone and set up
-git clone -b integration https://github.com/<your-user>/personal-expense-tracker.git
+git clone https://github.com/JoaoOliveira85/personal-expense-tracker.git
 cd personal-expense-tracker
 ./install.sh
 

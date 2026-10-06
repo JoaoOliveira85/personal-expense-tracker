@@ -21,15 +21,15 @@ This guide explains how to run the Expense Tracker as a containerized service on
 Clone the repo to your server:
 
 ```bash
-# Clone a specific branch (e.g. integration, main)
-git clone -b integration https://github.com/<your-user>/personal-expense-tracker.git
+# Clone the repository (add -b <branch> for a specific branch)
+git clone https://github.com/JoaoOliveira85/personal-expense-tracker.git
 cd personal-expense-tracker
 ```
 
 The Docker setup uses **bind mounts** so your data lives on the host filesystem (not inside the container). This means data persists across container rebuilds and is easy to back up or sync.
 
 ```
-expense-tracking/
+personal-expense-tracker/
 ├── docker-compose.yml      # Orchestrates both services
 ├── Dockerfile              # App image definition
 ├── cron/
@@ -373,39 +373,39 @@ services:
   # ... your existing services ...
 
   expense-tracker-gui:
-    build: ./expense-tracking
+    build: ./personal-expense-tracker
     container_name: expense-tracker-gui
     restart: unless-stopped
     ports:
       - "8501:8501"
     volumes:
-      - ./expense-tracking/data:/app/data
-      - ./expense-tracking/raw:/app/raw
-      - ./expense-tracking/reports:/app/reports
-      - ./expense-tracking/backups:/app/backups
-      - ./expense-tracking/expense-report.ods:/app/expense-report.ods
+      - ./personal-expense-tracker/data:/app/data
+      - ./personal-expense-tracker/raw:/app/raw
+      - ./personal-expense-tracker/reports:/app/reports
+      - ./personal-expense-tracker/backups:/app/backups
+      - ./personal-expense-tracker/expense-report.ods:/app/expense-report.ods
     environment:
       - TZ=Europe/Lisbon
 
   expense-tracker-cron:
-    build: ./expense-tracking
+    build: ./personal-expense-tracker
     container_name: expense-tracker-cron
     restart: unless-stopped
     entrypoint: ["/bin/bash", "/app/cron/daily-sync.sh"]
     volumes:
-      - ./expense-tracking/data:/app/data
-      - ./expense-tracking/raw:/app/raw
-      - ./expense-tracking/reports:/app/reports
-      - ./expense-tracking/backups:/app/backups
-      - ./expense-tracking/expense-report.ods:/app/expense-report.ods
-      - ./expense-tracking/cron:/app/cron:ro
+      - ./personal-expense-tracker/data:/app/data
+      - ./personal-expense-tracker/raw:/app/raw
+      - ./personal-expense-tracker/reports:/app/reports
+      - ./personal-expense-tracker/backups:/app/backups
+      - ./personal-expense-tracker/expense-report.ods:/app/expense-report.ods
+      - ./personal-expense-tracker/cron:/app/cron:ro
     environment:
       - TZ=Europe/Lisbon
       - SYNC_HOUR=8
       - SYNC_MINUTE=0
 ```
 
-Make sure the `build` context points to where you cloned the expense-tracking repo.
+Make sure the `build` context points to where you cloned the personal-expense-tracker repo.
 
 ---
 
@@ -425,8 +425,8 @@ After=network.target
 [Service]
 Type=simple
 User=YOUR_USERNAME
-WorkingDirectory=/home/YOUR_USERNAME/expense-tracking
-ExecStart=/home/YOUR_USERNAME/expense-tracking/.venv/bin/python -m streamlit run \
+WorkingDirectory=/home/YOUR_USERNAME/personal-expense-tracker
+ExecStart=/home/YOUR_USERNAME/personal-expense-tracker/.venv/bin/python -m streamlit run \
     expense_tracker/gui.py \
     --server.port 8501 \
     --server.headless true \
@@ -453,13 +453,13 @@ Wants=network-online.target
 [Service]
 Type=oneshot
 User=YOUR_USERNAME
-WorkingDirectory=/home/YOUR_USERNAME/expense-tracking
+WorkingDirectory=/home/YOUR_USERNAME/personal-expense-tracker
 # One line per step, run in order. The "-" lets the next step run when that
 # one fails; its error stays in the journal. Leave out the fetch line if you
 # have not configured email.
-ExecStart=-/home/YOUR_USERNAME/expense-tracking/.venv/bin/python bank_ingest.py --quiet fetch
-ExecStart=-/home/YOUR_USERNAME/expense-tracking/.venv/bin/python bank_ingest.py --quiet auto
-ExecStart=/home/YOUR_USERNAME/expense-tracking/.venv/bin/python bank_ingest.py --quiet pdf
+ExecStart=-/home/YOUR_USERNAME/personal-expense-tracker/.venv/bin/python bank_ingest.py --quiet fetch
+ExecStart=-/home/YOUR_USERNAME/personal-expense-tracker/.venv/bin/python bank_ingest.py --quiet auto
+ExecStart=/home/YOUR_USERNAME/personal-expense-tracker/.venv/bin/python bank_ingest.py --quiet pdf
 Environment=HOME=/home/YOUR_USERNAME
 ```
 
@@ -499,7 +499,7 @@ systemctl list-timers expense-tracker-sync.timer
 To update the expense tracker on the server:
 
 ```bash
-cd /path/to/expense-tracking
+cd /path/to/personal-expense-tracker
 
 # Pull latest code
 git pull

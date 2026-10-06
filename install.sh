@@ -5,7 +5,7 @@
 # Usage:
 #   ./install.sh                  # install from current branch
 #   ./install.sh --branch main    # checkout a specific branch first
-#   ./install.sh -b integration   # short form
+#   ./install.sh -b main         # short form
 #
 # What it does:
 #   1. Optionally checks out a specific git branch
