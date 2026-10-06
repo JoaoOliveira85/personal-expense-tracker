@@ -1156,7 +1156,7 @@ def build_intro_sheet(doc):
     instructions = [
         "EXPENSE TRACKER - Quick Intro",
         "",
-        "For a complete guide (with pictures and examples), open README.html in your browser.",
+        "For a complete guide with examples, open README.html in your browser.",
         "",
         "IMPORTANT - FORMULA RECALCULATION:",
         "  If formulas show as 0 or don't update, press Ctrl+Shift+F9 (or Cmd+Shift+F9 on Mac)",
