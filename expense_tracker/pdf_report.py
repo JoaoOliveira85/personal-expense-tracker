@@ -16,10 +16,10 @@ from datetime import date, timedelta
 from pathlib import Path
 
 from .constants import (
+    DEFAULT_ADVISOR_DIR,
     DEFAULT_DB,
     DEFAULT_DESC_NOTES,
     DEFAULT_REPORTS,
-    DEFAULT_ADVISOR_DIR,
 )
 from .db import NOT_SAVINGS_SQL, REFUND_SQL, SPEND_SQL, is_refund, is_savings
 
@@ -255,7 +255,7 @@ def _parse_report_month(filename: str) -> str | None:
     if len(parts) != 2:
         return None
     try:
-        year, m = int(parts[0]), int(parts[1])
+        _, m = int(parts[0]), int(parts[1])
     except ValueError:
         return None
     if 1 <= m <= 12:
@@ -812,7 +812,7 @@ def generate_monthly_pdf(
     pdf.cell(
         usable_w,
         4,
-        f"Generated from ledger data  |  For details open expense-report.ods",
+        "Generated from ledger data  |  For details open expense-report.ods",
         new_x=XPos.RIGHT,
         new_y=YPos.TOP,
     )

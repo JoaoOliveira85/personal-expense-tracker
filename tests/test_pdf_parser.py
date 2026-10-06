@@ -2,21 +2,20 @@
 
 from __future__ import annotations
 
-import logging
 from datetime import date
 from pathlib import Path
 
 import pytest
 
-from expense_tracker.parser import reset_cleaning_cache, _get_cleaning_patterns
+from expense_tracker.parser import _get_cleaning_patterns, reset_cleaning_cache
 from expense_tracker.pdf_parser import (
-    _parse_date,
-    _parse_amount,
-    _is_header_row,
-    _find_column_mapping,
     _extract_text_date_range,
-    parse_pdf_statement,
+    _find_column_mapping,
+    _is_header_row,
+    _parse_amount,
+    _parse_date,
     extract_pdf_date_range,
+    parse_pdf_statement,
 )
 
 # ---------------------------------------------------------------------------
@@ -278,7 +277,6 @@ class TestParsePdfStatement:
 
     def test_amounts_parsed(self, pdf_statement, cards_csv):
         rows = parse_pdf_statement(pdf_statement, cards_path=cards_csv)
-        amounts = {r["description_raw"]: r["amount_signed"] for r in rows}
         # CONTINENTE should be -45.50
         continente = [r for r in rows if "CONTINENTE" in r["description_raw"]][0]
         assert continente["amount_signed"] == -45.50
@@ -296,7 +294,6 @@ class TestParsePdfStatement:
 
     def test_payment_types_detected(self, pdf_statement, cards_csv):
         rows = parse_pdf_statement(pdf_statement, cards_path=cards_csv)
-        types = {r["description_raw"]: r["payment_type"] for r in rows}
         continente = [r for r in rows if "CONTINENTE" in r["description_raw"]][0]
         assert continente["payment_type"] == "card"
         dd = [r for r in rows if "VODAFONE" in r["description_raw"]][0]

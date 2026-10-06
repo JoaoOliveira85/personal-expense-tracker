@@ -2,22 +2,20 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 
 from expense_tracker.parser import (
+    _get_cleaning_patterns,
+    auto_rename_csv,
     clean_description,
     detect_card,
     detect_payment_type,
     extract_date_range,
-    auto_rename_csv,
     load_card_holders,
     parse_utf16_csv,
     reset_cleaning_cache,
-    _get_cleaning_patterns,
 )
-from tests.conftest import make_utf16_csv, SAMPLE_ROWS
+from tests.conftest import SAMPLE_ROWS, make_utf16_csv
 
 # ---------------------------------------------------------------------------
 # detect_payment_type

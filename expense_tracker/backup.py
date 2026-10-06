@@ -6,7 +6,7 @@ import zipfile
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
-from .constants import DEFAULT_RAW, DEFAULT_DB, DEFAULT_ODS, DEFAULT_BACKUPS
+from .constants import DEFAULT_BACKUPS, DEFAULT_DB, DEFAULT_ODS, DEFAULT_RAW
 
 # ---------------------------------------------------------------------------
 # Public API

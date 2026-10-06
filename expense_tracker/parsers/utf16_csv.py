@@ -14,8 +14,8 @@ from ..constants import DEFAULT_CARDS
 from ..parser import (
     HEADER_PREFIX,
     _decode_utf16,
-    parse_utf16_csv,
     extract_date_range,
+    parse_utf16_csv,
 )
 
 

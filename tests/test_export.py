@@ -3,12 +3,11 @@
 from __future__ import annotations
 
 import csv
-from pathlib import Path
 
 import pytest
 
 from expense_tracker.export import export_csv
-from expense_tracker.parser import reset_cleaning_cache, _get_cleaning_patterns
+from expense_tracker.parser import _get_cleaning_patterns, reset_cleaning_cache
 
 
 class TestExportCsv:

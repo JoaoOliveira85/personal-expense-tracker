@@ -2,16 +2,14 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 
+from expense_tracker.rules import add_rule, load_rules, match_rule
 from expense_tracker.starter_rules import (
     STARTER_RULES,
     get_starter_rules,
     import_starter_rules,
 )
-from expense_tracker.rules import load_rules, add_rule, match_rule
 
 # ---------------------------------------------------------------------------
 # Starter rules data integrity

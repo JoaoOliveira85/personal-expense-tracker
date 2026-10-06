@@ -7,7 +7,7 @@ import sqlite3
 from pathlib import Path
 
 from .constants import DATA_COLUMNS, DATA_HEADERS
-from .db import migrate_schema, fetch_all_transactions
+from .db import fetch_all_transactions, migrate_schema
 
 
 def export_csv(db_path: Path, out_path: Path) -> None:

@@ -20,31 +20,31 @@ import sqlite3
 from pathlib import Path
 
 from .constants import (
-    DATA_HEADERS,
-    DEFAULT_DESC_NOTES,
-    COL_DESCRIPTION_CLEAN,
     COL_CATEGORY,
+    COL_DESCRIPTION_CLEAN,
+    COL_MERCHANT_NOTE,
+    COL_NOTES,
     COL_SUBCATEGORY,
     COL_TRANSACTION_ID,
-    COL_NOTES,
-    COL_MERCHANT_NOTE,
+    DATA_HEADERS,
+    DEFAULT_DESC_NOTES,
 )
-from .db import migrate_schema, fetch_all_transactions
+from .db import fetch_all_transactions, migrate_schema
 from .ods_sheets import (
-    setup_styles,
     build_data_sheet,
-    build_rules_sheet,
     build_intro_sheet,
-    write_intro_sheet,
-    write_data_sheet,
-    write_rules_sheet,
+    build_rules_sheet,
+    setup_styles,
+    write_category_breakdown_sheet,
     write_dashboard_sheet,
+    write_data_sheet,
+    write_intro_sheet,
     write_monthly_summary_sheet,
     write_monthly_trend_sheet,
-    write_category_breakdown_sheet,
+    write_recurring_sheet,
+    write_rules_sheet,
     write_subcategory_breakdown_sheet,
     write_tags_sheet,
-    write_recurring_sheet,
 )
 from .rules import load_rules
 
@@ -365,7 +365,8 @@ def generate_ods(
 ) -> None:
     """Generate (or update) an ODS expense report."""
     try:
-        from odf.opendocument import OpenDocumentSpreadsheet, load as load_ods
+        from odf.opendocument import OpenDocumentSpreadsheet
+        from odf.opendocument import load as load_ods
         from odf.table import Table, TableCell
     except ImportError:
         print("Error: odfpy is required for ODS generation.")

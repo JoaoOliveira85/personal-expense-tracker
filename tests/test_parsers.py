@@ -2,22 +2,21 @@
 
 from __future__ import annotations
 
-import csv
 import logging
 from datetime import date
 from pathlib import Path
 
 import pytest
 
-from expense_tracker.parser import reset_cleaning_cache, _get_cleaning_patterns
+from expense_tracker.parser import _get_cleaning_patterns, reset_cleaning_cache
 from expense_tracker.parsers import (
     detect_parser,
-    parse_statement,
-    get_registered_parsers,
     get_parser_by_id,
+    get_registered_parsers,
+    parse_statement,
 )
-from expense_tracker.parsers.utf16_csv import Utf16CsvParser
 from expense_tracker.parsers.utf8_csv import Utf8CsvParser
+from expense_tracker.parsers.utf16_csv import Utf16CsvParser
 
 # ---------------------------------------------------------------------------
 # Fixtures

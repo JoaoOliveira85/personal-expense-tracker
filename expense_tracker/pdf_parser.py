@@ -11,13 +11,12 @@ Requires: pdfplumber
 
 from __future__ import annotations
 
+import csv
+import logging
 import re
 from datetime import date, datetime
 from pathlib import Path
 from typing import Optional
-
-import csv
-import logging
 
 from .constants import DEFAULT_CARDS, DOW_NAMES, account_type
 from .parser import (

@@ -11,7 +11,7 @@ from typing import Iterable
 
 from .constants import NON_SPENDING_CATEGORIES, SAVINGS_CATEGORIES
 from .parser import parse_utf16_csv
-from .parsers import parse_statement, detect_parser
+from .parsers import parse_statement
 
 logger = logging.getLogger(__name__)
 

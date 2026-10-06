@@ -14,13 +14,10 @@ Launch with: streamlit run expense_tracker/gui.py
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 import sqlite3
-import subprocess
 import sys
-from datetime import date, timedelta
 from pathlib import Path
 
 # When Streamlit runs this file directly, relative imports fail because there
@@ -38,34 +35,34 @@ import pandas as pd
 import streamlit as st
 
 from expense_tracker.constants import (
+    DEFAULT_BACKUPS,
     DEFAULT_DB,
-    DEFAULT_RULES,
+    DEFAULT_DESC_NOTES,
     DEFAULT_ODS,
     DEFAULT_RAW,
-    DEFAULT_DESC_NOTES,
-    DEFAULT_BACKUPS,
     DEFAULT_REPORTS,
+    DEFAULT_RULES,
     SAVINGS_CATEGORIES,
 )
 from expense_tracker.db import (
+    IngestError,
     ensure_schema,
-    migrate_schema,
     fetch_all_transactions,
     ingest,
     ingested_source_files,
-    IngestError,
+    migrate_schema,
 )
-from expense_tracker.rules import (
-    load_rules,
-    categorize_transactions,
-    add_rule,
-    remove_rule,
+from expense_tracker.email_fetch import (
+    DEFAULT_EMAIL_CONFIG,
+    create_email_config,
+    load_email_config,
 )
 from expense_tracker.ods import generate_ods, sync_from_ods
-from expense_tracker.email_fetch import (
-    load_email_config,
-    create_email_config,
-    DEFAULT_EMAIL_CONFIG,
+from expense_tracker.rules import (
+    add_rule,
+    categorize_transactions,
+    load_rules,
+    remove_rule,
 )
 
 # ---------------------------------------------------------------------------
@@ -932,8 +929,8 @@ elif page == "Tools":
     if st.button("Export to CSV"):
         with st.spinner("Exporting..."):
             try:
-                from expense_tracker.export import export_csv
                 from expense_tracker.constants import DEFAULT_CSV
+                from expense_tracker.export import export_csv
 
                 export_csv(DEFAULT_DB, DEFAULT_CSV)
                 st.success(f"Exported to {DEFAULT_CSV}")

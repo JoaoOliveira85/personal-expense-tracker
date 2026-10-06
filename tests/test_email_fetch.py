@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import email
 import json
 from email.message import EmailMessage
 from pathlib import Path
@@ -11,14 +10,14 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from expense_tracker.email_fetch import (
-    load_email_config,
-    create_email_config,
-    _decode_header_value,
-    _matches_bank_sender,
-    _is_statement_attachment,
-    _matches_subject,
-    fetch_statements,
     DEFAULT_BANK_SENDERS,
+    _decode_header_value,
+    _is_statement_attachment,
+    _matches_bank_sender,
+    _matches_subject,
+    create_email_config,
+    fetch_statements,
+    load_email_config,
 )
 
 # ---------------------------------------------------------------------------
@@ -130,7 +129,7 @@ class TestDecodeHeaderValue:
         assert _decode_header_value("Hello World") == "Hello World"
 
     def test_encoded_header(self):
-        from email.header import make_header, Header
+        from email.header import Header
 
         h = Header("Extrato Bancário", "utf-8")
         encoded = h.encode()

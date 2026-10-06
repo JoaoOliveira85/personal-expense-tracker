@@ -171,7 +171,7 @@ def populated_db(
 ) -> Path:
     """A database populated with sample transactions from the UTF-16 CSV."""
     from expense_tracker.db import ingest
-    from expense_tracker.parser import reset_cleaning_cache, _get_cleaning_patterns
+    from expense_tracker.parser import _get_cleaning_patterns, reset_cleaning_cache
 
     reset_cleaning_cache()
     _get_cleaning_patterns(noise_words, cleaning_patterns)

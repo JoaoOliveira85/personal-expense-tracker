@@ -3,25 +3,24 @@
 from __future__ import annotations
 
 import sqlite3
-from pathlib import Path
 
 import pytest
 
 from expense_tracker.db import (
     IngestError,
-    tx_id,
     ensure_schema,
-    migrate_schema,
+    fetch_all_transactions,
     ingest,
     ingested_source_files,
-    reclean_descriptions,
-    fetch_all_transactions,
     is_income,
     is_refund,
+    migrate_schema,
+    reclean_descriptions,
     spend_amount,
+    tx_id,
 )
-from expense_tracker.parser import reset_cleaning_cache, _get_cleaning_patterns
-from tests.conftest import make_utf16_csv, SAMPLE_ROWS
+from expense_tracker.parser import _get_cleaning_patterns, reset_cleaning_cache
+from tests.conftest import SAMPLE_ROWS, make_utf16_csv
 
 # ---------------------------------------------------------------------------
 # tx_id

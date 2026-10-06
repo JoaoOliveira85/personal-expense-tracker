@@ -7,22 +7,34 @@ import sqlite3
 import sys
 from pathlib import Path
 
-from .constants import (
-    DEFAULT_RAW,
-    DEFAULT_DB,
-    DEFAULT_RULES,
-    DEFAULT_CARDS,
-    DEFAULT_ODS,
-    DEFAULT_CSV,
-    DEFAULT_DESC_NOTES,
-    DEFAULT_BACKUPS,
+from .advisor import (
+    DEFAULT_CONTEXT_FILE,
+    find_months_without_responses,
+    generate_prompt,
+    get_response_path,
+    ingest_response,
+    is_first_run,
+    load_context,
+    save_prompt,
+    update_context_interactive,
 )
 from .backup import (
     create_backup,
     create_monthly_backup,
-    previous_month_backup_exists,
-    list_backups,
     format_size,
+    list_backups,
+    previous_month_backup_exists,
+)
+from .constants import (
+    DEFAULT_ADVISOR_DIR,
+    DEFAULT_BACKUPS,
+    DEFAULT_CARDS,
+    DEFAULT_CSV,
+    DEFAULT_DB,
+    DEFAULT_DESC_NOTES,
+    DEFAULT_ODS,
+    DEFAULT_RAW,
+    DEFAULT_RULES,
 )
 from .db import (
     IngestError,
@@ -31,44 +43,28 @@ from .db import (
     migrate_schema,
     reclean_descriptions,
 )
-from .parser import auto_rename_csv, load_card_holders
-from .pdf_parser import extract_pdf_date_range
-from .rules import (
-    load_rules,
-    categorize_transactions,
-    add_rule,
-    remove_rule,
-    add_card,
-    remove_card,
-    _load_cards_raw,
-)
-from .starter_rules import import_starter_rules
-from .ods import generate_ods, sync_from_ods
-from .xlsx import generate_xlsx
-from .export import export_csv
-from .pdf_report import generate_monthly_pdf, previous_month_label, DEFAULT_REPORTS
-from .suggest import analyze_patterns, format_suggestions, accept_suggestion
-from .advisor import (
-    generate_prompt,
-    save_prompt,
-    load_context,
-    save_context,
-    ingest_response,
-    get_response_path,
-    update_context_interactive,
-    is_first_run,
-    DEFAULT_CONTEXT_FILE,
-    find_next_catchup_month,
-    find_months_without_responses,
-)
-from .constants import DEFAULT_ADVISOR_DIR
 from .email_fetch import (
-    load_email_config,
+    DEFAULT_EMAIL_CONFIG,
     create_email_config,
     fetch_and_report,
-    DEFAULT_EMAIL_CONFIG,
 )
+from .export import export_csv
+from .ods import generate_ods, sync_from_ods
+from .parser import auto_rename_csv, load_card_holders
 from .parsers import detect_parser, get_parser_by_id, get_registered_parsers
+from .pdf_parser import extract_pdf_date_range
+from .pdf_report import DEFAULT_REPORTS, generate_monthly_pdf, previous_month_label
+from .rules import (
+    add_card,
+    add_rule,
+    categorize_transactions,
+    load_rules,
+    remove_card,
+    remove_rule,
+)
+from .starter_rules import import_starter_rules
+from .suggest import analyze_patterns, format_suggestions
+from .xlsx import generate_xlsx
 
 # ---------------------------------------------------------------------------
 # Pre-flight checks
@@ -423,7 +419,7 @@ def cmd_report(args):
                 ods_path.unlink()
             if xlsx_path.exists():
                 xlsx_path.unlink()
-            _info(f"Deleted existing files (--fresh flag).")
+            _info("Deleted existing files (--fresh flag).")
         generate_ods(args.db, args.rules, ods_path, args.desc_notes)
         generate_xlsx(args.db, args.rules, xlsx_path, args.desc_notes)
 
@@ -437,8 +433,8 @@ def cmd_cards(args):
         holders = load_card_holders(cards_path)
         if not holders:
             print(
-                f"No card holders defined. Add one with:\n"
-                f"  python bank_ingest.py cards add <last4> <name>"
+                "No card holders defined. Add one with:\n"
+                "  python bank_ingest.py cards add <last4> <name>"
             )
             return
         print(f"Card holders ({cards_path}):\n")
@@ -482,8 +478,8 @@ def cmd_rules(args):
         rules = load_rules(rules_path)
         if not rules:
             print(
-                f"No rules defined. Add one with:\n"
-                f"  python bank_ingest.py rules add <pattern> <category>"
+                "No rules defined. Add one with:\n"
+                "  python bank_ingest.py rules add <pattern> <category>"
             )
             return
         print(f"Categorization rules ({rules_path}):\n")
@@ -768,7 +764,7 @@ def cmd_suggest(args):
     )
     if total:
         print(f"\nFound {total} suggestion(s). To accept a suggestion as a rule:")
-        print(f"  python bank_ingest.py rules add <PATTERN> <CATEGORY>")
+        print("  python bank_ingest.py rules add <PATTERN> <CATEGORY>")
 
 
 def cmd_fetch(args):
@@ -949,7 +945,7 @@ Next steps:
 
         if not response_path.exists():
             print(f"Error: Response file not found: {response_path}")
-            print(f"\nSave your LLM's response to this file and try again.")
+            print("\nSave your LLM's response to this file and try again.")
             return
 
         _info(f"Ingesting response from: {response_path}")

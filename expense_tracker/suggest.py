@@ -9,7 +9,7 @@ uncategorized merchants into logical clusters. No ML dependencies required.
 from __future__ import annotations
 
 import sqlite3
-from collections import Counter, defaultdict
+from collections import Counter
 from difflib import SequenceMatcher
 from pathlib import Path
 
@@ -38,28 +38,6 @@ def _fetch_uncategorized(conn: sqlite3.Connection) -> list[dict]:
             "amount_abs": r[2],
             "date_posted": r[3],
             "payment_type": r[4] or "",
-        }
-        for r in rows
-    ]
-
-
-def _fetch_all_outgoing(conn: sqlite3.Connection) -> list[dict]:
-    """Fetch all outgoing transactions (for pattern analysis)."""
-    rows = conn.execute("""
-        SELECT description_clean, description_raw, amount_abs, date_posted,
-               payment_type, category
-        FROM transactions
-        WHERE direction = 'out'
-        ORDER BY date_posted
-        """).fetchall()
-    return [
-        {
-            "description_clean": r[0] or "",
-            "description_raw": r[1] or "",
-            "amount_abs": r[2],
-            "date_posted": r[3],
-            "payment_type": r[4] or "",
-            "category": r[5] or "",
         }
         for r in rows
     ]
@@ -314,7 +292,6 @@ def analyze_patterns(
     conn = sqlite3.connect(str(db_path))
     try:
         uncategorized = _fetch_uncategorized(conn)
-        all_outgoing = _fetch_all_outgoing(conn)
     finally:
         conn.close()
 

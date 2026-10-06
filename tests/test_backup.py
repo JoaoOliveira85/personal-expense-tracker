@@ -3,19 +3,19 @@
 from __future__ import annotations
 
 import zipfile
-from datetime import date, timedelta
+from datetime import date
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
 from expense_tracker.backup import (
+    _previous_month_label,
     create_backup,
     create_monthly_backup,
     format_size,
     list_backups,
     previous_month_backup_exists,
-    _previous_month_label,
 )
 
 # ---------------------------------------------------------------------------

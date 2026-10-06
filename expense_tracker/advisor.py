@@ -15,13 +15,13 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
-from datetime import date, timedelta
+from datetime import date
 from pathlib import Path
 from typing import Any
 
-from .constants import DEFAULT_DB, DEFAULT_ADVISOR_DIR
+from .constants import DEFAULT_ADVISOR_DIR, DEFAULT_DB
 from .db import INCOME_SQL, NOT_SAVINGS_SQL, REFUND_SQL, SPEND_SQL
-from .pdf_report import previous_month_label, month_display_name, _prev_month
+from .pdf_report import month_display_name, previous_month_label
 
 # ---------------------------------------------------------------------------
 # Default paths

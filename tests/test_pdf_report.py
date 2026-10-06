@@ -9,8 +9,8 @@ import pytest
 
 from expense_tracker.pdf_report import (
     _compute_stats,
-    _fetch_historical_category_totals,
     _extract_tags,
+    _fetch_historical_category_totals,
     _fmt_eur,
     _next_month,
     _parse_report_month,
@@ -19,7 +19,6 @@ from expense_tracker.pdf_report import (
     month_display_name,
     months_to_generate,
     previous_month_label,
-    ESSENTIAL_CATEGORIES,
 )
 
 # ---------------------------------------------------------------------------
@@ -458,7 +457,7 @@ class TestGenerateMonthlyPdf:
         desc_notes = tmp_path / "desc-notes.csv"
         desc_notes.write_text("description_clean,merchant_note\n", encoding="utf-8")
 
-        result = generate_monthly_pdf(
+        generate_monthly_pdf(
             db_path=populated_db,
             month="2026-01",
             output_path=output,

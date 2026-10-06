@@ -5,23 +5,21 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-import pytest
-
 from expense_tracker.db import ensure_schema, migrate_schema
+from expense_tracker.rules import load_rules
 from expense_tracker.suggest import (
-    _merchant_stats,
-    _similarity,
     _cluster_by_name,
     _extract_common_prefix,
+    _merchant_stats,
+    _similarity,
     _stddev,
+    accept_suggestion,
+    analyze_patterns,
+    detect_frequent_merchants,
     detect_recurring,
     detect_similar_merchants,
-    detect_frequent_merchants,
-    analyze_patterns,
     format_suggestions,
-    accept_suggestion,
 )
-from expense_tracker.rules import load_rules
 
 # ---------------------------------------------------------------------------
 # Helper to populate a test DB with transactions

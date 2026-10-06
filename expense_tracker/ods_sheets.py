@@ -67,8 +67,12 @@ def _income(n: int) -> str:
 
 def setup_styles(doc):
     """Set up reusable styles for the ODS document."""
-    from odf.style import Style, TableCellProperties, TextProperties
-    from odf.style import TableColumnProperties
+    from odf.style import (
+        Style,
+        TableCellProperties,
+        TableColumnProperties,
+        TextProperties,
+    )
 
     styles = [
         (

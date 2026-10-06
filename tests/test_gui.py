@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from expense_tracker.db import ensure_schema, migrate_schema, fetch_all_transactions
+from expense_tracker.db import ensure_schema, fetch_all_transactions, migrate_schema
 
 # ---------------------------------------------------------------------------
 # We can't import gui.py directly (it runs Streamlit page config at import

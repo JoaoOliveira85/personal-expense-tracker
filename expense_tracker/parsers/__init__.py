@@ -149,8 +149,8 @@ def parse_statement(
 
 def _auto_register() -> None:
     """Import and register all built-in bank parsers."""
-    from .utf16_csv import Utf16CsvParser
     from .utf8_csv import Utf8CsvParser
+    from .utf16_csv import Utf16CsvParser
 
     register_parser(Utf16CsvParser())
     register_parser(Utf8CsvParser())

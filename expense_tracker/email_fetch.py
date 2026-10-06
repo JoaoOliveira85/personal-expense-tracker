@@ -18,7 +18,6 @@ import re
 from datetime import datetime, timedelta
 from email.header import decode_header
 from pathlib import Path
-from typing import Optional
 
 from .constants import DEFAULT_RAW
 

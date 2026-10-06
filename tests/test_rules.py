@@ -7,16 +7,16 @@ from pathlib import Path
 
 import pytest
 
-from expense_tracker.db import ensure_schema, migrate_schema, ingest
-from expense_tracker.parser import reset_cleaning_cache, _get_cleaning_patterns
+from expense_tracker.db import migrate_schema
+from expense_tracker.parser import _get_cleaning_patterns, reset_cleaning_cache
 from expense_tracker.rules import (
-    add_rule,
-    remove_rule,
     add_card,
-    remove_card,
-    load_rules,
+    add_rule,
     categorize_transactions,
+    load_rules,
     match_rule,
+    remove_card,
+    remove_rule,
 )
 
 # ---------------------------------------------------------------------------

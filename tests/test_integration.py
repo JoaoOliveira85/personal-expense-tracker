@@ -3,23 +3,22 @@
 from __future__ import annotations
 
 import sqlite3
-from pathlib import Path
 
 import pytest
 
 from expense_tracker.db import (
+    fetch_all_transactions,
     ingest,
     ingested_source_files,
-    reclean_descriptions,
-    fetch_all_transactions,
     migrate_schema,
+    reclean_descriptions,
 )
 from expense_tracker.export import export_csv
-from expense_tracker.parser import reset_cleaning_cache, _get_cleaning_patterns
+from expense_tracker.parser import _get_cleaning_patterns, reset_cleaning_cache
 from expense_tracker.rules import (
     add_rule,
-    load_rules,
     categorize_transactions,
+    load_rules,
 )
 from tests.conftest import make_utf16_csv
 

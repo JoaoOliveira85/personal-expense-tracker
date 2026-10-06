@@ -15,14 +15,13 @@ from collections import defaultdict
 from pathlib import Path
 
 from .constants import (
-    DEFAULT_DB,
-    DEFAULT_DESC_NOTES,
     DATA_COLUMNS,
     DATA_HEADERS,
+    DEFAULT_DESC_NOTES,
     NON_SPENDING_CATEGORIES,
     SAVINGS_CATEGORIES,
 )
-from .db import migrate_schema, fetch_all_transactions, counts_as_spending, is_savings
+from .db import counts_as_spending, fetch_all_transactions, is_savings, migrate_schema
 from .ods_sheets import top_categories
 from .rules import load_rules
 
@@ -74,8 +73,8 @@ def _category_spend(cat: str, criteria: str = "") -> str:
 # openpyxl imports - will fail gracefully if not installed
 try:
     from openpyxl import Workbook
-    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
     from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
+    from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
     from openpyxl.utils import get_column_letter
 
     OPENPYXL_AVAILABLE = True
@@ -398,7 +397,7 @@ def _write_dashboard_sheet(ws, transactions: list[dict], styles: dict, n: int) -
 
     # Net Balance
     ws.cell(row=row, column=1, value="Net Balance (Income - Expenses)")
-    ws.cell(row=row, column=2, value=f"=B4-B5")
+    ws.cell(row=row, column=2, value="=B4-B5")
     ws.cell(row=row, column=2).number_format = "#,##0.00"
     row += 1
 
