@@ -1,8 +1,15 @@
 # Expense Tracker
 
-A personal expense tracking pipeline for Portuguese bank statements. It parses CSV exports from supported banks (currently **UTF-16 CSV** and **UTF-8 CSV**), stores them in a local SQLite database, applies categorization rules, and generates an ODS spreadsheet report you can open in LibreOffice or Google Sheets. New banks can be added via a plugin architecture.
+A personal expense tracking pipeline for Portuguese bank statements. It reads statement exports (two CSV formats, UTF-16 and UTF-8, plus PDF statements), stores them in a local SQLite database, applies categorization rules, and generates a spreadsheet report (xlsx by default, or ODS for LibreOffice) and monthly PDF summaries. New statement formats can be added via a plugin architecture. Everything runs locally; nothing is sent anywhere.
 
-> Built with [Cursor](https://cursor.com) + **Claude 4.6 Opus** (Anthropic). See [CONTRIBUTING.md](CONTRIBUTING.md) for architecture details and developer documentation.
+## About this project
+
+I built this to track my own finances, and as a hands-on way to learn AI-assisted development and how coding agents work. The code was written by AI agents under my direction; I'm sharing it because it may be useful to others. Commits made with an agent carry a `Co-Authored-By` trailer naming the model.
+
+- **Tools** — started in [Cursor](https://cursor.com) with Claude 4.6 Opus; now [Claude Code](https://claude.com/claude-code), using models from Claude Sonnet (rule writing and matching) up to Claude Fable 5.1 (code review).
+- **Guard rails** — 644 tests on synthetic fixtures, CI running the tests plus `black` and `ruff` on every push, and small single-purpose commits.
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for architecture details and developer documentation.
 
 ---
 
@@ -39,6 +46,7 @@ personal-expense-tracker/
 ├── data/
 │   ├── ledger.sqlite       # Source of truth — all transactions
 │   ├── ledger.csv          # Optional CSV export
+│   ├── advisor/            # Advisor prompts, responses and context.json
 │   ├── email-config.json   # Email fetch settings (gitignored, created via --setup)
 │   ├── rules.csv           # Categorization rules (editable)
 │   ├── account-holders.csv # Card-to-owner mappings (editable)
@@ -46,7 +54,8 @@ personal-expense-tracker/
 │   ├── cleaning-patterns.csv # Regex patterns for description cleaning
 │   └── description-notes.csv # Merchant notes (editable, per-merchant)
 ├── reports/                # Monthly PDF summaries
-├── expense-report.ods      # Generated report (open in LibreOffice)
+├── expense-report.xlsx     # Generated report (default format)
+├── expense-report.ods      # Generated report with --format ods (open in LibreOffice)
 ├── bank_ingest.py          # Main entry point (convenience wrapper)
 ├── expense_tracker/        # Python package (the actual code)
 │   ├── cli.py              # Command-line interface
@@ -60,32 +69,22 @@ personal-expense-tracker/
 │   ├── rules.py            # Rule & card management + categorization
 │   ├── ods.py              # ODS report orchestration + sync-back
 │   ├── ods_sheets.py       # ODS sheet builders (styles, cells, all sheets)
+│   ├── xlsx.py             # xlsx report writer (the default report format)
 │   ├── export.py           # CSV export
 │   ├── backup.py           # Backup utilities (zip archives)
 │   ├── pdf_report.py       # Monthly PDF report generator
-│   ├── starter_rules.py    # Portuguese starter rules pack (~100 curated rules)
+│   ├── starter_rules.py    # Portuguese starter rules pack (~200 curated rules)
 │   ├── suggest.py          # Automatic category pattern detection
 │   ├── email_fetch.py      # Email statement fetcher (IMAP)
+│   ├── advisor.py          # LLM advisor prompt generation + context file
 │   ├── gui.py              # Streamlit web interface
 │   └── constants.py        # Shared configuration
 ├── backups/                # Backup archives (auto + manual)
 ├── cron/                   # Automation scripts for Docker/server deployment
 │   └── daily-sync.sh       # Scheduled fetch + ingest + report generation
-├── tests/                  # Test suite (285 tests)
-│   ├── conftest.py         # Shared fixtures + synthetic CSV builder
-│   ├── test_parser.py      # Parser tests (39)
-│   ├── test_db.py          # Database tests (19)
-│   ├── test_rules.py       # Rules tests (17)
-│   ├── test_export.py      # Export tests (4)
-│   ├── test_backup.py      # Backup tests (16)
-│   ├── test_pdf_report.py  # PDF report tests (26)
-│   ├── test_integration.py # End-to-end tests (4)
-│   ├── test_starter_rules.py # Starter rules tests (14)
-│   ├── test_suggest.py     # Pattern detection tests (28)
-│   ├── test_pdf_parser.py  # PDF parser tests (34)
-│   ├── test_email_fetch.py # Email fetch tests (26)
-│   ├── test_gui.py         # GUI module tests (6)
-│   └── test_parsers.py     # Multi-bank parser tests (29)
+├── tests/                  # Test suite (644 tests on synthetic fixtures)
+│   └── conftest.py         # Shared fixtures + synthetic CSV builder
+├── .github/workflows/ci.yml # CI: tests on Python 3.10 and 3.12, black, ruff
 ├── install.sh              # First-time setup script (supports --branch)
 ├── run.sh                  # Launch the GUI (or pass CLI commands)
 ├── update.sh               # Pull latest code from GitHub
@@ -94,7 +93,9 @@ personal-expense-tracker/
 ├── DEPLOYMENT.md           # Docker & home server deployment guide
 ├── requirements.txt        # Python dependencies
 ├── requirements-dev.txt    # Test dependencies (pytest)
+├── pyproject.toml          # black and ruff settings
 ├── pytest.ini              # Test configuration
+├── SECURITY.md             # How to report a vulnerability; what data the tool holds
 └── CONTRIBUTING.md         # Developer docs (architecture, decisions, extending)
 ```
 
@@ -120,8 +121,8 @@ What it does:
 1. Optionally checks out the specified git branch (if `--branch` is given)
 2. Checks that Python 3.9+ is installed
 3. Creates a virtual environment (`.venv/`)
-4. Installs Python dependencies (`odfpy`)
-5. Creates the `raw/`, `data/`, and `backups/` directories
+4. Installs Python dependencies from `requirements.txt`
+5. Creates the `raw/`, `data/`, `data/advisor/`, `backups/`, and `reports/` directories
 6. Creates starter config files (`rules.csv`, `account-holders.csv`, etc.) in `data/` if they don't exist
 7. Makes the shell scripts executable
 
@@ -270,7 +271,7 @@ python bank_ingest.py rules import-starter --dry-run                 # preview w
 
 #### Portuguese Starter Rules
 
-The project ships with a curated pack of ~100 rules for common Portuguese merchants and services — supermarkets, utilities, telecoms, fuel, transport, health, insurance, eating out, subscriptions, shopping, taxes, bank fees, and more.
+The project ships with a curated pack of ~200 rules for common Portuguese merchants and services — supermarkets, utilities, telecoms, fuel, transport, health, insurance, eating out, subscriptions, shopping, taxes, bank fees, and more.
 
 ```bash
 python bank_ingest.py rules import-starter
@@ -332,6 +333,7 @@ Generate a single-page PDF summary for a given month — a quick bird's-eye view
 ```bash
 python bank_ingest.py pdf                      # previous month (default)
 python bank_ingest.py pdf --month 2026-01      # specific month
+python bank_ingest.py pdf --all                # one PDF per month with data
 python bank_ingest.py pdf --out ~/Desktop/jan.pdf  # custom output path
 ```
 
@@ -358,7 +360,6 @@ python bank_ingest.py suggest                        # analyze with default thre
 python bank_ingest.py suggest --min-months 2         # lower recurring threshold
 python bank_ingest.py suggest --similarity 0.7       # stricter text similarity
 python bank_ingest.py suggest --min-count 3          # lower frequency threshold
-python bank_ingest.py suggest --accept recurring:0   # accept a suggestion as a new rule
 ```
 
 | Flag | Default | Description |
@@ -367,9 +368,8 @@ python bank_ingest.py suggest --accept recurring:0   # accept a suggestion as a 
 | `--min-months` | `3` | Minimum distinct months for recurring detection |
 | `--similarity` | `0.65` | Text similarity threshold (0-1) for grouping |
 | `--min-count` | `5` | Minimum transaction count for frequent merchants |
-| `--accept` | — | Accept a suggestion by type:index (e.g. `recurring:0`) |
 
-The output groups suggestions by type and shows transaction counts, total amounts, and recommended categories. You can then add the suggested rules manually or use `--accept` to create them automatically.
+The output groups suggestions by type and shows transaction counts, total amounts, and recommended categories. Turn a suggestion into a rule with `python bank_ingest.py rules add <PATTERN> <CATEGORY>`.
 
 ### `fetch`
 
@@ -437,7 +437,7 @@ The **Tools** page provides a one-stop shop for common operations:
 | **Generate PDF** | Generate a PDF summary for the previous month |
 | **Backup** | Create a zip archive of all data with one click |
 | **Export Data** | Export all transactions as a UTF-8 CSV and download it |
-| **Starter Rules** | Import ~100 curated Portuguese categorization rules |
+| **Starter Rules** | Import ~200 curated Portuguese categorization rules |
 
 The GUI uses [Streamlit](https://streamlit.io/) and reads/writes to the same SQLite database as the CLI. Changes made in the GUI are immediately visible in the CLI and vice versa.
 
@@ -458,6 +458,33 @@ Supported bank formats:
 ```
 
 Use the parser ID with `ingest --bank <id>` to force a specific parser, or omit `--bank` to let the system auto-detect the format.
+
+### `advisor`
+
+Turn a month of spending into a prompt for an LLM of your choice, and keep a growing context file so later advice builds on earlier answers. The tool never calls an LLM itself: you paste the prompt into one and save its answer, so you decide what leaves your machine.
+
+```bash
+python bank_ingest.py advisor                   # write a prompt for the previous month
+python bank_ingest.py advisor --month 2026-02   # a specific month
+python bank_ingest.py advisor ingest            # record the saved LLM response in the context
+python bank_ingest.py advisor status            # context summary + months with no response
+python bank_ingest.py advisor catchup           # prompt for the oldest month with no response
+python bank_ingest.py advisor context --edit    # show (or, with --edit, update) your goals and profile
+```
+
+Prompts, responses and `context.json` live in `data/advisor/` (gitignored). The first prompt includes discovery questions to establish your financial context.
+
+### `reset`
+
+Back up everything, then delete all data for a fresh start: the contents of `data/`, `raw/` and `reports/`, and the generated reports.
+
+```bash
+python bank_ingest.py reset                  # asks for confirmation
+python bank_ingest.py reset --keep-context   # keep data/advisor/
+python bank_ingest.py reset --yes            # no confirmation prompt
+```
+
+The backup is written to `backups/pre-reset-<timestamp>.zip` first.
 
 ---
 
@@ -749,7 +776,7 @@ For the full guide — including adding to an existing docker-compose, systemd s
 
 - **Python 3.9+**
 - **macOS or Linux** (the shell scripts use bash)
-- **LibreOffice** or **Google Sheets** (to view the ODS report)
+- **Excel**, **Numbers**, **LibreOffice** or **Google Sheets** to view the xlsx report (the ODS report needs LibreOffice or Google Sheets)
 - **Docker** (optional, for containerized deployment)
 
 ---
@@ -763,7 +790,7 @@ For the full guide — including adding to an existing docker-compose, systemd s
 | `python bank_ingest.py` | Auto-detect, import, and report (default) |
 | `python bank_ingest.py auto` | Same as above |
 | `python bank_ingest.py ingest <files>` | Import specific CSV or PDF files (auto-detects bank) |
-| `python bank_ingest.py report` | Regenerate the ODS report |
+| `python bank_ingest.py report` | Re-apply rules and regenerate the report |
 | `python bank_ingest.py export` | Export to UTF-8 CSV |
 | `python bank_ingest.py cards` | List card holders |
 | `python bank_ingest.py cards add <last4> <name>` | Add a card holder |
@@ -771,7 +798,7 @@ For the full guide — including adding to an existing docker-compose, systemd s
 | `python bank_ingest.py rules` | List categorization rules |
 | `python bank_ingest.py rules add <pattern> <category>` | Add a rule |
 | `python bank_ingest.py rules remove <pattern>` | Remove a rule |
-| `python bank_ingest.py rules import-starter` | Import Portuguese starter rules (~100 rules) |
+| `python bank_ingest.py rules import-starter` | Import Portuguese starter rules (~200 rules) |
 | `python bank_ingest.py reclean` | Re-clean all descriptions and regenerate report |
 | `python bank_ingest.py backup` | Create a zip backup of all data |
 | `python bank_ingest.py pdf` | Generate a monthly PDF summary report |
@@ -780,6 +807,8 @@ For the full guide — including adding to an existing docker-compose, systemd s
 | `python bank_ingest.py fetch --setup` | Configure email settings interactively |
 | `python bank_ingest.py gui` | Launch the Streamlit web interface |
 | `python bank_ingest.py banks` | List supported bank statement formats |
+| `python bank_ingest.py advisor` | Write an LLM advice prompt for last month |
+| `python bank_ingest.py reset` | Back up, then delete all data |
 
 ---
 
@@ -795,7 +824,7 @@ pip install -r requirements-dev.txt   # once
 python -m pytest tests/ -v
 ```
 
-285 tests covering the CSV parser, PDF parser, multi-bank parsers, database, rules engine, starter rules, pattern detection, email fetch, GUI, export, backup, PDF report, and end-to-end workflows. Runs in under a second using synthetic fixtures (no real bank data needed).
+644 tests covering the CSV parser, PDF parser, multi-bank parsers, database, rules engine, starter rules, pattern detection, email fetch, ODS and xlsx reports, ODS sync-back, advisor, CLI, cron script, GUI, export, backup, PDF report, and end-to-end workflows. They use synthetic fixtures (no real bank data needed) and run in well under a minute. CI runs them on Python 3.10 and 3.12, plus `black --check` and `ruff check`, on every push.
 
 ---
 
