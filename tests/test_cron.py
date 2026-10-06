@@ -1,4 +1,5 @@
 """Tests for cron/daily-sync.sh, the scheduled sync run by the cron container."""
+
 from __future__ import annotations
 
 import os

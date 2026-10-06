@@ -9,6 +9,7 @@ expense_tracker/ package. You can also run:
     python -m expense_tracker report
     python -m expense_tracker export --out data/ledger.csv
 """
+
 from expense_tracker.cli import main
 
 if __name__ == "__main__":

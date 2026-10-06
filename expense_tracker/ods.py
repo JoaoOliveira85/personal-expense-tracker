@@ -9,6 +9,7 @@ Hybrid approach:
 Sheet builders live in ods_sheets.py; this module handles orchestration and
 sync-back of manual edits from the ODS into SQLite / description-notes.csv.
 """
+
 from __future__ import annotations
 
 import csv
@@ -19,22 +20,33 @@ import sqlite3
 from pathlib import Path
 
 from .constants import (
-    DATA_HEADERS, DEFAULT_DESC_NOTES,
-    COL_DESCRIPTION_CLEAN, COL_CATEGORY, COL_SUBCATEGORY,
-    COL_TRANSACTION_ID, COL_NOTES, COL_MERCHANT_NOTE,
+    DATA_HEADERS,
+    DEFAULT_DESC_NOTES,
+    COL_DESCRIPTION_CLEAN,
+    COL_CATEGORY,
+    COL_SUBCATEGORY,
+    COL_TRANSACTION_ID,
+    COL_NOTES,
+    COL_MERCHANT_NOTE,
 )
 from .db import migrate_schema, fetch_all_transactions
 from .ods_sheets import (
     setup_styles,
-    build_data_sheet, build_rules_sheet, build_intro_sheet,
-    write_intro_sheet, write_data_sheet, write_rules_sheet,
+    build_data_sheet,
+    build_rules_sheet,
+    build_intro_sheet,
+    write_intro_sheet,
+    write_data_sheet,
+    write_rules_sheet,
     write_dashboard_sheet,
-    write_monthly_summary_sheet, write_monthly_trend_sheet,
-    write_category_breakdown_sheet, write_subcategory_breakdown_sheet,
-    write_tags_sheet, write_recurring_sheet,
+    write_monthly_summary_sheet,
+    write_monthly_trend_sheet,
+    write_category_breakdown_sheet,
+    write_subcategory_breakdown_sheet,
+    write_tags_sheet,
+    write_recurring_sheet,
 )
 from .rules import load_rules
-
 
 # ---------------------------------------------------------------------------
 # Analysis sheets: keep their references to the Data sheet on the data
@@ -42,8 +54,13 @@ from .rules import load_rules
 
 # Written on the first run, then kept (see generate_ods).
 ANALYSIS_SHEETS = (
-    "Dashboard", "Monthly Summary", "Monthly Trend", "Category Breakdown",
-    "Subcategory Breakdown", "Tags", "Recurring Merchants",
+    "Dashboard",
+    "Monthly Summary",
+    "Monthly Trend",
+    "Category Breakdown",
+    "Subcategory Breakdown",
+    "Tags",
+    "Recurring Merchants",
 )
 
 # A range of Data-sheet rows that starts at the first data row:
@@ -64,9 +81,7 @@ def retarget_data_ranges(formula: str, last_row: int) -> str:
     the row count of the first run stops covering the oldest transactions
     as soon as new ones are imported.
     """
-    return _DATA_ROWS_RANGE.sub(
-        lambda m: f"{m.group(1)}{max(last_row, 2)}", formula
-    )
+    return _DATA_ROWS_RANGE.sub(lambda m: f"{m.group(1)}{max(last_row, 2)}", formula)
 
 
 # ---------------------------------------------------------------------------
@@ -141,8 +156,12 @@ def _is_missing_or_empty(ods_path: Path) -> bool:
 
 # Columns of the Data sheet that sync_from_ods() reads
 _SYNCED_COLUMNS = (
-    COL_DESCRIPTION_CLEAN, COL_CATEGORY, COL_SUBCATEGORY,
-    COL_TRANSACTION_ID, COL_NOTES, COL_MERCHANT_NOTE,
+    COL_DESCRIPTION_CLEAN,
+    COL_CATEGORY,
+    COL_SUBCATEGORY,
+    COL_TRANSACTION_ID,
+    COL_NOTES,
+    COL_MERCHANT_NOTE,
 )
 
 # Cells read per row: room for columns the user added, without expanding
@@ -259,8 +278,11 @@ def sync_from_ods(
         # Read merchant note + description_clean for the merchant notes sync
         desc_clean = expanded[col[COL_DESCRIPTION_CLEAN]]
         merchant_note = expanded[col[COL_MERCHANT_NOTE]]
-        if (desc_clean and merchant_note
-                and merchant_note != existing_notes.get(desc_clean, "")):
+        if (
+            desc_clean
+            and merchant_note
+            and merchant_note != existing_notes.get(desc_clean, "")
+        ):
             merchant_notes_from_ods[desc_clean] = merchant_note
 
         if tx_id:
@@ -308,8 +330,11 @@ def sync_from_ods(
                 if notes == shown[2]:
                     notes = existing_notes
 
-            if (category != existing_cat or subcategory != existing_subcat
-                    or notes != existing_notes):
+            if (
+                category != existing_cat
+                or subcategory != existing_subcat
+                or notes != existing_notes
+            ):
                 conn.execute(
                     "UPDATE transactions SET category = ?, subcategory = ?, notes = ? "
                     "WHERE transaction_id = ?",

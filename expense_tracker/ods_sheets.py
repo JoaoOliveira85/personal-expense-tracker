@@ -4,6 +4,7 @@ ODS sheet builders — styles, cell helpers, and individual sheet generators.
 Split from ods.py for maintainability. Each _write_* function adds a sheet
 to the document; each _build_* function returns a Table element.
 """
+
 from __future__ import annotations
 
 from collections import defaultdict
@@ -16,11 +17,9 @@ from .constants import (
 )
 from .db import counts_as_spending, is_savings, spend_amount
 
-
 # ---------------------------------------------------------------------------
 # Styles
 # ---------------------------------------------------------------------------
-
 
 
 # ---------------------------------------------------------------------------
@@ -45,9 +44,8 @@ def _not_in(n: int, categories: tuple[str, ...]) -> str:
 
 def _refund(n: int) -> str:
     """1 for refund rows, 0 otherwise."""
-    return (
-        f'([.Data.G2:.Data.G{n}]="in")*([.Data.H2:.Data.H{n}]<>"")'
-        + _not_in(n, NON_SPENDING_CATEGORIES + SAVINGS_CATEGORIES)
+    return f'([.Data.G2:.Data.G{n}]="in")*([.Data.H2:.Data.H{n}]<>"")' + _not_in(
+        n, NON_SPENDING_CATEGORIES + SAVINGS_CATEGORIES
     )
 
 
@@ -73,26 +71,46 @@ def setup_styles(doc):
     from odf.style import TableColumnProperties
 
     styles = [
-        ("header", "table-cell", {
-            "cell": {"backgroundcolor": "#2c3e50", "padding": "0.08in"},
-            "text": {"color": "#ffffff", "fontweight": "bold", "fontsize": "10pt"},
-        }),
-        ("categorized", "table-cell", {
-            "cell": {"backgroundcolor": "#d5f5e3", "padding": "0.04in"},
-            "text": {"fontsize": "9pt"},
-        }),
-        ("uncategorized", "table-cell", {
-            "cell": {"backgroundcolor": "#fef9e7", "padding": "0.04in"},
-            "text": {"fontsize": "9pt"},
-        }),
-        ("normal", "table-cell", {
-            "cell": {"padding": "0.04in"},
-            "text": {"fontsize": "9pt"},
-        }),
-        ("section_header", "table-cell", {
-            "cell": {"backgroundcolor": "#34495e", "padding": "0.06in"},
-            "text": {"color": "#ffffff", "fontweight": "bold", "fontsize": "11pt"},
-        }),
+        (
+            "header",
+            "table-cell",
+            {
+                "cell": {"backgroundcolor": "#2c3e50", "padding": "0.08in"},
+                "text": {"color": "#ffffff", "fontweight": "bold", "fontsize": "10pt"},
+            },
+        ),
+        (
+            "categorized",
+            "table-cell",
+            {
+                "cell": {"backgroundcolor": "#d5f5e3", "padding": "0.04in"},
+                "text": {"fontsize": "9pt"},
+            },
+        ),
+        (
+            "uncategorized",
+            "table-cell",
+            {
+                "cell": {"backgroundcolor": "#fef9e7", "padding": "0.04in"},
+                "text": {"fontsize": "9pt"},
+            },
+        ),
+        (
+            "normal",
+            "table-cell",
+            {
+                "cell": {"padding": "0.04in"},
+                "text": {"fontsize": "9pt"},
+            },
+        ),
+        (
+            "section_header",
+            "table-cell",
+            {
+                "cell": {"backgroundcolor": "#34495e", "padding": "0.06in"},
+                "text": {"color": "#ffffff", "fontweight": "bold", "fontsize": "11pt"},
+            },
+        ),
     ]
 
     for name, family, props in styles:
@@ -196,15 +214,25 @@ def build_data_sheet(doc, transactions):
     table = Table(name="Data")
 
     col_styles = [
-        "col_narrow", "col_narrow", "col_narrow",    # Date, Month, Day
-        "col_wide", "col_wide",                       # Desc raw, Desc clean
-        "col_currency", "col_narrow",                 # Amount, Direction
-        "col_medium", "col_medium", "col_medium",     # Category, Subcategory, PayType
-        "col_narrow", "col_narrow", "col_medium",     # Who, Card, Status
-        "col_medium", "col_currency", "col_medium",   # Account, Balance, Source
-        "col_medium",                                 # ID (transaction_id)
-        "col_wide",                                   # Notes
-        "col_wide",                                   # Merchant Note
+        "col_narrow",
+        "col_narrow",
+        "col_narrow",  # Date, Month, Day
+        "col_wide",
+        "col_wide",  # Desc raw, Desc clean
+        "col_currency",
+        "col_narrow",  # Amount, Direction
+        "col_medium",
+        "col_medium",
+        "col_medium",  # Category, Subcategory, PayType
+        "col_narrow",
+        "col_narrow",
+        "col_medium",  # Who, Card, Status
+        "col_medium",
+        "col_currency",
+        "col_medium",  # Account, Balance, Source
+        "col_medium",  # ID (transaction_id)
+        "col_wide",  # Notes
+        "col_wide",  # Merchant Note
     ]
     for cs in col_styles:
         table.addElement(TableColumn(stylename=cs))
@@ -240,7 +268,13 @@ def build_rules_sheet(doc, rules):
 
     for rule in rules:
         row = TableRow()
-        for key in ("pattern", "match_field", "category", "subcategory", "payment_type"):
+        for key in (
+            "pattern",
+            "match_field",
+            "category",
+            "subcategory",
+            "payment_type",
+        ):
             row.addElement(make_cell(rule[key], style_name="normal"))
         table.addElement(row)
 
@@ -258,10 +292,13 @@ def write_monthly_summary_sheet(doc, transactions):
     table = Table(name="Monthly Summary")
 
     months = sorted(set(tx["month"] for tx in transactions if tx["month"]))
-    categories = sorted(set(
-        tx["category"] for tx in transactions
-        if tx.get("category") and counts_as_spending(tx)
-    ))
+    categories = sorted(
+        set(
+            tx["category"]
+            for tx in transactions
+            if tx.get("category") and counts_as_spending(tx)
+        )
+    )
     if not categories:
         categories = ["(no categories yet)"]
 
@@ -279,19 +316,25 @@ def write_monthly_summary_sheet(doc, transactions):
 
         for cat in categories:
             formula = (
-                f'of:=SUMPRODUCT('
-                f'([.Data.B2:.Data.B{n}]={_lit(month)})'
-                f'*([.Data.H2:.Data.H{n}]={_lit(cat)})'
-                f'*{_spend(n)})'
+                f"of:=SUMPRODUCT("
+                f"([.Data.B2:.Data.B{n}]={_lit(month)})"
+                f"*([.Data.H2:.Data.H{n}]={_lit(cat)})"
+                f"*{_spend(n)})"
             )
-            row.addElement(make_cell("", style_name="normal", value_type="float", formula=formula))
+            row.addElement(
+                make_cell("", style_name="normal", value_type="float", formula=formula)
+            )
 
         if categories:
             last_col = col_letter(len(categories) + 1)
-            row.addElement(make_cell(
-                "", style_name="normal", value_type="float",
-                formula=f"of:=SUM([.B{row_num}:.{last_col}{row_num}])",
-            ))
+            row.addElement(
+                make_cell(
+                    "",
+                    style_name="normal",
+                    value_type="float",
+                    formula=f"of:=SUM([.B{row_num}:.{last_col}{row_num}])",
+                )
+            )
 
         table.addElement(row)
 
@@ -302,15 +345,23 @@ def write_monthly_summary_sheet(doc, transactions):
         last_data_row = len(months) + 1
         for col_idx in range(len(categories)):
             col = col_letter(col_idx + 2)
-            total_row.addElement(make_cell(
-                "", style_name="header", value_type="float",
-                formula=f"of:=SUM([.{col}2:.{col}{last_data_row}])",
-            ))
+            total_row.addElement(
+                make_cell(
+                    "",
+                    style_name="header",
+                    value_type="float",
+                    formula=f"of:=SUM([.{col}2:.{col}{last_data_row}])",
+                )
+            )
         gt_col = col_letter(len(categories) + 2)
-        total_row.addElement(make_cell(
-            "", style_name="header", value_type="float",
-            formula=f"of:=SUM([.{gt_col}2:.{gt_col}{last_data_row}])",
-        ))
+        total_row.addElement(
+            make_cell(
+                "",
+                style_name="header",
+                value_type="float",
+                formula=f"of:=SUM([.{gt_col}2:.{gt_col}{last_data_row}])",
+            )
+        )
         table.addElement(total_row)
 
     doc.spreadsheet.addElement(table)
@@ -327,10 +378,13 @@ def write_category_breakdown_sheet(doc, transactions):
         table.addElement(TableColumn(stylename="col_medium"))
     table.addElement(make_header_row(headers))
 
-    categories = sorted(set(
-        tx["category"] for tx in transactions
-        if tx.get("category") and counts_as_spending(tx)
-    ))
+    categories = sorted(
+        set(
+            tx["category"]
+            for tx in transactions
+            if tx.get("category") and counts_as_spending(tx)
+        )
+    )
     n_months = len(set(tx["month"] for tx in transactions if tx["month"])) or 1
     n = len(transactions) + 1
 
@@ -341,28 +395,52 @@ def write_category_breakdown_sheet(doc, transactions):
         row.addElement(make_cell(cat, style_name="normal"))
 
         # Total Spent
-        row.addElement(make_cell("", style_name="normal", value_type="float", formula=(
-            f'of:=SUMPRODUCT('
-            f'([.Data.H2:.Data.H{n}]={_lit(cat)})'
-            f'*{_spend(n)})'
-        )))
+        row.addElement(
+            make_cell(
+                "",
+                style_name="normal",
+                value_type="float",
+                formula=(
+                    f"of:=SUMPRODUCT("
+                    f"([.Data.H2:.Data.H{n}]={_lit(cat)})"
+                    f"*{_spend(n)})"
+                ),
+            )
+        )
 
         # % of Total
-        row.addElement(make_cell("", style_name="normal", value_type="float", formula=(
-            f'of:=[.B{row_num}]/'
-            f'SUMPRODUCT({_spend(n)})*100'
-        )))
+        row.addElement(
+            make_cell(
+                "",
+                style_name="normal",
+                value_type="float",
+                formula=(f"of:=[.B{row_num}]/" f"SUMPRODUCT({_spend(n)})*100"),
+            )
+        )
 
         # Avg / Month
-        row.addElement(make_cell("", style_name="normal", value_type="float",
-                                 formula=f"of:=[.B{row_num}]/{n_months}"))
+        row.addElement(
+            make_cell(
+                "",
+                style_name="normal",
+                value_type="float",
+                formula=f"of:=[.B{row_num}]/{n_months}",
+            )
+        )
 
         # # Transactions
-        row.addElement(make_cell("", style_name="normal", value_type="float", formula=(
-            f'of:=SUMPRODUCT('
-            f'([.Data.H2:.Data.H{n}]={_lit(cat)})'
-            f'*([.Data.G2:.Data.G{n}]="out"))'
-        )))
+        row.addElement(
+            make_cell(
+                "",
+                style_name="normal",
+                value_type="float",
+                formula=(
+                    f"of:=SUMPRODUCT("
+                    f"([.Data.H2:.Data.H{n}]={_lit(cat)})"
+                    f'*([.Data.G2:.Data.G{n}]="out"))'
+                ),
+            )
+        )
 
         table.addElement(row)
 
@@ -372,10 +450,14 @@ def write_category_breakdown_sheet(doc, transactions):
         total_row.addElement(make_cell("TOTAL", style_name="header"))
         last = len(categories) + 1
         for col in ("B", "C", "D", "E"):
-            total_row.addElement(make_cell(
-                "", style_name="header", value_type="float",
-                formula=f"of:=SUM([.{col}2:.{col}{last}])",
-            ))
+            total_row.addElement(
+                make_cell(
+                    "",
+                    style_name="header",
+                    value_type="float",
+                    formula=f"of:=SUM([.{col}2:.{col}{last}])",
+                )
+            )
         table.addElement(total_row)
 
     doc.spreadsheet.addElement(table)
@@ -408,73 +490,117 @@ def write_dashboard_sheet(doc, transactions):
     # Total Income
     row = TableRow()
     row.addElement(make_cell("Total Income", style_name="normal"))
-    row.addElement(make_cell("", style_name="normal", value_type="float", formula=(
-        f'of:=SUMPRODUCT({_income(n)})'
-    )))
+    row.addElement(
+        make_cell(
+            "",
+            style_name="normal",
+            value_type="float",
+            formula=(f"of:=SUMPRODUCT({_income(n)})"),
+        )
+    )
     row.addElement(make_cell("", style_name="normal"))
     table.addElement(row)
 
     # Total Expenses
     row = TableRow()
     row.addElement(make_cell("Total Expenses", style_name="normal"))
-    row.addElement(make_cell("", style_name="normal", value_type="float", formula=(
-        f'of:=SUMPRODUCT({_spend(n)})'
-    )))
+    row.addElement(
+        make_cell(
+            "",
+            style_name="normal",
+            value_type="float",
+            formula=(f"of:=SUMPRODUCT({_spend(n)})"),
+        )
+    )
     row.addElement(make_cell("", style_name="normal"))
     table.addElement(row)
 
     # Net Balance
     row = TableRow()
     row.addElement(make_cell("Net Balance (Income - Expenses)", style_name="normal"))
-    row.addElement(make_cell("", style_name="normal", value_type="float",
-                             formula="of:=[.B4]-[.B5]"))
+    row.addElement(
+        make_cell(
+            "", style_name="normal", value_type="float", formula="of:=[.B4]-[.B5]"
+        )
+    )
     row.addElement(make_cell("", style_name="normal"))
     table.addElement(row)
 
     # Avg Monthly Spend
     row = TableRow()
     row.addElement(make_cell("Average Monthly Spend", style_name="normal"))
-    row.addElement(make_cell("", style_name="normal", value_type="float",
-                             formula=f"of:=[.B5]/{n_months}"))
+    row.addElement(
+        make_cell(
+            "", style_name="normal", value_type="float", formula=f"of:=[.B5]/{n_months}"
+        )
+    )
     row.addElement(make_cell("", style_name="normal"))
     table.addElement(row)
 
     # Total Transactions
     row = TableRow()
     row.addElement(make_cell("Total Transactions", style_name="normal"))
-    row.addElement(make_cell("", style_name="normal", value_type="float", formula=(
-        f'of:=COUNTA([.Data.Q2:.Data.Q{n}])'  # Q: transaction ID, never empty
-    )))
+    row.addElement(
+        make_cell(
+            "",
+            style_name="normal",
+            value_type="float",
+            formula=(
+                f"of:=COUNTA([.Data.Q2:.Data.Q{n}])"  # Q: transaction ID, never empty
+            ),
+        )
+    )
     row.addElement(make_cell("", style_name="normal"))
     table.addElement(row)
 
     # Uncategorized Count
     row = TableRow()
     row.addElement(make_cell("Uncategorized Transactions", style_name="normal"))
-    row.addElement(make_cell("", style_name="normal", value_type="float", formula=(
-        f'of:=COUNTIF([.Data.M2:.Data.M{n}];"uncategorized")'
-    )))
+    row.addElement(
+        make_cell(
+            "",
+            style_name="normal",
+            value_type="float",
+            formula=(f'of:=COUNTIF([.Data.M2:.Data.M{n}];"uncategorized")'),
+        )
+    )
     row.addElement(make_cell("", style_name="normal"))
     table.addElement(row)
 
     table.addElement(TableRow())  # blank row
 
     # --- Top categories ---
-    table.addElement(make_header_row(["Top Categories", "Total Spent", "# Transactions"]))
+    table.addElement(
+        make_header_row(["Top Categories", "Total Spent", "# Transactions"])
+    )
 
     for cat in top_categories(transactions):
         row = TableRow()
         row.addElement(make_cell(cat, style_name="normal"))
-        row.addElement(make_cell("", style_name="normal", value_type="float", formula=(
-            f'of:=SUMPRODUCT('
-            f'([.Data.H2:.Data.H{n}]={_lit(cat)})'
-            f'*{_spend(n)})'
-        )))
-        row.addElement(make_cell("", style_name="normal", value_type="float", formula=(
-            f'of:=SUMPRODUCT('
-            f'([.Data.H2:.Data.H{n}]={_lit(cat)})'
-            f'*([.Data.G2:.Data.G{n}]="out"))'
-        )))
+        row.addElement(
+            make_cell(
+                "",
+                style_name="normal",
+                value_type="float",
+                formula=(
+                    f"of:=SUMPRODUCT("
+                    f"([.Data.H2:.Data.H{n}]={_lit(cat)})"
+                    f"*{_spend(n)})"
+                ),
+            )
+        )
+        row.addElement(
+            make_cell(
+                "",
+                style_name="normal",
+                value_type="float",
+                formula=(
+                    f"of:=SUMPRODUCT("
+                    f"([.Data.H2:.Data.H{n}]={_lit(cat)})"
+                    f'*([.Data.G2:.Data.G{n}]="out"))'
+                ),
+            )
+        )
         table.addElement(row)
 
     table.addElement(TableRow())  # blank row
@@ -492,35 +618,56 @@ def write_dashboard_sheet(doc, transactions):
                     pass
                 merchant_totals[desc] = merchant_totals.get(desc, 0) + amt
 
-    top_merchants = sorted(merchant_totals.items(), key=lambda x: x[1], reverse=True)[:10]
+    top_merchants = sorted(merchant_totals.items(), key=lambda x: x[1], reverse=True)[
+        :10
+    ]
 
-    table.addElement(make_header_row(["Top 10 Merchants", "Total Spent", "# Transactions"]))
+    table.addElement(
+        make_header_row(["Top 10 Merchants", "Total Spent", "# Transactions"])
+    )
 
     for merchant, total in top_merchants:
         row = TableRow()
         row.addElement(make_cell(merchant, style_name="normal"))
-        row.addElement(make_cell("", style_name="normal", value_type="float", formula=(
-            f'of:=SUMPRODUCT('
-            f'([.Data.E2:.Data.E{n}]={_lit(merchant)})'
-            f'*([.Data.G2:.Data.G{n}]="out")'
-            f'*[.Data.F2:.Data.F{n}])'
-        )))
-        row.addElement(make_cell("", style_name="normal", value_type="float", formula=(
-            f'of:=SUMPRODUCT('
-            f'([.Data.E2:.Data.E{n}]={_lit(merchant)})'
-            f'*([.Data.G2:.Data.G{n}]="out"))'
-        )))
+        row.addElement(
+            make_cell(
+                "",
+                style_name="normal",
+                value_type="float",
+                formula=(
+                    f"of:=SUMPRODUCT("
+                    f"([.Data.E2:.Data.E{n}]={_lit(merchant)})"
+                    f'*([.Data.G2:.Data.G{n}]="out")'
+                    f"*[.Data.F2:.Data.F{n}])"
+                ),
+            )
+        )
+        row.addElement(
+            make_cell(
+                "",
+                style_name="normal",
+                value_type="float",
+                formula=(
+                    f"of:=SUMPRODUCT("
+                    f"([.Data.E2:.Data.E{n}]={_lit(merchant)})"
+                    f'*([.Data.G2:.Data.G{n}]="out"))'
+                ),
+            )
+        )
         table.addElement(row)
 
     table.addElement(TableRow())  # blank row
 
     # --- Uncategorized Preview (first 15 uncategorized transactions) ---
     uncategorized = [
-        tx for tx in transactions
+        tx
+        for tx in transactions
         if not tx.get("category") and tx.get("direction") == "out"
     ]
 
-    table.addElement(make_header_row(["Uncategorized Preview (up to 15)", "Amount", "Date"]))
+    table.addElement(
+        make_header_row(["Uncategorized Preview (up to 15)", "Amount", "Date"])
+    )
 
     for tx in uncategorized[:15]:
         row = TableRow()
@@ -532,7 +679,9 @@ def write_dashboard_sheet(doc, transactions):
 
     if not uncategorized:
         row = TableRow()
-        row.addElement(make_cell("All transactions are categorized!", style_name="normal"))
+        row.addElement(
+            make_cell("All transactions are categorized!", style_name="normal")
+        )
         table.addElement(row)
 
     doc.spreadsheet.addElement(table)
@@ -559,30 +708,51 @@ def write_monthly_trend_sheet(doc, transactions):
         row.addElement(make_cell(month, style_name="normal"))
 
         # Income
-        row.addElement(make_cell("", style_name="normal", value_type="float", formula=(
-            f'of:=SUMPRODUCT('
-            f'([.Data.B2:.Data.B{n}]={_lit(month)})'
-            f'*{_income(n)})'
-        )))
+        row.addElement(
+            make_cell(
+                "",
+                style_name="normal",
+                value_type="float",
+                formula=(
+                    f"of:=SUMPRODUCT("
+                    f"([.Data.B2:.Data.B{n}]={_lit(month)})"
+                    f"*{_income(n)})"
+                ),
+            )
+        )
 
         # Expenses
-        row.addElement(make_cell("", style_name="normal", value_type="float", formula=(
-            f'of:=SUMPRODUCT('
-            f'([.Data.B2:.Data.B{n}]={_lit(month)})'
-            f'*{_spend(n)})'
-        )))
+        row.addElement(
+            make_cell(
+                "",
+                style_name="normal",
+                value_type="float",
+                formula=(
+                    f"of:=SUMPRODUCT("
+                    f"([.Data.B2:.Data.B{n}]={_lit(month)})"
+                    f"*{_spend(n)})"
+                ),
+            )
+        )
 
         # Net (Income - Expenses)
-        row.addElement(make_cell("", style_name="normal", value_type="float",
-                                 formula=f"of:=[.B{row_num}]-[.C{row_num}]"))
+        row.addElement(
+            make_cell(
+                "",
+                style_name="normal",
+                value_type="float",
+                formula=f"of:=[.B{row_num}]-[.C{row_num}]",
+            )
+        )
 
         # Running Balance (cumulative net)
         if i == 0:
             formula = f"of:=[.D{row_num}]"
         else:
             formula = f"of:=[.E{row_num - 1}]+[.D{row_num}]"
-        row.addElement(make_cell("", style_name="normal", value_type="float",
-                                 formula=formula))
+        row.addElement(
+            make_cell("", style_name="normal", value_type="float", formula=formula)
+        )
 
         table.addElement(row)
 
@@ -592,10 +762,14 @@ def write_monthly_trend_sheet(doc, transactions):
         total_row.addElement(make_cell("TOTAL", style_name="header"))
         last = len(months) + 1
         for col in ("B", "C", "D"):
-            total_row.addElement(make_cell(
-                "", style_name="header", value_type="float",
-                formula=f"of:=SUM([.{col}2:.{col}{last}])",
-            ))
+            total_row.addElement(
+                make_cell(
+                    "",
+                    style_name="header",
+                    value_type="float",
+                    formula=f"of:=SUM([.{col}2:.{col}{last}])",
+                )
+            )
         total_row.addElement(make_cell("", style_name="header"))  # Running balance N/A
         table.addElement(total_row)
 
@@ -608,17 +782,25 @@ def write_subcategory_breakdown_sheet(doc, transactions):
 
     table = Table(name="Subcategory Breakdown")
 
-    headers = ["Category", "Subcategory", "Total Spent", "% of Category", "# Transactions"]
+    headers = [
+        "Category",
+        "Subcategory",
+        "Total Spent",
+        "% of Category",
+        "# Transactions",
+    ]
     for _ in headers:
         table.addElement(TableColumn(stylename="col_medium"))
     table.addElement(make_header_row(headers))
 
     # Collect unique (category, subcategory) pairs for outgoing transactions
-    pairs = sorted(set(
-        (tx["category"], tx.get("subcategory") or "")
-        for tx in transactions
-        if tx.get("category") and counts_as_spending(tx)
-    ))
+    pairs = sorted(
+        set(
+            (tx["category"], tx.get("subcategory") or "")
+            for tx in transactions
+            if tx.get("category") and counts_as_spending(tx)
+        )
+    )
 
     n = len(transactions) + 1
 
@@ -631,48 +813,90 @@ def write_subcategory_breakdown_sheet(doc, transactions):
 
         if subcat:
             # Total Spent for this category+subcategory
-            row.addElement(make_cell("", style_name="normal", value_type="float", formula=(
-                f'of:=SUMPRODUCT('
-                f'([.Data.H2:.Data.H{n}]={_lit(cat)})'
-                f'*([.Data.I2:.Data.I{n}]={_lit(subcat)})'
-                f'*{_spend(n)})'
-            )))
+            row.addElement(
+                make_cell(
+                    "",
+                    style_name="normal",
+                    value_type="float",
+                    formula=(
+                        f"of:=SUMPRODUCT("
+                        f"([.Data.H2:.Data.H{n}]={_lit(cat)})"
+                        f"*([.Data.I2:.Data.I{n}]={_lit(subcat)})"
+                        f"*{_spend(n)})"
+                    ),
+                )
+            )
 
             # % of Category
-            row.addElement(make_cell("", style_name="normal", value_type="float", formula=(
-                f'of:=[.C{row_num}]/'
-                f'SUMPRODUCT(([.Data.H2:.Data.H{n}]={_lit(cat)})'
-                f'*{_spend(n)})*100'
-            )))
+            row.addElement(
+                make_cell(
+                    "",
+                    style_name="normal",
+                    value_type="float",
+                    formula=(
+                        f"of:=[.C{row_num}]/"
+                        f"SUMPRODUCT(([.Data.H2:.Data.H{n}]={_lit(cat)})"
+                        f"*{_spend(n)})*100"
+                    ),
+                )
+            )
 
             # # Transactions
-            row.addElement(make_cell("", style_name="normal", value_type="float", formula=(
-                f'of:=SUMPRODUCT('
-                f'([.Data.H2:.Data.H{n}]={_lit(cat)})'
-                f'*([.Data.I2:.Data.I{n}]={_lit(subcat)})'
-                f'*([.Data.G2:.Data.G{n}]="out"))'
-            )))
+            row.addElement(
+                make_cell(
+                    "",
+                    style_name="normal",
+                    value_type="float",
+                    formula=(
+                        f"of:=SUMPRODUCT("
+                        f"([.Data.H2:.Data.H{n}]={_lit(cat)})"
+                        f"*([.Data.I2:.Data.I{n}]={_lit(subcat)})"
+                        f'*([.Data.G2:.Data.G{n}]="out"))'
+                    ),
+                )
+            )
         else:
             # No subcategory -- sum everything in category with empty subcategory
-            row.addElement(make_cell("", style_name="normal", value_type="float", formula=(
-                f'of:=SUMPRODUCT('
-                f'([.Data.H2:.Data.H{n}]={_lit(cat)})'
-                f'*([.Data.I2:.Data.I{n}]="")'
-                f'*{_spend(n)})'
-            )))
+            row.addElement(
+                make_cell(
+                    "",
+                    style_name="normal",
+                    value_type="float",
+                    formula=(
+                        f"of:=SUMPRODUCT("
+                        f"([.Data.H2:.Data.H{n}]={_lit(cat)})"
+                        f'*([.Data.I2:.Data.I{n}]="")'
+                        f"*{_spend(n)})"
+                    ),
+                )
+            )
 
-            row.addElement(make_cell("", style_name="normal", value_type="float", formula=(
-                f'of:=[.C{row_num}]/'
-                f'SUMPRODUCT(([.Data.H2:.Data.H{n}]={_lit(cat)})'
-                f'*{_spend(n)})*100'
-            )))
+            row.addElement(
+                make_cell(
+                    "",
+                    style_name="normal",
+                    value_type="float",
+                    formula=(
+                        f"of:=[.C{row_num}]/"
+                        f"SUMPRODUCT(([.Data.H2:.Data.H{n}]={_lit(cat)})"
+                        f"*{_spend(n)})*100"
+                    ),
+                )
+            )
 
-            row.addElement(make_cell("", style_name="normal", value_type="float", formula=(
-                f'of:=SUMPRODUCT('
-                f'([.Data.H2:.Data.H{n}]={_lit(cat)})'
-                f'*([.Data.I2:.Data.I{n}]="")'
-                f'*([.Data.G2:.Data.G{n}]="out"))'
-            )))
+            row.addElement(
+                make_cell(
+                    "",
+                    style_name="normal",
+                    value_type="float",
+                    formula=(
+                        f"of:=SUMPRODUCT("
+                        f"([.Data.H2:.Data.H{n}]={_lit(cat)})"
+                        f'*([.Data.I2:.Data.I{n}]="")'
+                        f'*([.Data.G2:.Data.G{n}]="out"))'
+                    ),
+                )
+            )
 
         table.addElement(row)
 
@@ -683,10 +907,14 @@ def write_subcategory_breakdown_sheet(doc, transactions):
         total_row.addElement(make_cell("", style_name="header"))
         last = len(pairs) + 1
         for col in ("C", "D", "E"):
-            total_row.addElement(make_cell(
-                "", style_name="header", value_type="float",
-                formula=f"of:=SUM([.{col}2:.{col}{last}])",
-            ))
+            total_row.addElement(
+                make_cell(
+                    "",
+                    style_name="header",
+                    value_type="float",
+                    formula=f"of:=SUM([.{col}2:.{col}{last}])",
+                )
+            )
         table.addElement(total_row)
 
     doc.spreadsheet.addElement(table)
@@ -726,15 +954,25 @@ def write_tags_sheet(doc, transactions):
     table.addElement(TableRow())  # blank
 
     # -- Header (row 7) --
-    table.addElement(make_header_row(
-        ["Tag", "# Transactions", "Total Spent", "% of Total Spend"]
-    ))
+    table.addElement(
+        make_header_row(["Tag", "# Transactions", "Total Spent", "% of Total Spend"])
+    )
 
     n = len(transactions) + 1  # last Data row (1-indexed)
 
     # Pre-filled example tags + empty formula slots
-    tags = ["#recurring", "#reimbursable", "#splurge", "#shared",
-            "", "", "", "", "", ""]
+    tags = [
+        "#recurring",
+        "#reimbursable",
+        "#splurge",
+        "#shared",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+    ]
 
     data_start_row = 8  # rows 1-7 are title/instructions/blank/header
 
@@ -746,32 +984,53 @@ def write_tags_sheet(doc, transactions):
         row.addElement(make_cell(tag, style_name="normal"))
 
         # B: # Transactions (unique rows where Notes OR Merchant Note contains the tag)
-        row.addElement(make_cell("", style_name="normal", value_type="float", formula=(
-            f'of:=IF([.A{row_num}]="";"";'
-            f'SUMPRODUCT('
-            f'(ISNUMBER(SEARCH([.A{row_num}];[.Data.R2:.Data.R{n}]))'
-            f'+ISNUMBER(SEARCH([.A{row_num}];[.Data.S2:.Data.S{n}])))'
-            f'>0))'
-        )))
+        row.addElement(
+            make_cell(
+                "",
+                style_name="normal",
+                value_type="float",
+                formula=(
+                    f'of:=IF([.A{row_num}]="";"";'
+                    f"SUMPRODUCT("
+                    f"(ISNUMBER(SEARCH([.A{row_num}];[.Data.R2:.Data.R{n}]))"
+                    f"+ISNUMBER(SEARCH([.A{row_num}];[.Data.S2:.Data.S{n}])))"
+                    f">0))"
+                ),
+            )
+        )
 
         # C: Total Spent (outgoing only)
-        row.addElement(make_cell("", style_name="normal", value_type="float", formula=(
-            f'of:=IF([.A{row_num}]="";"";'
-            f'SUMPRODUCT('
-            f'((ISNUMBER(SEARCH([.A{row_num}];[.Data.R2:.Data.R{n}]))'
-            f'+ISNUMBER(SEARCH([.A{row_num}];[.Data.S2:.Data.S{n}])))'
-            f'>0)'
-            f'*([.Data.G2:.Data.G{n}]="out")'
-            f'*[.Data.F2:.Data.F{n}]))'
-        )))
+        row.addElement(
+            make_cell(
+                "",
+                style_name="normal",
+                value_type="float",
+                formula=(
+                    f'of:=IF([.A{row_num}]="";"";'
+                    f"SUMPRODUCT("
+                    f"((ISNUMBER(SEARCH([.A{row_num}];[.Data.R2:.Data.R{n}]))"
+                    f"+ISNUMBER(SEARCH([.A{row_num}];[.Data.S2:.Data.S{n}])))"
+                    f">0)"
+                    f'*([.Data.G2:.Data.G{n}]="out")'
+                    f"*[.Data.F2:.Data.F{n}]))"
+                ),
+            )
+        )
 
         # D: % of Total Spend
-        row.addElement(make_cell("", style_name="normal", value_type="float", formula=(
-            f'of:=IF(OR([.A{row_num}]="";[.C{row_num}]=0);"";'
-            f'[.C{row_num}]/'
-            f'SUMPRODUCT(([.Data.G2:.Data.G{n}]="out")'
-            f'*[.Data.F2:.Data.F{n}])*100)'
-        )))
+        row.addElement(
+            make_cell(
+                "",
+                style_name="normal",
+                value_type="float",
+                formula=(
+                    f'of:=IF(OR([.A{row_num}]="";[.C{row_num}]=0);"";'
+                    f"[.C{row_num}]/"
+                    f'SUMPRODUCT(([.Data.G2:.Data.G{n}]="out")'
+                    f"*[.Data.F2:.Data.F{n}])*100)"
+                ),
+            )
+        )
 
         table.addElement(row)
 
@@ -785,8 +1044,13 @@ def write_recurring_sheet(doc, transactions):
     table = Table(name="Recurring Merchants")
 
     headers = [
-        "Merchant", "Times", "Total Spent", "Avg Amount",
-        "First Seen", "Last Seen", "Category",
+        "Merchant",
+        "Times",
+        "Total Spent",
+        "Avg Amount",
+        "First Seen",
+        "Last Seen",
+        "Category",
     ]
     for _ in headers:
         table.addElement(TableColumn(stylename="col_medium"))
@@ -815,9 +1079,14 @@ def write_recurring_sheet(doc, transactions):
     table.addElement(make_header_row(headers))
 
     # Pre-compute recurring merchants from outgoing transactions
-    merchant_data: dict[str, dict] = defaultdict(lambda: {
-        "count": 0, "total": 0.0, "dates": [], "category": "",
-    })
+    merchant_data: dict[str, dict] = defaultdict(
+        lambda: {
+            "count": 0,
+            "total": 0.0,
+            "dates": [],
+            "category": "",
+        }
+    )
     for tx in transactions:
         if tx.get("direction") != "out":
             continue
@@ -839,8 +1108,7 @@ def write_recurring_sheet(doc, transactions):
 
     # Filter to 3+ occurrences, sort by count descending then total descending
     recurring = [
-        (desc, info) for desc, info in merchant_data.items()
-        if info["count"] >= 3
+        (desc, info) for desc, info in merchant_data.items() if info["count"] >= 3
     ]
     recurring.sort(key=lambda x: (-x[1]["count"], -x[1]["total"]))
 
@@ -852,17 +1120,23 @@ def write_recurring_sheet(doc, transactions):
         avg = round(info["total"] / info["count"], 2) if info["count"] else 0
         row.addElement(make_cell(avg, style_name="normal"))
         dates_sorted = sorted(info["dates"]) if info["dates"] else []
-        row.addElement(make_cell(dates_sorted[0] if dates_sorted else "", style_name="normal"))
-        row.addElement(make_cell(dates_sorted[-1] if dates_sorted else "", style_name="normal"))
+        row.addElement(
+            make_cell(dates_sorted[0] if dates_sorted else "", style_name="normal")
+        )
+        row.addElement(
+            make_cell(dates_sorted[-1] if dates_sorted else "", style_name="normal")
+        )
         row.addElement(make_cell(info["category"], style_name="normal"))
         table.addElement(row)
 
     if not recurring:
         row = TableRow()
-        row.addElement(make_cell(
-            "No recurring merchants detected yet (need 3+ occurrences).",
-            style_name="normal",
-        ))
+        row.addElement(
+            make_cell(
+                "No recurring merchants detected yet (need 3+ occurrences).",
+                style_name="normal",
+            )
+        )
         table.addElement(row)
 
     doc.spreadsheet.addElement(table)

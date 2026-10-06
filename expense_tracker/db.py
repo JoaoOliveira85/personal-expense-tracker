@@ -1,4 +1,5 @@
 """SQLite storage: schema, ingestion, migrations, queries."""
+
 from __future__ import annotations
 
 import hashlib
@@ -42,8 +43,7 @@ def tx_id(row: dict) -> str:
 
 def ensure_schema(conn: sqlite3.Connection) -> None:
     """Create the transactions table if it doesn't exist."""
-    conn.execute(
-        """
+    conn.execute("""
         CREATE TABLE IF NOT EXISTS transactions (
             transaction_id    TEXT PRIMARY KEY,
             date_posted       TEXT NOT NULL,
@@ -69,8 +69,7 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
             source_file       TEXT NOT NULL,
             imported_at       TEXT NOT NULL
         );
-        """
-    )
+        """)
     conn.commit()
 
 
@@ -96,16 +95,14 @@ def migrate_schema(conn: sqlite3.Connection) -> None:
     # Values last written to or read from the ODS report. sync_from_ods()
     # compares against these rather than the live DB, so only cells the user
     # actually changed count as edits.
-    conn.execute(
-        """
+    conn.execute("""
         CREATE TABLE IF NOT EXISTS ods_baseline (
             transaction_id TEXT PRIMARY KEY,
             category       TEXT NOT NULL,
             subcategory    TEXT NOT NULL,
             notes          TEXT NOT NULL
         )
-        """
-    )
+        """)
     conn.commit()
 
 
@@ -114,9 +111,7 @@ def migrate_schema(conn: sqlite3.Connection) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _parse_file(
-    path: Path, cards_path: Path, bank_id: str | None = None
-) -> list[dict]:
+def _parse_file(path: Path, cards_path: Path, bank_id: str | None = None) -> list[dict]:
     """Parse one statement with the parser its extension and bank_id call for.
 
     An error from that parser is the answer: it is not retried with the
@@ -126,6 +121,7 @@ def _parse_file(
     suffix = path.suffix.lower()
     if suffix == ".pdf":
         from .pdf_parser import parse_pdf_statement
+
         return parse_pdf_statement(path, cards_path=cards_path)
     if bank_id is None and suffix != ".csv":
         # The registered parsers only claim .csv files: a UTF-16 export saved
@@ -324,9 +320,7 @@ def ingested_source_files(db_path: Path) -> set[str]:
     conn = sqlite3.connect(str(db_path))
     try:
         ensure_schema(conn)
-        rows = conn.execute(
-            "SELECT DISTINCT source_file FROM transactions"
-        ).fetchall()
+        rows = conn.execute("SELECT DISTINCT source_file FROM transactions").fetchall()
         return {r[0] for r in rows}
     finally:
         conn.close()
@@ -371,8 +365,7 @@ def reclean_descriptions(db_path: Path) -> int:
 def fetch_all_transactions(conn: sqlite3.Connection) -> list[dict]:
     """Fetch all transactions as a list of dicts, sorted by date desc."""
     conn.row_factory = sqlite3.Row
-    rows = conn.execute(
-        """
+    rows = conn.execute("""
         SELECT
             transaction_id, date_posted, date_value, month, day_of_week,
             description_raw, description_clean,
@@ -381,8 +374,7 @@ def fetch_all_transactions(conn: sqlite3.Connection) -> list[dict]:
             category, subcategory, notes, source_file, imported_at
         FROM transactions
         ORDER BY date_posted DESC, rowid DESC
-        """
-    ).fetchall()
+        """).fetchall()
     conn.row_factory = None
 
     result = []

@@ -5,6 +5,7 @@ discover merchant clusters and suggest categorization rules.
 Uses frequency analysis, text similarity, and temporal patterns to group
 uncategorized merchants into logical clusters. No ML dependencies required.
 """
+
 from __future__ import annotations
 
 import sqlite3
@@ -15,7 +16,6 @@ from pathlib import Path
 from .constants import DEFAULT_DB
 from .rules import add_rule
 
-
 # ---------------------------------------------------------------------------
 # Data extraction
 # ---------------------------------------------------------------------------
@@ -23,16 +23,14 @@ from .rules import add_rule
 
 def _fetch_uncategorized(conn: sqlite3.Connection) -> list[dict]:
     """Fetch all uncategorized outgoing transactions."""
-    rows = conn.execute(
-        """
+    rows = conn.execute("""
         SELECT description_clean, description_raw, amount_abs, date_posted,
                payment_type
         FROM transactions
         WHERE direction = 'out'
           AND (category IS NULL OR category = '')
         ORDER BY date_posted
-        """
-    ).fetchall()
+        """).fetchall()
     return [
         {
             "description_clean": r[0] or "",
@@ -47,15 +45,13 @@ def _fetch_uncategorized(conn: sqlite3.Connection) -> list[dict]:
 
 def _fetch_all_outgoing(conn: sqlite3.Connection) -> list[dict]:
     """Fetch all outgoing transactions (for pattern analysis)."""
-    rows = conn.execute(
-        """
+    rows = conn.execute("""
         SELECT description_clean, description_raw, amount_abs, date_posted,
                payment_type, category
         FROM transactions
         WHERE direction = 'out'
         ORDER BY date_posted
-        """
-    ).fetchall()
+        """).fetchall()
     return [
         {
             "description_clean": r[0] or "",
@@ -130,7 +126,7 @@ def _stddev(values: list[float]) -> float:
         return 0.0
     mean = sum(values) / len(values)
     variance = sum((x - mean) ** 2 for x in values) / len(values)
-    return variance ** 0.5
+    return variance**0.5
 
 
 # ---------------------------------------------------------------------------
@@ -216,18 +212,20 @@ def detect_recurring(
         # Check if amount is fairly consistent
         relative_stddev = stats["amount_stddev"] / stats["avg"] if stats["avg"] else 1
         if relative_stddev <= max_amount_stddev_pct:
-            suggestions.append({
-                "merchants": [name],
-                "pattern": name,
-                "suggested_category": "Subscriptions",
-                "reason": (
-                    f"Appears in {stats['months_count']} months with "
-                    f"consistent amount (~{stats['avg']:.2f}€)"
-                ),
-                "confidence": "high",
-                "count": stats["count"],
-                "total": stats["total"],
-            })
+            suggestions.append(
+                {
+                    "merchants": [name],
+                    "pattern": name,
+                    "suggested_category": "Subscriptions",
+                    "reason": (
+                        f"Appears in {stats['months_count']} months with "
+                        f"consistent amount (~{stats['avg']:.2f}€)"
+                    ),
+                    "confidence": "high",
+                    "count": stats["count"],
+                    "total": stats["total"],
+                }
+            )
     return suggestions
 
 
@@ -253,18 +251,20 @@ def detect_similar_merchants(
         total_count = sum(merchants[n]["count"] for n in cluster)
         total_amount = sum(merchants[n]["total"] for n in cluster)
 
-        suggestions.append({
-            "merchants": cluster,
-            "pattern": common_prefix if common_prefix else cluster[0],
-            "suggested_category": None,  # User needs to name this
-            "reason": (
-                f"{len(cluster)} similar merchants "
-                f"({total_count} transactions, {total_amount:.2f}€ total)"
-            ),
-            "confidence": "medium",
-            "count": total_count,
-            "total": total_amount,
-        })
+        suggestions.append(
+            {
+                "merchants": cluster,
+                "pattern": common_prefix if common_prefix else cluster[0],
+                "suggested_category": None,  # User needs to name this
+                "reason": (
+                    f"{len(cluster)} similar merchants "
+                    f"({total_count} transactions, {total_amount:.2f}€ total)"
+                ),
+                "confidence": "medium",
+                "count": total_count,
+                "total": total_amount,
+            }
+        )
 
     return suggestions
 
@@ -277,15 +277,17 @@ def detect_frequent_merchants(
     suggestions = []
     for name, stats in merchants.items():
         if stats["count"] >= min_count:
-            suggestions.append({
-                "merchants": [name],
-                "pattern": name,
-                "suggested_category": None,
-                "reason": f"{stats['count']} transactions totaling {stats['total']:.2f}€",
-                "confidence": "low",
-                "count": stats["count"],
-                "total": stats["total"],
-            })
+            suggestions.append(
+                {
+                    "merchants": [name],
+                    "pattern": name,
+                    "suggested_category": None,
+                    "reason": f"{stats['count']} transactions totaling {stats['total']:.2f}€",
+                    "confidence": "low",
+                    "count": stats["count"],
+                    "total": stats["total"],
+                }
+            )
     return suggestions
 
 
@@ -373,8 +375,10 @@ def format_suggestions(results: dict) -> str:
     lines = []
     stats = results["stats"]
 
-    lines.append(f"Analysis of {stats['total_uncategorized']} uncategorized transactions "
-                 f"({stats['unique_merchants']} unique merchants)")
+    lines.append(
+        f"Analysis of {stats['total_uncategorized']} uncategorized transactions "
+        f"({stats['unique_merchants']} unique merchants)"
+    )
     lines.append("")
 
     # Recurring

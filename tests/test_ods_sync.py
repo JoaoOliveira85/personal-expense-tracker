@@ -1,4 +1,5 @@
 """Tests for syncing manual edits from the ODS report back to SQLite."""
+
 from __future__ import annotations
 
 import sqlite3
@@ -193,8 +194,22 @@ class TestMerchantNoteSync:
         statement = make_utf16_csv(
             tmp_path / "2026-01.csv",
             [
-                ("20-01-2026", "20-01-2026", "MERCEARIA DO BAIRRO", "-8,00", "Compra", "992,00"),
-                ("05-01-2026", "05-01-2026", "MERCEARIA DO BAIRRO", "-12,00", "Compra", "1000,00"),
+                (
+                    "20-01-2026",
+                    "20-01-2026",
+                    "MERCEARIA DO BAIRRO",
+                    "-8,00",
+                    "Compra",
+                    "992,00",
+                ),
+                (
+                    "05-01-2026",
+                    "05-01-2026",
+                    "MERCEARIA DO BAIRRO",
+                    "-12,00",
+                    "Compra",
+                    "1000,00",
+                ),
             ],
         )
         ingest(db, [statement], cards_path=tmp_path / "none.csv")
@@ -262,7 +277,12 @@ class TestOnlyEditedCellsAreSynced:
 
         assert sync_from_ods(db, ods, notes) == 1
 
-        assert _row_values(db, tid) == ("Supermarket", "Food", "birthday dinner", "rule")
+        assert _row_values(db, tid) == (
+            "Supermarket",
+            "Food",
+            "birthday dinner",
+            "rule",
+        )
 
     def test_category_edit_keeps_a_newer_note(self, report):
         db, ods, notes, tid = report
@@ -310,6 +330,7 @@ def _insert_column(position: int, header: str):
             cell = TableCell(valuetype="string")
             cell.addElement(P(text=header if i == 0 else ""))
             row.insertBefore(cell, row.getElementsByType(TableCell)[position])
+
     return change
 
 
@@ -370,6 +391,7 @@ class TestSpreadsheetLayoutChanges:
         def header_last(sheet, rows):
             sheet.removeChild(rows[0])
             sheet.addElement(rows[0])
+
         _edit_data_rows(ods, header_last)
 
         assert sync_from_ods(db, ods, notes) == 1
@@ -388,6 +410,7 @@ class TestSpreadsheetLayoutChanges:
             for p in cell.getElementsByType(P):
                 cell.removeChild(p)
             cell.addElement(P(text="Notas"))
+
         _edit_data_rows(ods, rename)
 
         assert sync_from_ods(db, ods, notes) == 1
@@ -403,6 +426,7 @@ class TestSpreadsheetLayoutChanges:
                 sheet.removeChild(row)
             for row in reversed(rows[1:]):
                 sheet.addElement(row)
+
         _edit_data_rows(ods, reverse)
 
         assert sync_from_ods(db, ods, notes) == 1
@@ -415,6 +439,7 @@ class TestSpreadsheetLayoutChanges:
             for row in rows[1:]:
                 if str(_cells(row)[COL_TRANSACTION_ID]) == tid:
                     sheet.removeChild(row)
+
         _edit_data_rows(ods, delete)
 
         assert sync_from_ods(db, ods, notes) == 0
@@ -448,6 +473,7 @@ class TestSpreadsheetLayoutChanges:
 def _set_ods_cell_at(ods_path: Path, tid: str, col: int, value: str) -> None:
     """Like _set_ods_cell, for a sheet whose columns have moved: finds the
     row by the transaction id wherever it is."""
+
     def change(sheet, rows):
         for row in rows[1:]:
             cells = _cells(row)
@@ -458,6 +484,7 @@ def _set_ods_cell_at(ods_path: Path, tid: str, col: int, value: str) -> None:
                 cell.addElement(P(text=value))
                 return
         raise AssertionError(f"transaction {tid} not found in ODS")
+
     _edit_data_rows(ods_path, change)
 
 
@@ -471,7 +498,8 @@ class TestSaveDescriptionNotes:
         _save_description_notes({"CAFÉ, O PIPO": 'says "hi"', "A": "#recurring"}, path)
 
         assert _load_description_notes(path) == {
-            "CAFÉ, O PIPO": 'says "hi"', "A": "#recurring",
+            "CAFÉ, O PIPO": 'says "hi"',
+            "A": "#recurring",
         }
         assert [p.name for p in tmp_path.iterdir()] == ["description-notes.csv"]
 

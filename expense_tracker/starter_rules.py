@@ -5,6 +5,7 @@ merchants and service providers, organized by category.
 These rules can be imported into the user's rules.csv to bootstrap
 categorization for the most recognizable transaction patterns.
 """
+
 from __future__ import annotations
 
 import csv
@@ -31,7 +32,6 @@ STARTER_RULES: list[tuple[str, str, str, str, str]] = [
     # ══════════════════════════════════════════════════════════════════════
     # GROCERIES & FOOD SHOPPING
     # ══════════════════════════════════════════════════════════════════════
-    
     # ── Supermarkets ──────────────────────────────────────────────────────
     ("CONTINENTE", "description", "Groceries", "Supermarket", ""),
     ("PINGO DOCE", "description", "Groceries", "Supermarket", ""),
@@ -50,7 +50,6 @@ STARTER_RULES: list[tuple[str, str, str, str, str]] = [
     ("APOLONIA", "description", "Groceries", "Supermarket", ""),
     ("SPAR", "description", "Groceries", "Supermarket", ""),
     ("PRIMAPRIX", "description", "Groceries", "Supermarket", ""),
-    
     # ── Specialty Food Shops ──────────────────────────────────────────────
     ("TALHO", "description", "Groceries", "Butcher", ""),
     ("PEIXARIA", "description", "Groceries", "Fish Market", ""),
@@ -59,17 +58,14 @@ STARTER_RULES: list[tuple[str, str, str, str, str]] = [
     ("MERCEARIA", "description", "Groceries", "Grocery Store", ""),
     ("CELEIRO", "description", "Groceries", "Health Food", ""),
     ("ERVANARIO", "description", "Groceries", "Health Food", ""),
-    
     # ── Bakeries ──────────────────────────────────────────────────────────
     ("PADARIA", "description", "Groceries", "Bakery", ""),
     ("PASTELARIA", "description", "Groceries", "Bakery", ""),
     ("CONFEITARIA", "description", "Groceries", "Bakery", ""),
     ("PAO ", "description", "Groceries", "Bakery", ""),
-
     # ══════════════════════════════════════════════════════════════════════
     # UTILITIES & BILLS
     # ══════════════════════════════════════════════════════════════════════
-    
     # ── Electricity ───────────────────────────────────────────────────────
     ("EDP", "description", "Utilities", "Electricity", ""),
     ("ENDESA", "description", "Utilities", "Electricity", ""),
@@ -77,10 +73,8 @@ STARTER_RULES: list[tuple[str, str, str, str, str]] = [
     ("GOLDENERGY", "description", "Utilities", "Electricity", ""),
     ("SU ELETRICIDAD", "description", "Utilities", "Electricity", "direct_debit"),
     ("ELETRICIDADE", "description", "Utilities", "Electricity", ""),
-    
     # ── Gas ───────────────────────────────────────────────────────────────
     ("GALP ENERGIA", "description", "Utilities", "Gas", ""),
-    
     # ── Water ─────────────────────────────────────────────────────────────
     ("AGUAS DE PORTUGAL", "description", "Utilities", "Water", ""),
     ("AGUAS DO PORTO", "description", "Utilities", "Water", ""),
@@ -89,29 +83,24 @@ STARTER_RULES: list[tuple[str, str, str, str, str]] = [
     ("EPAL", "description", "Utilities", "Water", ""),
     ("SMAS", "description", "Utilities", "Water", ""),
     ("INDAQUA", "description", "Utilities", "Water", ""),
-
     # ── Telecoms ──────────────────────────────────────────────────────────
     ("MEO", "description", "Utilities", "Telecoms", ""),
     ("NOS COMUNICACOES", "description", "Utilities", "Telecoms", ""),
     ("VODAFONE", "description", "Utilities", "Telecoms", "direct_debit"),
     ("NOWO", "description", "Utilities", "Telecoms", ""),
     ("DIGI PORTUGAL", "description", "Utilities", "Telecoms", ""),
-
     # ══════════════════════════════════════════════════════════════════════
     # TRANSPORT
     # ══════════════════════════════════════════════════════════════════════
-    
     # ── Fuel ──────────────────────────────────────────────────────────────
     ("GALP", "description", "Transport", "Fuel", ""),
     ("REPSOL", "description", "Transport", "Fuel", ""),
     ("CEPSA", "description", "Transport", "Fuel", ""),
     ("PRIO ENERGY", "description", "Transport", "Fuel", ""),
     ("BP ", "description", "Transport", "Fuel", ""),
-    
     # ── Tolls ─────────────────────────────────────────────────────────────
     ("VIA VERDE", "description", "Transport", "Tolls", ""),
     ("BRISA", "description", "Transport", "Tolls", ""),
-    
     # ── Public Transport ──────────────────────────────────────────────────
     ("CP COMBOIOS", "description", "Transport", "Train", ""),
     ("CP PORTO", "description", "Transport", "Train", ""),
@@ -125,28 +114,23 @@ STARTER_RULES: list[tuple[str, str, str, str, str]] = [
     ("APP ANDA", "description", "Transport", "Metro", ""),
     ("TMP ", "description", "Transport", "Parking", ""),
     ("TRAN.URB", "description", "Transport", "Public Transport", ""),
-    
     # ── Ride-hailing & Scooters ───────────────────────────────────────────
     ("UBER", "description", "Transport", "Ride-hailing", ""),
     ("BOLT", "description", "Transport", "Ride-hailing", ""),
     ("FREE NOW", "description", "Transport", "Ride-hailing", ""),
     ("LIME", "description", "Transport", "Scooter", ""),
     ("BIRD", "description", "Transport", "Scooter", ""),
-
     # ══════════════════════════════════════════════════════════════════════
     # HEALTH & WELLNESS
     # ══════════════════════════════════════════════════════════════════════
-    
     # ── Pharmacies ────────────────────────────────────────────────────────
     ("FARMACIA", "description", "Health", "Pharmacy", ""),
     ("FARM.", "description", "Health", "Pharmacy", ""),
     ("PARAFARMACIA", "description", "Health", "Pharmacy", ""),
     ("WELLS", "description", "Health", "Pharmacy", ""),
-    
     # ── Health Insurance ──────────────────────────────────────────────────
     ("MEDIS", "description", "Health", "Insurance", ""),
     ("MEDICARE", "description", "Health", "Insurance", ""),
-    
     # ── Hospitals & Clinics ───────────────────────────────────────────────
     ("HOSPITAL", "description", "Health", "Hospital", ""),
     ("CLINICA", "description", "Health", "Clinic", ""),
@@ -156,14 +140,11 @@ STARTER_RULES: list[tuple[str, str, str, str, str]] = [
     ("LUZ SAUDE", "description", "Health", "Hospital", ""),
     ("LUSIADAS", "description", "Health", "Hospital", ""),
     ("SNS", "description", "Health", "", ""),
-    
     # ── Optical ───────────────────────────────────────────────────────────
     ("OPTIC", "description", "Health", "Optical", ""),
     ("OCULISTA", "description", "Health", "Optical", ""),
-    
     # ── Mental Health ─────────────────────────────────────────────────────
     ("PSICOLOG", "description", "Health", "Mental Health", ""),
-
     # ══════════════════════════════════════════════════════════════════════
     # INSURANCE
     # ══════════════════════════════════════════════════════════════════════
@@ -177,11 +158,9 @@ STARTER_RULES: list[tuple[str, str, str, str, str]] = [
     ("OK TELESEGUROS", "description", "Insurance", "", ""),
     ("LOGO SEGUROS", "description", "Insurance", "", ""),
     ("UNIVERSO", "description", "Insurance", "Credit Card", "direct_debit"),
-
     # ══════════════════════════════════════════════════════════════════════
     # EATING OUT & RESTAURANTS
     # ══════════════════════════════════════════════════════════════════════
-    
     # ── Fast Food ─────────────────────────────────────────────────────────
     ("MCDONALD", "description", "Eating Out", "Fast Food", ""),
     ("BURGER KING", "description", "Eating Out", "Fast Food", ""),
@@ -191,26 +170,21 @@ STARTER_RULES: list[tuple[str, str, str, str, str]] = [
     ("TELEPIZZA", "description", "Eating Out", "Fast Food", ""),
     ("SUBWAY", "description", "Eating Out", "Fast Food", ""),
     ("PANS E COMPANY", "description", "Eating Out", "Fast Food", ""),
-    
     # ── Restaurants ───────────────────────────────────────────────────────
     ("RESTAURANTE", "description", "Eating Out", "Restaurant", ""),
     ("REST.", "description", "Eating Out", "Restaurant", ""),
-    
     # ── Coffee Shops ──────────────────────────────────────────────────────
     ("STARBUCKS", "description", "Eating Out", "Coffee", ""),
     ("JERONYMO", "description", "Eating Out", "Coffee", ""),
     ("CAFE ", "description", "Eating Out", "Coffee", ""),
     ("CAFETARIA", "description", "Eating Out", "Coffee", ""),
-    
     # ── Food Delivery ─────────────────────────────────────────────────────
     ("UBER EATS", "description", "Eating Out", "Delivery", ""),
     ("GLOVO", "description", "Eating Out", "Delivery", ""),
     ("BOLT FOOD", "description", "Eating Out", "Delivery", ""),
-
     # ══════════════════════════════════════════════════════════════════════
     # SUBSCRIPTIONS & DIGITAL SERVICES
     # ══════════════════════════════════════════════════════════════════════
-    
     # ── Streaming ─────────────────────────────────────────────────────────
     ("NETFLIX", "description", "Subscriptions", "Streaming", ""),
     ("SPOTIFY", "description", "Subscriptions", "Streaming", ""),
@@ -219,7 +193,6 @@ STARTER_RULES: list[tuple[str, str, str, str, str]] = [
     ("DISNEY+", "description", "Subscriptions", "Streaming", ""),
     ("AMAZON PRIME", "description", "Subscriptions", "Streaming", ""),
     ("YOUTUBE", "description", "Subscriptions", "Streaming", ""),
-    
     # ── Cloud & Software ──────────────────────────────────────────────────
     ("APPLE.COM", "description", "Subscriptions", "", ""),
     ("GOOGLE STORAGE", "description", "Subscriptions", "Cloud", ""),
@@ -227,14 +200,11 @@ STARTER_RULES: list[tuple[str, str, str, str, str]] = [
     ("ICLOUD", "description", "Subscriptions", "Cloud", ""),
     ("MICROSOFT 365", "description", "Subscriptions", "Software", ""),
     ("PROTON", "description", "Subscriptions", "Software", ""),
-    
     # ── Other Digital ─────────────────────────────────────────────────────
     ("PATREON", "description", "Subscriptions", "Membership", ""),
-
     # ══════════════════════════════════════════════════════════════════════
     # SHOPPING
     # ══════════════════════════════════════════════════════════════════════
-    
     # ── Clothing ──────────────────────────────────────────────────────────
     ("PRIMARK", "description", "Shopping", "Clothing", ""),
     ("ZARA", "description", "Shopping", "Clothing", ""),
@@ -247,38 +217,31 @@ STARTER_RULES: list[tuple[str, str, str, str, str]] = [
     ("WOMEN SECRET", "description", "Shopping", "Clothing", ""),
     ("LINGERIE", "description", "Shopping", "Clothing", ""),
     ("TEXTIL", "description", "Shopping", "Clothing", ""),
-    
     # ── Electronics ───────────────────────────────────────────────────────
     ("WORTEN", "description", "Shopping", "Electronics", ""),
     ("FNAC", "description", "Shopping", "Electronics", ""),
     ("MEDIA MARKT", "description", "Shopping", "Electronics", ""),
     ("RADIO POPULAR", "description", "Shopping", "Electronics", ""),
-    
     # ── Home & DIY ────────────────────────────────────────────────────────
     ("IKEA", "description", "Shopping", "Home", ""),
     ("LEROY MERLIN", "description", "Shopping", "Home", ""),
     ("AKI", "description", "Shopping", "Home", ""),
     ("CASA", "description", "Shopping", "Home", ""),
-    
     # ── Sports ────────────────────────────────────────────────────────────
     ("SPORT ZONE", "description", "Shopping", "Sports", ""),
     ("DECATHLON", "description", "Shopping", "Sports", ""),
-    
     # ── Online Shopping ───────────────────────────────────────────────────
     ("AMAZON", "description", "Shopping", "Online", ""),
     ("ALIEXPRESS", "description", "Shopping", "Online", ""),
     ("VINTED", "description", "Shopping", "Second-hand", ""),
     ("HIPAY", "description", "Shopping", "Online", ""),
-    
     # ── Variety Stores ────────────────────────────────────────────────────
     ("TIGER", "description", "Shopping", "Variety Store", ""),
-    
     # ── Books ─────────────────────────────────────────────────────────────
     ("BERTRAND", "description", "Shopping", "Books", ""),
     ("LIVRARIA", "description", "Shopping", "Books", ""),
     ("PORTO EDITORA", "description", "Shopping", "Books", ""),
     ("BOOK.IT", "description", "Shopping", "Books", ""),
-
     # ══════════════════════════════════════════════════════════════════════
     # ENTERTAINMENT & LEISURE
     # ══════════════════════════════════════════════════════════════════════
@@ -288,7 +251,6 @@ STARTER_RULES: list[tuple[str, str, str, str, str]] = [
     ("MUSEU", "description", "Entertainment", "Museum", ""),
     ("BILHET", "description", "Entertainment", "Tickets", ""),
     ("SEE TICKETS", "description", "Entertainment", "Tickets", ""),
-
     # ══════════════════════════════════════════════════════════════════════
     # GOVERNMENT & TAXES
     # ══════════════════════════════════════════════════════════════════════
@@ -301,7 +263,6 @@ STARTER_RULES: list[tuple[str, str, str, str, str]] = [
     ("IMPOSTO", "description_raw", "Taxes", "", ""),
     ("IMI ", "description", "Taxes", "Property Tax", ""),
     ("PAG.IGCP", "description_raw", "Taxes", "Government", ""),
-
     # ══════════════════════════════════════════════════════════════════════
     # BANK & FINANCIAL
     # ══════════════════════════════════════════════════════════════════════
@@ -317,13 +278,11 @@ STARTER_RULES: list[tuple[str, str, str, str, str]] = [
     (">PAGAMENTO CARTAO", "description_raw", "Debt", "Credit Card Payment", ""),
     ("VIS PAGAMENTO CARTAO", "description_raw", "Debt", "Credit Card Payment", ""),
     ("PRESTACAO", "description_raw", "Debt", "Loan Payment", ""),
-
     # ══════════════════════════════════════════════════════════════════════
     # INCOME
     # ══════════════════════════════════════════════════════════════════════
     ("TRANSFERENCIA - VENCIMENTO", "description_raw", "Income", "Salary", ""),
     ("VENCIMENTO", "description", "Income", "Salary", ""),
-
     # ══════════════════════════════════════════════════════════════════════
     # CHILDCARE & EDUCATION
     # ══════════════════════════════════════════════════════════════════════
@@ -332,7 +291,6 @@ STARTER_RULES: list[tuple[str, str, str, str, str]] = [
     ("UNIVERSIDADE", "description", "Education", "University", ""),
     ("FORMACAO", "description", "Education", "Training", ""),
     ("CURSO", "description", "Education", "Course", ""),
-
     # ══════════════════════════════════════════════════════════════════════
     # PERSONAL CARE
     # ══════════════════════════════════════════════════════════════════════
@@ -340,14 +298,12 @@ STARTER_RULES: list[tuple[str, str, str, str, str]] = [
     ("BARBEIRO", "description", "Personal Care", "Hair", ""),
     ("ESTETICA", "description", "Personal Care", "Beauty", ""),
     ("SPA", "description", "Personal Care", "Wellness", ""),
-
     # ══════════════════════════════════════════════════════════════════════
     # PETS
     # ══════════════════════════════════════════════════════════════════════
     ("VETERINAR", "description", "Pets", "Vet", ""),
     ("PET ", "description", "Pets", "", ""),
     ("PETSHOP", "description", "Pets", "", ""),
-
     # ══════════════════════════════════════════════════════════════════════
     # HOUSING
     # ══════════════════════════════════════════════════════════════════════
@@ -405,12 +361,14 @@ def import_starter_rules(rules_path: Path, *, dry_run: bool = False) -> tuple[in
         if is_new:
             writer.writerow(RULES_HEADER)
         for rule in to_add:
-            writer.writerow([
-                rule["pattern"],
-                rule["match_field"],
-                rule["category"],
-                rule["subcategory"],
-                rule["payment_type"],
-            ])
+            writer.writerow(
+                [
+                    rule["pattern"],
+                    rule["match_field"],
+                    rule["category"],
+                    rule["subcategory"],
+                    rule["payment_type"],
+                ]
+            )
 
     return len(to_add), skipped

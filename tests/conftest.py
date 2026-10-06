@@ -1,4 +1,5 @@
 """Shared test fixtures for the expense tracker test suite."""
+
 from __future__ import annotations
 
 import sqlite3
@@ -8,7 +9,6 @@ from pathlib import Path
 import pytest
 
 from expense_tracker.db import ensure_schema, migrate_schema
-
 
 # ---------------------------------------------------------------------------
 # Synthetic UTF-16 CSV builder
@@ -46,11 +46,46 @@ def make_utf16_csv(
 
 # Reusable sample transaction rows
 SAMPLE_ROWS = [
-    ("15-01-2026", "15-01-2026", "COMPRA 1234 CONTINENTE PORTO",       "-45,50", "Compra", "1234,56"),
-    ("14-01-2026", "14-01-2026", "COMPRA 5678 FARMACIA DA GARE 1000-001 LISBOA", "-12,80", "Compra", "1280,06"),
-    ("13-01-2026", "13-01-2026", "DD VODAFONE PORTU 01234567890 PT12345678", "-35,99", "Débito", "1292,86"),
-    ("12-01-2026", "12-01-2026", "TRF. P/O EXEMPLO SEGUROS SAUDE,SA", "-150,00", "Transf.", "1328,85"),
-    ("10-01-2026", "10-01-2026", "TRANSFERENCIA - SALARIO",              "2500,00", "Crédito", "1478,85"),
+    (
+        "15-01-2026",
+        "15-01-2026",
+        "COMPRA 1234 CONTINENTE PORTO",
+        "-45,50",
+        "Compra",
+        "1234,56",
+    ),
+    (
+        "14-01-2026",
+        "14-01-2026",
+        "COMPRA 5678 FARMACIA DA GARE 1000-001 LISBOA",
+        "-12,80",
+        "Compra",
+        "1280,06",
+    ),
+    (
+        "13-01-2026",
+        "13-01-2026",
+        "DD VODAFONE PORTU 01234567890 PT12345678",
+        "-35,99",
+        "Débito",
+        "1292,86",
+    ),
+    (
+        "12-01-2026",
+        "12-01-2026",
+        "TRF. P/O EXEMPLO SEGUROS SAUDE,SA",
+        "-150,00",
+        "Transf.",
+        "1328,85",
+    ),
+    (
+        "10-01-2026",
+        "10-01-2026",
+        "TRANSFERENCIA - SALARIO",
+        "2500,00",
+        "Crédito",
+        "1478,85",
+    ),
 ]
 
 
@@ -93,10 +128,7 @@ def noise_words(tmp_path: Path) -> Path:
     """A sample noise-words.txt."""
     p = tmp_path / "noise-words.txt"
     p.write_text(
-        "# Test noise words\n"
-        "CONTACTLESS\n"
-        "PT\n"
-        "PORTO\n",
+        "# Test noise words\n" "CONTACTLESS\n" "PT\n" "PORTO\n",
         encoding="utf-8",
     )
     return p
@@ -107,10 +139,10 @@ def cleaning_patterns(tmp_path: Path) -> Path:
     """A sample cleaning-patterns.csv."""
     p = tmp_path / "cleaning-patterns.csv"
     p.write_text(
-        'type,pattern,description\n'
-        'prefix,COMPRA\\s+\\d{4}\\s*,Card purchase prefix\n'
-        'prefix,DD\\s+,Direct debit prefix\n'
-        'noise,\\b\\d{4}-\\d{3}\\b,Portuguese postal codes\n'
+        "type,pattern,description\n"
+        "prefix,COMPRA\\s+\\d{4}\\s*,Card purchase prefix\n"
+        "prefix,DD\\s+,Direct debit prefix\n"
+        "noise,\\b\\d{4}-\\d{3}\\b,Portuguese postal codes\n"
         '"noise","\\b(?=[A-Z0-9]*\\d)[A-Z0-9]{8,12}\\b","Transaction ref codes"\n',
         encoding="utf-8",
     )
@@ -130,7 +162,13 @@ def test_db(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
-def populated_db(test_db: Path, utf16_csv: Path, cards_csv: Path, noise_words: Path, cleaning_patterns: Path) -> Path:
+def populated_db(
+    test_db: Path,
+    utf16_csv: Path,
+    cards_csv: Path,
+    noise_words: Path,
+    cleaning_patterns: Path,
+) -> Path:
     """A database populated with sample transactions from the UTF-16 CSV."""
     from expense_tracker.db import ingest
     from expense_tracker.parser import reset_cleaning_cache, _get_cleaning_patterns
@@ -168,11 +206,20 @@ def add_transaction(
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', NULL, 'EUR', '123456789', "
             "?, ?, ?, ?, 'synthetic.csv', '2026-01-01T00:00:00+00:00')",
             (
-                tid, date, date, date[:7],
+                tid,
+                date,
+                date,
+                date[:7],
                 datetime.strptime(date, "%Y-%m-%d").strftime("%a"),
-                description, description,
-                amount if direction == "in" else -amount, amount, direction,
-                category, subcategory, "manual" if category else None, notes,
+                description,
+                description,
+                amount if direction == "in" else -amount,
+                amount,
+                direction,
+                category,
+                subcategory,
+                "manual" if category else None,
+                notes,
             ),
         )
         conn.commit()

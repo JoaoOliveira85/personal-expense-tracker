@@ -4,6 +4,7 @@ UTF-16 CSV bank statement parser.
 Handles the quirky format: UTF-16 LE encoding, semicolon delimiters,
 non-tabular header/footer lines, Portuguese dates and amounts.
 """
+
 from __future__ import annotations
 
 import csv
@@ -14,7 +15,10 @@ from pathlib import Path
 from typing import Optional
 
 from .constants import (
-    DEFAULT_CARDS, DEFAULT_NOISE_WORDS, DEFAULT_CLEANING_PATTERNS, DOW_NAMES,
+    DEFAULT_CARDS,
+    DEFAULT_NOISE_WORDS,
+    DEFAULT_CLEANING_PATTERNS,
+    DOW_NAMES,
     account_type,
 )
 
@@ -87,9 +91,7 @@ def _get_cleaning_patterns(
             escaped = [re.escape(w) for w in words]
             # Match only when surrounded by whitespace or string boundaries
             # so "PT" won't match inside "CONTINENTE.PT"
-            noise_parts.append(
-                r"(?<!\S)(?:" + "|".join(escaped) + r")(?!\S)"
-            )
+            noise_parts.append(r"(?<!\S)(?:" + "|".join(escaped) + r")(?!\S)")
 
     # --- Load regex patterns from CSV ---
     if cleaning_patterns_path.exists():
@@ -108,9 +110,7 @@ def _get_cleaning_patterns(
     # --- Compile ---
     prefix_re = None
     if prefix_parts:
-        prefix_re = re.compile(
-            r"^(?:" + "|".join(prefix_parts) + r")", re.IGNORECASE
-        )
+        prefix_re = re.compile(r"^(?:" + "|".join(prefix_parts) + r")", re.IGNORECASE)
 
     noise_re = None
     if noise_parts:
@@ -316,8 +316,10 @@ def auto_rename_csv(path: Path) -> Path:
 
     # Check if both dates are in the same month
     if date_from.year != date_to.year or date_from.month != date_to.month:
-        print(f"  Date range spans multiple months ({date_from} to {date_to}), "
-              f"keeping original filename: {path.name}")
+        print(
+            f"  Date range spans multiple months ({date_from} to {date_to}), "
+            f"keeping original filename: {path.name}"
+        )
         return path
 
     target_name = date_from.strftime("%Y-%m") + ".csv"
@@ -329,15 +331,20 @@ def auto_rename_csv(path: Path) -> Path:
 
     if not target_path.exists():
         path.rename(target_path)
-        print(f"  Renamed {path.name} -> {target_name} "
-              f"(covers {date_from} to {date_to})")
+        print(
+            f"  Renamed {path.name} -> {target_name} "
+            f"(covers {date_from} to {date_to})"
+        )
         return target_path
 
     # Target exists — compare date ranges
     existing_from, existing_to = extract_date_range(target_path)
 
-    new_is_wider = (date_from <= existing_from and date_to >= existing_to
-                    and (date_from < existing_from or date_to > existing_to))
+    new_is_wider = (
+        date_from <= existing_from
+        and date_to >= existing_to
+        and (date_from < existing_from or date_to > existing_to)
+    )
 
     if new_is_wider:
         # Statements in raw/ are the bank's own record: never delete one.
@@ -345,10 +352,12 @@ def auto_rename_csv(path: Path) -> Path:
         # still hold rows the new one lacks.
         kept = _set_aside(target_path)
         path.rename(target_path)
-        print(f"  Replaced {target_name} with {path.name} "
-              f"(wider range: {date_from} to {date_to}, "
-              f"was {existing_from} to {existing_to}); "
-              f"previous file kept as {kept.name}")
+        print(
+            f"  Replaced {target_name} with {path.name} "
+            f"(wider range: {date_from} to {date_to}, "
+            f"was {existing_from} to {existing_to}); "
+            f"previous file kept as {kept.name}"
+        )
         return target_path
 
     raise ValueError(
@@ -398,7 +407,10 @@ def parse_utf16_csv(path: Path, cards_path: Path = DEFAULT_CARDS) -> list[dict]:
                 logger.warning(
                     "%s line %d: stopped reading at %r; %d later line(s) that "
                     "look like transactions were not imported",
-                    path.name, line_no, ln[:60], unread,
+                    path.name,
+                    line_no,
+                    ln[:60],
+                    unread,
                 )
             break
 
@@ -407,7 +419,10 @@ def parse_utf16_csv(path: Path, cards_path: Path = DEFAULT_CARDS) -> list[dict]:
         if len(parts) < 6:
             logger.warning(
                 "%s line %d: row not imported (%d of 6 fields): %s",
-                path.name, line_no, len(parts), ln,
+                path.name,
+                line_no,
+                len(parts),
+                ln,
             )
             continue
 

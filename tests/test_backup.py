@@ -1,4 +1,5 @@
 """Tests for expense_tracker/backup.py."""
+
 from __future__ import annotations
 
 import zipfile
@@ -16,7 +17,6 @@ from expense_tracker.backup import (
     previous_month_backup_exists,
     _previous_month_label,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers — seed a minimal workspace inside tmp_path
@@ -206,8 +206,9 @@ class TestFailedBackup:
                 raise OSError("disk full")
             return real_write(self, filename, *args, **kwargs)
 
-        with patch("expense_tracker.backup.date") as mock_date, patch.object(
-            zipfile.ZipFile, "write", failing_write
+        with (
+            patch("expense_tracker.backup.date") as mock_date,
+            patch.object(zipfile.ZipFile, "write", failing_write),
         ):
             mock_date.today.return_value = date(2026, 3, 10)
             mock_date.side_effect = lambda *a, **kw: date(*a, **kw)

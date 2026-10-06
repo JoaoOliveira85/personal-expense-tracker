@@ -7,6 +7,7 @@ highlights where money went so the user can then dive deeper in the ODS.
 
 If an advisor response exists for the month, it's appended as additional pages.
 """
+
 from __future__ import annotations
 
 import sqlite3
@@ -14,9 +15,13 @@ from collections import defaultdict
 from datetime import date, timedelta
 from pathlib import Path
 
-from .constants import DEFAULT_DB, DEFAULT_DESC_NOTES, DEFAULT_REPORTS, DEFAULT_ADVISOR_DIR
+from .constants import (
+    DEFAULT_DB,
+    DEFAULT_DESC_NOTES,
+    DEFAULT_REPORTS,
+    DEFAULT_ADVISOR_DIR,
+)
 from .db import NOT_SAVINGS_SQL, REFUND_SQL, SPEND_SQL, is_refund, is_savings
-
 
 # ---------------------------------------------------------------------------
 # Data extraction helpers
@@ -25,8 +30,13 @@ from .db import NOT_SAVINGS_SQL, REFUND_SQL, SPEND_SQL, is_refund, is_savings
 # Categories considered "essential" for the summary section.
 # Users can tweak this list in code if their category names differ.
 ESSENTIAL_CATEGORIES = [
-    "Housing", "Utilities", "Subscriptions", "Insurance",
-    "Health", "Childcare", "Transport",
+    "Housing",
+    "Utilities",
+    "Subscriptions",
+    "Insurance",
+    "Health",
+    "Childcare",
+    "Transport",
 ]
 
 
@@ -340,12 +350,12 @@ def month_display_name(month: str) -> str:
 # ---------------------------------------------------------------------------
 
 # Colour palette
-_CLR_DARK = (26, 26, 46)       # near-black text
-_CLR_ACCENT = (37, 99, 235)    # blue accent
-_CLR_MUTED = (100, 100, 120)   # muted text
+_CLR_DARK = (26, 26, 46)  # near-black text
+_CLR_ACCENT = (37, 99, 235)  # blue accent
+_CLR_MUTED = (100, 100, 120)  # muted text
 _CLR_BG_LIGHT = (243, 244, 246)  # light grey backgrounds
-_CLR_GREEN = (22, 163, 74)     # positive / income
-_CLR_RED = (220, 38, 38)       # negative / expenses
+_CLR_GREEN = (22, 163, 74)  # positive / income
+_CLR_RED = (220, 38, 38)  # negative / expenses
 _CLR_WHITE = (255, 255, 255)
 
 
@@ -473,7 +483,10 @@ def generate_monthly_pdf(
 
     merchant_notes = _load_merchant_notes(desc_notes_path)
     stats = _compute_stats(
-        transactions, merchant_notes, prev_month_totals, dict(category_averages),
+        transactions,
+        merchant_notes,
+        prev_month_totals,
+        dict(category_averages),
     )
 
     # Create PDF
@@ -493,15 +506,25 @@ def generate_monthly_pdf(
     pdf.set_font(f, "B", 18)
     pdf.set_text_color(*_CLR_WHITE)
     pdf.set_xy(margin, 6)
-    pdf.cell(usable_w / 2, 10, "Monthly Expense Report", new_x=XPos.RIGHT, new_y=YPos.TOP)
+    pdf.cell(
+        usable_w / 2, 10, "Monthly Expense Report", new_x=XPos.RIGHT, new_y=YPos.TOP
+    )
     pdf.set_font(f, "", 14)
     pdf.set_xy(page_w - margin - 80, 8)
-    pdf.cell(80, 8, month_display_name(month), new_x=XPos.RIGHT, new_y=YPos.TOP, align="R")
+    pdf.cell(
+        80, 8, month_display_name(month), new_x=XPos.RIGHT, new_y=YPos.TOP, align="R"
+    )
 
     # Small subtitle
     pdf.set_font(f, "", 8)
     pdf.set_xy(margin, 18)
-    pdf.cell(usable_w, 5, f"{stats['tx_count']} transactions", new_x=XPos.RIGHT, new_y=YPos.TOP)
+    pdf.cell(
+        usable_w,
+        5,
+        f"{stats['tx_count']} transactions",
+        new_x=XPos.RIGHT,
+        new_y=YPos.TOP,
+    )
 
     y = 34
 
@@ -511,8 +534,11 @@ def generate_monthly_pdf(
     summaries = [
         ("Income", stats["total_income"], _CLR_GREEN),
         ("Expenses", stats["total_expenses"], _CLR_RED),
-        ("Net Balance", stats["net_balance"],
-         _CLR_GREEN if stats["net_balance"] >= 0 else _CLR_RED),
+        (
+            "Net Balance",
+            stats["net_balance"],
+            _CLR_GREEN if stats["net_balance"] >= 0 else _CLR_RED,
+        ),
     ]
 
     for i, (label, amount, color) in enumerate(summaries):
@@ -570,7 +596,7 @@ def generate_monthly_pdf(
     pdf.set_font(f, "", 6.5)
     for idx in range(max_cat_rows):
         cat, amt, pct, count, prev_diff, avg_diff = stats["by_category"][idx]
-        is_uncat = (cat == "Uncategorized")
+        is_uncat = cat == "Uncategorized"
         if idx % 2 == 0:
             pdf.set_fill_color(250, 250, 252)
         else:
@@ -587,19 +613,45 @@ def generate_monthly_pdf(
             (cat[:24], "L", _CLR_RED if is_uncat else _CLR_DARK),
             (_fmt_eur(amt), "R", _CLR_RED if is_uncat else _CLR_DARK),
             (f"{pct:.1f}%", "R", _CLR_RED if is_uncat else _CLR_DARK),
-            (_fmt_diff(prev_diff), "R",
-             _CLR_RED if prev_diff is not None and prev_diff > 0
-             else _CLR_GREEN if prev_diff is not None and prev_diff < 0
-             else _CLR_MUTED),
-            (_fmt_diff(avg_diff), "R",
-             _CLR_RED if avg_diff is not None and avg_diff > 0
-             else _CLR_GREEN if avg_diff is not None and avg_diff < 0
-             else _CLR_MUTED),
+            (
+                _fmt_diff(prev_diff),
+                "R",
+                (
+                    _CLR_RED
+                    if prev_diff is not None and prev_diff > 0
+                    else (
+                        _CLR_GREEN
+                        if prev_diff is not None and prev_diff < 0
+                        else _CLR_MUTED
+                    )
+                ),
+            ),
+            (
+                _fmt_diff(avg_diff),
+                "R",
+                (
+                    _CLR_RED
+                    if avg_diff is not None and avg_diff > 0
+                    else (
+                        _CLR_GREEN
+                        if avg_diff is not None and avg_diff < 0
+                        else _CLR_MUTED
+                    )
+                ),
+            ),
         ]
         for i, (text, align, color) in enumerate(row_data):
             pdf.set_xy(col_left_x + sum(cat_col_w[:i]), left_y)
             pdf.set_text_color(*color)
-            pdf.cell(w=cat_col_w[i], h=4.5, text=text, new_x=XPos.RIGHT, new_y=YPos.TOP, fill=True, align=align)
+            pdf.cell(
+                w=cat_col_w[i],
+                h=4.5,
+                text=text,
+                new_x=XPos.RIGHT,
+                new_y=YPos.TOP,
+                fill=True,
+                align=align,
+            )
         left_y += 4.5
 
     # If there are more categories, show a note
@@ -608,7 +660,13 @@ def generate_monthly_pdf(
         pdf.set_font(f, "I", 6)
         pdf.set_text_color(*_CLR_MUTED)
         pdf.set_xy(col_left_x, left_y + 1)
-        pdf.cell(col_left_w, 4, f"+ {remaining} more categories (see spreadsheet)", new_x=XPos.RIGHT, new_y=YPos.TOP)
+        pdf.cell(
+            col_left_w,
+            4,
+            f"+ {remaining} more categories (see spreadsheet)",
+            new_x=XPos.RIGHT,
+            new_y=YPos.TOP,
+        )
         left_y += 5
 
     # Uncategorized alert
@@ -620,10 +678,12 @@ def generate_monthly_pdf(
         pdf.set_text_color(217, 119, 6)  # amber
         pdf.set_xy(col_left_x + 2, left_y + 1)
         pdf.cell(
-            col_left_w - 4, 6,
+            col_left_w - 4,
+            6,
             f"{stats['uncategorized_count']} uncategorized transaction(s) "
             f"- open the spreadsheet to categorize them",
-            new_x=XPos.RIGHT, new_y=YPos.TOP,
+            new_x=XPos.RIGHT,
+            new_y=YPos.TOP,
         )
         left_y += 10
 
@@ -640,9 +700,7 @@ def generate_monthly_pdf(
     pdf.set_fill_color(*_CLR_ACCENT)
     pdf.set_text_color(*_CLR_WHITE)
     pdf.set_font(f, "B", 7)
-    for i, (header, w) in enumerate(
-        zip(["Merchant", "Amount", "Times"], merch_col_w)
-    ):
+    for i, (header, w) in enumerate(zip(["Merchant", "Amount", "Times"], merch_col_w)):
         pdf.set_xy(col_right_x + sum(merch_col_w[:i]), right_y)
         align = "L" if i == 0 else "R"
         pdf.cell(w, 5, header, new_x=XPos.RIGHT, new_y=YPos.TOP, fill=True, align=align)
@@ -665,7 +723,9 @@ def generate_monthly_pdf(
         ]
         for i, ((text, align), w) in enumerate(zip(row_data, merch_col_w)):
             pdf.set_xy(col_right_x + sum(merch_col_w[:i]), right_y)
-            pdf.cell(w, 4.5, text, new_x=XPos.RIGHT, new_y=YPos.TOP, fill=True, align=align)
+            pdf.cell(
+                w, 4.5, text, new_x=XPos.RIGHT, new_y=YPos.TOP, fill=True, align=align
+            )
         right_y += 4.5
 
     # --- Tags section (if any) ---
@@ -681,12 +741,12 @@ def generate_monthly_pdf(
         pdf.set_fill_color(*_CLR_ACCENT)
         pdf.set_text_color(*_CLR_WHITE)
         pdf.set_font(f, "B", 7)
-        for i, (header, w) in enumerate(
-            zip(["Tag", "Amount", "# Txns"], tag_col_w)
-        ):
+        for i, (header, w) in enumerate(zip(["Tag", "Amount", "# Txns"], tag_col_w)):
             pdf.set_xy(col_right_x + sum(tag_col_w[:i]), right_y)
             align = "L" if i == 0 else "R"
-            pdf.cell(w, 5, header, new_x=XPos.RIGHT, new_y=YPos.TOP, fill=True, align=align)
+            pdf.cell(
+                w, 5, header, new_x=XPos.RIGHT, new_y=YPos.TOP, fill=True, align=align
+            )
         right_y += 5
 
         max_tag_rows = min(len(stats["tag_totals"]), 8)
@@ -707,7 +767,15 @@ def generate_monthly_pdf(
             ]
             for i, ((text, align), w) in enumerate(zip(row_data, tag_col_w)):
                 pdf.set_xy(col_right_x + sum(tag_col_w[:i]), right_y)
-                pdf.cell(w, 4.5, text, new_x=XPos.RIGHT, new_y=YPos.TOP, fill=True, align=align)
+                pdf.cell(
+                    w,
+                    4.5,
+                    text,
+                    new_x=XPos.RIGHT,
+                    new_y=YPos.TOP,
+                    fill=True,
+                    align=align,
+                )
             right_y += 4.5
 
     # --- Essential Spending section ---
@@ -733,16 +801,20 @@ def generate_monthly_pdf(
             pdf.set_font(f, "B", 10)
             pdf.set_text_color(*_CLR_DARK)
             pdf.set_xy(x + 3, bottom_y + 6)
-            pdf.cell(box_w_ess - 6, 6, _fmt_eur(total), new_x=XPos.RIGHT, new_y=YPos.TOP)
+            pdf.cell(
+                box_w_ess - 6, 6, _fmt_eur(total), new_x=XPos.RIGHT, new_y=YPos.TOP
+            )
 
     # --- Footer ---
     pdf.set_font(f, "I", 6)
     pdf.set_text_color(*_CLR_MUTED)
     pdf.set_xy(margin, 287)
     pdf.cell(
-        usable_w, 4,
+        usable_w,
+        4,
         f"Generated from ledger data  |  For details open expense-report.ods",
-        new_x=XPos.RIGHT, new_y=YPos.TOP,
+        new_x=XPos.RIGHT,
+        new_y=YPos.TOP,
     )
 
     # --- Handle no-data case ---
@@ -751,16 +823,22 @@ def generate_monthly_pdf(
         pdf.set_text_color(*_CLR_MUTED)
         pdf.set_xy(margin, 80)
         pdf.cell(
-            usable_w, 20,
+            usable_w,
+            20,
             f"No transactions found for {month_display_name(month)}.",
-            new_x=XPos.RIGHT, new_y=YPos.TOP, align="C",
+            new_x=XPos.RIGHT,
+            new_y=YPos.TOP,
+            align="C",
         )
         pdf.set_font(f, "", 10)
         pdf.set_xy(margin, 100)
         pdf.cell(
-            usable_w, 10,
+            usable_w,
+            10,
             "Import bank statements with ./run.sh and try again.",
-            new_x=XPos.RIGHT, new_y=YPos.TOP, align="C",
+            new_x=XPos.RIGHT,
+            new_y=YPos.TOP,
+            align="C",
         )
 
     # --- Advisor Notes (if response exists) ---
@@ -783,17 +861,17 @@ def _add_advisor_pages(
 ) -> None:
     """Add advisor response as additional pages to the PDF."""
     from fpdf.enums import XPos, YPos
-    
+
     response_text = response_path.read_text(encoding="utf-8")
     if not response_text.strip():
         return
-    
+
     page_w = 210
     page_h = 297
-    
+
     # Add a new page for advisor notes
     pdf.add_page()
-    
+
     # Header
     pdf.set_fill_color(*_CLR_ACCENT)
     pdf.rect(0, 0, page_w, 20, "F")
@@ -801,21 +879,21 @@ def _add_advisor_pages(
     pdf.set_text_color(*_CLR_WHITE)
     pdf.set_xy(margin, 6)
     pdf.cell(usable_w, 8, "Financial Advisor Notes", new_x=XPos.RIGHT, new_y=YPos.TOP)
-    
+
     y = 28
-    
+
     # Parse and render markdown-ish content
     pdf.set_text_color(*_CLR_DARK)
-    
+
     lines = response_text.split("\n")
     for line in lines:
         # Check if we need a new page
         if y > page_h - 20:
             pdf.add_page()
             y = 15
-        
+
         stripped = line.strip()
-        
+
         # Headers
         if stripped.startswith("### "):
             pdf.set_font(font, "B", 10)
@@ -848,7 +926,9 @@ def _add_advisor_pages(
             bullet = "•" if font == "CustomSans" else "-"
             pdf.cell(4, 4, bullet, new_x=XPos.RIGHT, new_y=YPos.TOP)
             pdf.set_xy(margin + 10, y)
-            pdf.multi_cell(usable_w - 10, 4, stripped[2:], new_x=XPos.LEFT, new_y=YPos.NEXT)
+            pdf.multi_cell(
+                usable_w - 10, 4, stripped[2:], new_x=XPos.LEFT, new_y=YPos.NEXT
+            )
             y = pdf.get_y() + 1
         # Numbered lists
         elif len(stripped) > 2 and stripped[0].isdigit() and stripped[1] in ".)":
@@ -856,7 +936,9 @@ def _add_advisor_pages(
             pdf.set_xy(margin + 4, y)
             pdf.cell(6, 4, stripped[:2], new_x=XPos.RIGHT, new_y=YPos.TOP)
             pdf.set_xy(margin + 12, y)
-            pdf.multi_cell(usable_w - 12, 4, stripped[2:].strip(), new_x=XPos.LEFT, new_y=YPos.NEXT)
+            pdf.multi_cell(
+                usable_w - 12, 4, stripped[2:].strip(), new_x=XPos.LEFT, new_y=YPos.NEXT
+            )
             y = pdf.get_y() + 1
         # Bold text (simple **text** handling)
         elif stripped.startswith("**") and "**" in stripped[2:]:
@@ -864,12 +946,24 @@ def _add_advisor_pages(
             # Extract bold portion
             end_idx = stripped.index("**", 2)
             bold_text = stripped[2:end_idx]
-            rest = stripped[end_idx + 2:].lstrip(": ")
+            rest = stripped[end_idx + 2 :].lstrip(": ")
             pdf.set_xy(margin, y)
-            pdf.cell(pdf.get_string_width(bold_text) + 2, 4, bold_text, new_x=XPos.RIGHT, new_y=YPos.TOP)
+            pdf.cell(
+                pdf.get_string_width(bold_text) + 2,
+                4,
+                bold_text,
+                new_x=XPos.RIGHT,
+                new_y=YPos.TOP,
+            )
             if rest:
                 pdf.set_font(font, "", 9)
-                pdf.multi_cell(usable_w - pdf.get_x() + margin, 4, ": " + rest if rest else "", new_x=XPos.LEFT, new_y=YPos.NEXT)
+                pdf.multi_cell(
+                    usable_w - pdf.get_x() + margin,
+                    4,
+                    ": " + rest if rest else "",
+                    new_x=XPos.LEFT,
+                    new_y=YPos.NEXT,
+                )
                 y = pdf.get_y() + 1
             else:
                 y += 5

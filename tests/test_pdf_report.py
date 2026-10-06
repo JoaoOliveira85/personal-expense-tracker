@@ -1,4 +1,5 @@
 """Tests for the PDF report generator."""
+
 from __future__ import annotations
 
 import sqlite3
@@ -20,7 +21,6 @@ from expense_tracker.pdf_report import (
     previous_month_label,
     ESSENTIAL_CATEGORIES,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helper to build transaction dicts for testing
@@ -164,7 +164,9 @@ class TestComputeStats:
 
     def test_savings_are_neither_spending_nor_income(self):
         txns = [
-            _tx(desc="SAVINGS ACCOUNT", amount=2000, direction="out", category="Savings"),
+            _tx(
+                desc="SAVINGS ACCOUNT", amount=2000, direction="out", category="Savings"
+            ),
             _tx(desc="SAVINGS ACCOUNT", amount=500, direction="in", category="Savings"),
             _tx(amount=40, direction="out", category="Groceries"),
         ]
@@ -193,7 +195,7 @@ class TestComputeStats:
         # Sorted by amount descending; tuple is (cat, amt, pct, count, prev_diff, avg_diff)
         assert stats["by_category"][0][0] == "Groceries"
         assert stats["by_category"][0][1] == 180  # total
-        assert stats["by_category"][0][3] == 2    # count
+        assert stats["by_category"][0][3] == 2  # count
         assert stats["by_category"][0][4] is None  # no prev data
         assert stats["by_category"][0][5] is None  # no avg data
         assert stats["by_category"][1][0] == "Health"
@@ -223,8 +225,7 @@ class TestComputeStats:
 
     def test_top_merchants_max_10(self):
         txns = [
-            _tx(desc=f"MERCHANT {i}", amount=i * 10, direction="out")
-            for i in range(15)
+            _tx(desc=f"MERCHANT {i}", amount=i * 10, direction="out") for i in range(15)
         ]
         stats = _compute_stats(txns)
         assert len(stats["top_merchants"]) == 10
@@ -389,9 +390,7 @@ class TestGenerateMonthlyPdf:
     def test_generates_pdf_file(self, populated_db, tmp_path):
         output = tmp_path / "test-report.pdf"
         desc_notes = tmp_path / "desc-notes.csv"
-        desc_notes.write_text(
-            "description_clean,merchant_note\n", encoding="utf-8"
-        )
+        desc_notes.write_text("description_clean,merchant_note\n", encoding="utf-8")
 
         result = generate_monthly_pdf(
             db_path=populated_db,
@@ -409,9 +408,7 @@ class TestGenerateMonthlyPdf:
     def test_empty_month_generates_pdf(self, populated_db, tmp_path):
         output = tmp_path / "empty-report.pdf"
         desc_notes = tmp_path / "desc-notes.csv"
-        desc_notes.write_text(
-            "description_clean,merchant_note\n", encoding="utf-8"
-        )
+        desc_notes.write_text("description_clean,merchant_note\n", encoding="utf-8")
 
         result = generate_monthly_pdf(
             db_path=populated_db,
@@ -427,9 +424,7 @@ class TestGenerateMonthlyPdf:
         """When no output path given, defaults to reports/report-YYYY-MM.pdf."""
         monkeypatch.chdir(tmp_path)
         desc_notes = tmp_path / "desc-notes.csv"
-        desc_notes.write_text(
-            "description_clean,merchant_note\n", encoding="utf-8"
-        )
+        desc_notes.write_text("description_clean,merchant_note\n", encoding="utf-8")
 
         result = generate_monthly_pdf(
             db_path=populated_db,
@@ -461,9 +456,7 @@ class TestGenerateMonthlyPdf:
     def test_creates_parent_directory(self, populated_db, tmp_path):
         output = tmp_path / "subdir" / "nested" / "report.pdf"
         desc_notes = tmp_path / "desc-notes.csv"
-        desc_notes.write_text(
-            "description_clean,merchant_note\n", encoding="utf-8"
-        )
+        desc_notes.write_text("description_clean,merchant_note\n", encoding="utf-8")
 
         result = generate_monthly_pdf(
             db_path=populated_db,
@@ -485,8 +478,16 @@ def _insert(conn, tid, month, direction, category, amount):
         "day_of_week, description_raw, amount_signed, amount_abs, direction, "
         "currency, account, category, source_file, imported_at) "
         "VALUES (?, ?, ?, ?, 'Mon', 'X', ?, ?, ?, 'EUR', 'a', ?, 'f', 'now')",
-        (tid, f"{month}-01", f"{month}-01", month,
-         -amount if direction == "out" else amount, amount, direction, category),
+        (
+            tid,
+            f"{month}-01",
+            f"{month}-01",
+            month,
+            -amount if direction == "out" else amount,
+            amount,
+            direction,
+            category,
+        ),
     )
 
 
@@ -521,10 +522,13 @@ class TestCategoryAverages:
             desc_notes_path=tmp_path / "notes.csv",
         )
         # The merchants table shares the line: keep the six category cells
-        return " ".join(next(
-            line for line in _pdf_text(output).splitlines()
-            if line.startswith(category)
-        ).split()[:6])
+        return " ".join(
+            next(
+                line
+                for line in _pdf_text(output).splitlines()
+                if line.startswith(category)
+            ).split()[:6]
+        )
 
     def test_later_months_do_not_count(self, test_db, tmp_path):
         """A report is usually written a few days into the next month, whose
@@ -565,12 +569,20 @@ class TestBuiltInFont:
     def test_other_alphabets_do_not_stop_the_report(self, test_db, tmp_path):
         from .conftest import add_transaction
 
-        add_transaction(test_db, "2026-01-10", "CAFÉ “O PIPO” – ŁÓDŹ", 10.0,
-                        category="Żabka €", notes="#prenda’s")
+        add_transaction(
+            test_db,
+            "2026-01-10",
+            "CAFÉ “O PIPO” – ŁÓDŹ",
+            10.0,
+            category="Żabka €",
+            notes="#prenda’s",
+        )
         output = tmp_path / "report.pdf"
 
         generate_monthly_pdf(
-            db_path=test_db, month="2026-01", output_path=output,
+            db_path=test_db,
+            month="2026-01",
+            output_path=output,
             desc_notes_path=tmp_path / "notes.csv",
         )
 
@@ -597,7 +609,9 @@ class TestBuiltInFont:
         output = tmp_path / "report.pdf"
 
         generate_monthly_pdf(
-            db_path=test_db, month="2026-01", output_path=output,
+            db_path=test_db,
+            month="2026-01",
+            output_path=output,
             desc_notes_path=tmp_path / "notes.csv",
         )
 

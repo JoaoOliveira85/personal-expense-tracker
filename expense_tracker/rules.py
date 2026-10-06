@@ -1,11 +1,11 @@
 """Categorization rules: loading, editing, and applying to transactions."""
+
 from __future__ import annotations
 
 import csv
 import re
 import sqlite3
 from pathlib import Path
-
 
 # ---------------------------------------------------------------------------
 # Rule management (add / remove)
@@ -123,7 +123,9 @@ def load_rules(rules_path: Path) -> list[dict]:
     pattern ("BP ") also requires the match to end at a word boundary.
     """
     if not rules_path.exists():
-        print(f"Warning: rules file not found at {rules_path}, skipping categorization.")
+        print(
+            f"Warning: rules file not found at {rules_path}, skipping categorization."
+        )
         return []
 
     rules = []
@@ -178,14 +180,12 @@ def categorize_transactions(conn: sqlite3.Connection, rules: list[dict]) -> int:
 
     _adopt_legacy_categories(conn, rules)
 
-    rows = conn.execute(
-        """
+    rows = conn.execute("""
         SELECT transaction_id, description_raw, description_clean, payment_type,
                category, subcategory
         FROM transactions
         WHERE category IS NULL OR category = '' OR category_source = 'rule'
-        """
-    ).fetchall()
+        """).fetchall()
 
     updated = 0
     for tid, desc_raw, desc_clean, existing_ptype, old_cat, old_sub in rows:
@@ -195,7 +195,11 @@ def categorize_transactions(conn: sqlite3.Connection, rules: list[dict]) -> int:
                 continue
             new_cat, new_sub, source = None, None, None
         else:
-            new_cat, new_sub, source = rule["category"], rule["subcategory"] or None, "rule"
+            new_cat, new_sub, source = (
+                rule["category"],
+                rule["subcategory"] or None,
+                "rule",
+            )
 
         if (old_cat or None, old_sub or None) == (new_cat, new_sub):
             continue
@@ -224,14 +228,12 @@ def _adopt_legacy_categories(conn: sqlite3.Connection, rules: list[dict]) -> Non
     rule, so it becomes rule-owned and gets re-evaluated. Anything else was
     edited by hand, or its rule has changed since, and is kept as manual.
     """
-    rows = conn.execute(
-        """
+    rows = conn.execute("""
         SELECT transaction_id, description_raw, description_clean,
                category, subcategory
         FROM transactions
         WHERE category <> '' AND category_source IS NULL
-        """
-    ).fetchall()
+        """).fetchall()
 
     for tid, desc_raw, desc_clean, category, subcategory in rows:
         rule = _legacy_match(rules, desc_raw, desc_clean)

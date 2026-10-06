@@ -1,4 +1,5 @@
 """Tests for expense_tracker.email_fetch."""
+
 from __future__ import annotations
 
 import email
@@ -19,7 +20,6 @@ from expense_tracker.email_fetch import (
     fetch_statements,
     DEFAULT_BANK_SENDERS,
 )
-
 
 # ---------------------------------------------------------------------------
 # Config management
@@ -95,11 +95,13 @@ class TestEmailConfig:
     def test_defaults_applied(self, tmp_path):
         config_path = tmp_path / "minimal.json"
         config_path.write_text(
-            json.dumps({
-                "imap_host": "imap.example.com",
-                "email": "a@b.com",
-                "password": "p",
-            }),
+            json.dumps(
+                {
+                    "imap_host": "imap.example.com",
+                    "email": "a@b.com",
+                    "password": "p",
+                }
+            ),
             encoding="utf-8",
         )
         config = load_email_config(config_path)
@@ -129,6 +131,7 @@ class TestDecodeHeaderValue:
 
     def test_encoded_header(self):
         from email.header import make_header, Header
+
         h = Header("Extrato Bancário", "utf-8")
         encoded = h.encode()
         assert "Bancário" in _decode_header_value(encoded)
@@ -263,7 +266,9 @@ class TestFetchStatements:
             "folder": "INBOX",
         }
 
-        with patch("expense_tracker.email_fetch.imaplib.IMAP4_SSL", return_value=mock_conn):
+        with patch(
+            "expense_tracker.email_fetch.imaplib.IMAP4_SSL", return_value=mock_conn
+        ):
             downloaded = fetch_statements(config, raw_dir)
 
         assert len(downloaded) == 1
@@ -290,7 +295,9 @@ class TestFetchStatements:
             "folder": "INBOX",
         }
 
-        with patch("expense_tracker.email_fetch.imaplib.IMAP4_SSL", return_value=mock_conn):
+        with patch(
+            "expense_tracker.email_fetch.imaplib.IMAP4_SSL", return_value=mock_conn
+        ):
             downloaded = fetch_statements(config, raw_dir)
 
         assert len(downloaded) == 0
@@ -315,7 +322,9 @@ class TestFetchStatements:
             "folder": "INBOX",
         }
 
-        with patch("expense_tracker.email_fetch.imaplib.IMAP4_SSL", return_value=mock_conn):
+        with patch(
+            "expense_tracker.email_fetch.imaplib.IMAP4_SSL", return_value=mock_conn
+        ):
             downloaded = fetch_statements(config, raw_dir)
 
         assert len(downloaded) == 0
@@ -334,7 +343,9 @@ class TestFetchStatements:
             "Bank A <noreply@bank-a.example>", "Extrato mensal", attachments
         )
         mock_conn = self._mock_imap([msg])
-        with patch("expense_tracker.email_fetch.imaplib.IMAP4_SSL", return_value=mock_conn):
+        with patch(
+            "expense_tracker.email_fetch.imaplib.IMAP4_SSL", return_value=mock_conn
+        ):
             return fetch_statements(self.UTF16_CONFIG, raw_dir)
 
     def test_reused_attachment_name_does_not_hide_a_new_statement(self, tmp_path):
@@ -382,7 +393,9 @@ class TestFetchStatements:
             "folder": "INBOX",
         }
 
-        with patch("expense_tracker.email_fetch.imaplib.IMAP4_SSL", return_value=mock_conn):
+        with patch(
+            "expense_tracker.email_fetch.imaplib.IMAP4_SSL", return_value=mock_conn
+        ):
             downloaded = fetch_statements(config, raw_dir)
 
         assert len(downloaded) == 0
@@ -409,7 +422,9 @@ class TestFetchStatements:
             "folder": "INBOX",
         }
 
-        with patch("expense_tracker.email_fetch.imaplib.IMAP4_SSL", return_value=mock_conn):
+        with patch(
+            "expense_tracker.email_fetch.imaplib.IMAP4_SSL", return_value=mock_conn
+        ):
             downloaded = fetch_statements(config, raw_dir, dry_run=True)
 
         assert len(downloaded) == 1
@@ -435,7 +450,9 @@ class TestFetchStatements:
             "folder": "INBOX",
         }
 
-        with patch("expense_tracker.email_fetch.imaplib.IMAP4_SSL", return_value=mock_conn):
+        with patch(
+            "expense_tracker.email_fetch.imaplib.IMAP4_SSL", return_value=mock_conn
+        ):
             downloaded = fetch_statements(config, raw_dir)
 
         assert len(downloaded) == 0
@@ -464,7 +481,9 @@ class TestFetchStatements:
             "folder": "INBOX",
         }
 
-        with patch("expense_tracker.email_fetch.imaplib.IMAP4_SSL", return_value=mock_conn):
+        with patch(
+            "expense_tracker.email_fetch.imaplib.IMAP4_SSL", return_value=mock_conn
+        ):
             downloaded = fetch_statements(config, raw_dir)
 
         assert len(downloaded) == 1
@@ -493,7 +512,9 @@ class TestFetchStatements:
             "folder": "INBOX",
         }
 
-        with patch("expense_tracker.email_fetch.imaplib.IMAP4_SSL", return_value=mock_conn):
+        with patch(
+            "expense_tracker.email_fetch.imaplib.IMAP4_SSL", return_value=mock_conn
+        ):
             downloaded = fetch_statements(config, raw_dir)
 
         assert downloaded == [raw_dir / "statement.csv"]

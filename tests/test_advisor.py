@@ -1,4 +1,5 @@
 """Tests for expense_tracker.advisor data extraction."""
+
 from __future__ import annotations
 
 import sqlite3

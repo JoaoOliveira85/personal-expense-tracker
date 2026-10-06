@@ -4,6 +4,7 @@ Descriptions come from bank statements and notes from the user: whatever
 they contain, they are data. They must reach the cells as text and must
 not change the formulas that mention them.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -97,20 +98,26 @@ class TestXlsxCellsHoldText:
         assert (cell.data_type, cell.value) == ("s", "=Misc")
 
 
-
 class TestOdsFormulasQuoteNames:
     """A name is written into the formulas as a string: a double quote in
     it must be doubled, or the rest of the name becomes formula text."""
 
     @pytest.fixture
     def doc(self, test_db, tmp_path):
-        add_transaction(test_db, "2026-01-10", 'A")+1+("', 10.0,
-                        category='Kids "R" Us', subcategory='7" tablets')
+        add_transaction(
+            test_db,
+            "2026-01-10",
+            'A")+1+("',
+            10.0,
+            category='Kids "R" Us',
+            subcategory='7" tablets',
+        )
         return _ods(test_db, tmp_path)
 
     def test_data_cell_is_a_string(self, doc):
         sheet = next(
-            s for s in doc.spreadsheet.getElementsByType(Table)
+            s
+            for s in doc.spreadsheet.getElementsByType(Table)
             if s.getAttribute("name") == "Data"
         )
         cells = sheet.getElementsByType(TableRow)[1].getElementsByType(TableCell)
@@ -161,8 +168,14 @@ class TestXlsxCriteriaMatchTheNameOnly:
 
     @pytest.fixture
     def workbook(self, test_db, tmp_path):
-        add_transaction(test_db, "2026-01-10", "PAYPAL *SPOTIFY?", 10.0,
-                        category='Kids "R" Us', subcategory="Toys*")
+        add_transaction(
+            test_db,
+            "2026-01-10",
+            "PAYPAL *SPOTIFY?",
+            10.0,
+            category='Kids "R" Us',
+            subcategory="Toys*",
+        )
         add_transaction(test_db, "2026-01-11", "=1+1", 5.0, category="A~B")
         return _xlsx(test_db, tmp_path)
 
@@ -215,8 +228,14 @@ class TestXlsxControlCharacters:
 
     @pytest.fixture
     def workbook(self, test_db, tmp_path):
-        add_transaction(test_db, "2026-01-10", "BAD\x0bCHAR", 10.0,
-                        category="Mi\x01sc", notes="form\x0cfeed and \x00")
+        add_transaction(
+            test_db,
+            "2026-01-10",
+            "BAD\x0bCHAR",
+            10.0,
+            category="Mi\x01sc",
+            notes="form\x0cfeed and \x00",
+        )
         return _xlsx(test_db, tmp_path)
 
     def test_report_is_written_with_the_characters_replaced(self, workbook):

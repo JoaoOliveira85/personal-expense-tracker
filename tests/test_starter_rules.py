@@ -1,4 +1,5 @@
 """Tests for expense_tracker.starter_rules."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -12,7 +13,6 @@ from expense_tracker.starter_rules import (
 )
 from expense_tracker.rules import load_rules, add_rule, match_rule
 
-
 # ---------------------------------------------------------------------------
 # Starter rules data integrity
 # ---------------------------------------------------------------------------
@@ -21,7 +21,9 @@ from expense_tracker.rules import load_rules, add_rule, match_rule
 class TestStarterRulesData:
     def test_all_rules_have_five_fields(self):
         for i, rule in enumerate(STARTER_RULES):
-            assert len(rule) == 5, f"Rule {i} has {len(rule)} fields, expected 5: {rule}"
+            assert (
+                len(rule) == 5
+            ), f"Rule {i} has {len(rule)} fields, expected 5: {rule}"
 
     def test_all_patterns_non_empty(self):
         for i, (pattern, *_rest) in enumerate(STARTER_RULES):
@@ -30,9 +32,9 @@ class TestStarterRulesData:
     def test_all_match_fields_valid(self):
         valid = {"description", "description_raw"}
         for i, (_pattern, match_field, *_rest) in enumerate(STARTER_RULES):
-            assert match_field in valid, (
-                f"Rule {i} has invalid match_field '{match_field}'"
-            )
+            assert (
+                match_field in valid
+            ), f"Rule {i} has invalid match_field '{match_field}'"
 
     def test_all_categories_non_empty(self):
         for i, (_pattern, _field, category, *_rest) in enumerate(STARTER_RULES):

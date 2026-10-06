@@ -1,4 +1,5 @@
 """Tests for expense_tracker.db."""
+
 from __future__ import annotations
 
 import sqlite3
@@ -21,7 +22,6 @@ from expense_tracker.db import (
 )
 from expense_tracker.parser import reset_cleaning_cache, _get_cleaning_patterns
 from tests.conftest import make_utf16_csv, SAMPLE_ROWS
-
 
 # ---------------------------------------------------------------------------
 # tx_id
@@ -117,7 +117,9 @@ class TestSchema:
 
         migrate_schema(conn)
 
-        cols = {row[1] for row in conn.execute("PRAGMA table_info(transactions)").fetchall()}
+        cols = {
+            row[1] for row in conn.execute("PRAGMA table_info(transactions)").fetchall()
+        }
         assert "month" in cols
         assert "day_of_week" in cols
         assert "description_clean" in cols
@@ -197,7 +199,9 @@ class TestIngestBadFile:
         finally:
             conn.close()
 
-    def test_files_around_a_bad_one_are_imported(self, test_db, tmp_path, cards_csv, capsys):
+    def test_files_around_a_bad_one_are_imported(
+        self, test_db, tmp_path, cards_csv, capsys
+    ):
         first = make_utf16_csv(tmp_path / "first.csv", SAMPLE_ROWS[:2])
         bad = tmp_path / "junk.csv"
         bad.write_text("not a bank statement\n", encoding="utf-8")
@@ -214,13 +218,22 @@ class TestIngestBadFile:
         assert "junk.csv was not imported" in out
         assert "Parsed 5 transactions from 2 file(s)." in out
 
-    def test_row_error_in_one_file_keeps_the_other_file(self, test_db, tmp_path, cards_csv):
+    def test_row_error_in_one_file_keeps_the_other_file(
+        self, test_db, tmp_path, cards_csv
+    ):
         good = make_utf16_csv(tmp_path / "good.csv", SAMPLE_ROWS[:2])
         broken = make_utf16_csv(
             tmp_path / "broken.csv",
             [
                 SAMPLE_ROWS[2],
-                ("12-01-2026", "12-01-2026", "COMPRA 1234 LOJA", "12,50 D", "Compra", "1,00"),
+                (
+                    "12-01-2026",
+                    "12-01-2026",
+                    "COMPRA 1234 LOJA",
+                    "12,50 D",
+                    "Compra",
+                    "1,00",
+                ),
             ],
         )
 
@@ -253,7 +266,9 @@ class TestIngestParserChoice:
 
         assert self._count(test_db) == 0
 
-    def test_chosen_parser_is_not_replaced_by_utf16(self, test_db, utf16_csv, cards_csv):
+    def test_chosen_parser_is_not_replaced_by_utf16(
+        self, test_db, utf16_csv, cards_csv
+    ):
         with pytest.raises(IngestError, match="Could not find UTF8 header row"):
             ingest(test_db, [utf16_csv], cards_path=cards_csv, bank_id="utf8")
 

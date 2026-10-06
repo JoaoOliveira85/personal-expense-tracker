@@ -11,6 +11,7 @@ A web-based interface for the most common operations:
 
 Launch with: streamlit run expense_tracker/gui.py
 """
+
 from __future__ import annotations
 
 import json
@@ -37,17 +38,34 @@ import pandas as pd
 import streamlit as st
 
 from expense_tracker.constants import (
-    DEFAULT_DB, DEFAULT_RULES, DEFAULT_ODS, DEFAULT_RAW, DEFAULT_DESC_NOTES,
-    DEFAULT_BACKUPS, DEFAULT_REPORTS, SAVINGS_CATEGORIES,
+    DEFAULT_DB,
+    DEFAULT_RULES,
+    DEFAULT_ODS,
+    DEFAULT_RAW,
+    DEFAULT_DESC_NOTES,
+    DEFAULT_BACKUPS,
+    DEFAULT_REPORTS,
+    SAVINGS_CATEGORIES,
 )
 from expense_tracker.db import (
-    ensure_schema, migrate_schema, fetch_all_transactions, ingest,
-    ingested_source_files, IngestError,
+    ensure_schema,
+    migrate_schema,
+    fetch_all_transactions,
+    ingest,
+    ingested_source_files,
+    IngestError,
 )
-from expense_tracker.rules import load_rules, categorize_transactions, add_rule, remove_rule
+from expense_tracker.rules import (
+    load_rules,
+    categorize_transactions,
+    add_rule,
+    remove_rule,
+)
 from expense_tracker.ods import generate_ods, sync_from_ods
 from expense_tracker.email_fetch import (
-    load_email_config, create_email_config, DEFAULT_EMAIL_CONFIG,
+    load_email_config,
+    create_email_config,
+    DEFAULT_EMAIL_CONFIG,
 )
 
 # ---------------------------------------------------------------------------
@@ -226,7 +244,9 @@ if page == "Dashboard":
     with col_a:
         st.subheader("Categorization Progress")
         st.progress(pct / 100)
-        st.caption(f"{total_exp - uncat} / {total_exp} expenses categorized ({pct:.0f}%)")
+        st.caption(
+            f"{total_exp - uncat} / {total_exp} expenses categorized ({pct:.0f}%)"
+        )
         if uncat:
             st.warning(f"{uncat} uncategorized transaction(s) remaining")
 
@@ -248,7 +268,9 @@ if page == "Dashboard":
     col_c, col_d = st.columns(2)
     with col_c:
         st.subheader("Spending by Category")
-        categorized = spending[spending["category"].notna() & (spending["category"] != "")]
+        categorized = spending[
+            spending["category"].notna() & (spending["category"] != "")
+        ]
         if not categorized.empty:
             by_cat = (
                 categorized.groupby("category")["spend"]
@@ -319,18 +341,23 @@ elif page == "Transactions":
     # Search
     search = st.text_input("Search descriptions", "")
     if search:
-        mask = (
-            filtered["description_clean"].str.contains(search, case=False, na=False)
-            | filtered["description_raw"].str.contains(search, case=False, na=False)
-        )
+        mask = filtered["description_clean"].str.contains(
+            search, case=False, na=False
+        ) | filtered["description_raw"].str.contains(search, case=False, na=False)
         filtered = filtered[mask]
 
     st.caption(f"Showing {len(filtered)} of {len(df)} transactions")
 
     # Display
     display_cols = [
-        "date_posted", "description_clean", "amount_abs", "direction",
-        "category", "subcategory", "payment_type", "who",
+        "date_posted",
+        "description_clean",
+        "amount_abs",
+        "direction",
+        "category",
+        "subcategory",
+        "payment_type",
+        "who",
     ]
     available = [c for c in display_cols if c in filtered.columns]
     st.dataframe(
@@ -363,9 +390,7 @@ elif page == "Categorize":
         st.stop()
 
     expenses = df[df["direction"] == "out"]
-    uncategorized = expenses[
-        expenses["category"].isna() | (expenses["category"] == "")
-    ]
+    uncategorized = expenses[expenses["category"].isna() | (expenses["category"] == "")]
 
     if uncategorized.empty:
         st.success("All expenses are categorized!")
@@ -382,7 +407,9 @@ elif page == "Categorize":
     )
 
     st.subheader("Uncategorized Merchants")
-    st.caption("Categorize by merchant — all transactions with the same description get the rule.")
+    st.caption(
+        "Categorize by merchant — all transactions with the same description get the rule."
+    )
 
     # Get existing categories for the selectbox
     existing_cats = sorted(
@@ -457,7 +484,13 @@ elif page == "Rules":
         st.info("No rules defined yet.")
     else:
         rules_df = pd.DataFrame(rules)
-        display_cols = ["pattern", "match_field", "category", "subcategory", "payment_type"]
+        display_cols = [
+            "pattern",
+            "match_field",
+            "category",
+            "subcategory",
+            "payment_type",
+        ]
         available = [c for c in display_cols if c in rules_df.columns]
         st.dataframe(
             rules_df[available],
@@ -480,7 +513,9 @@ elif page == "Rules":
         col1, col2 = st.columns(2)
         with col1:
             pattern = st.text_input("Pattern (text to match)")
-            match_field = st.selectbox("Match field", ["description", "description_raw"])
+            match_field = st.selectbox(
+                "Match field", ["description", "description_raw"]
+            )
         with col2:
             category = st.text_input("Category")
             subcategory = st.text_input("Subcategory (optional)")
@@ -595,11 +630,17 @@ elif page == "Tools":
             config = load_email_config(config_path)
             st.success("Email is configured.")
             col1, col2 = st.columns(2)
-            col1.text_input("IMAP Host", value=config.get("imap_host", ""), disabled=True)
+            col1.text_input(
+                "IMAP Host", value=config.get("imap_host", ""), disabled=True
+            )
             col2.text_input("Email", value=config.get("email", ""), disabled=True)
             col3, col4 = st.columns(2)
-            col3.text_input("Port", value=str(config.get("imap_port", 993)), disabled=True)
-            col4.text_input("Folder", value=config.get("folder", "INBOX"), disabled=True)
+            col3.text_input(
+                "Port", value=str(config.get("imap_port", 993)), disabled=True
+            )
+            col4.text_input(
+                "Folder", value=config.get("folder", "INBOX"), disabled=True
+            )
         except Exception as e:
             st.error(f"Error reading config: {e}")
             has_config = False
@@ -610,7 +651,9 @@ elif page == "Tools":
         else:
             _show_email_form = False
     else:
-        st.info("No email configuration found. Set up below to enable automatic statement fetching.")
+        st.info(
+            "No email configuration found. Set up below to enable automatic statement fetching."
+        )
         _show_email_form = True
 
     if _show_email_form:
@@ -627,10 +670,14 @@ elif page == "Tools":
                     key="email_imap_host",
                 )
                 email_addr = st.text_input("Email Address", key="email_addr")
-                password = st.text_input("App Password", type="password", key="email_pass")
+                password = st.text_input(
+                    "App Password", type="password", key="email_pass"
+                )
             with ec2:
                 imap_port = st.number_input("IMAP Port", value=993, key="email_port")
-                folder = st.text_input("Mailbox Folder", value="INBOX", key="email_folder")
+                folder = st.text_input(
+                    "Mailbox Folder", value="INBOX", key="email_folder"
+                )
                 bank_senders = st.text_input(
                     "Bank sender patterns (comma-separated)",
                     placeholder="mybank.example",
@@ -665,7 +712,9 @@ elif page == "Tools":
     else:
         fetch_col1, fetch_col2 = st.columns(2)
         with fetch_col1:
-            days_back = st.number_input("Days to look back", value=60, min_value=1, max_value=365)
+            days_back = st.number_input(
+                "Days to look back", value=60, min_value=1, max_value=365
+            )
         with fetch_col2:
             auto_ingest = st.checkbox("Auto-ingest downloaded files", value=True)
 
@@ -673,6 +722,7 @@ elif page == "Tools":
             with st.spinner("Connecting to email server..."):
                 try:
                     from expense_tracker.email_fetch import fetch_and_report
+
                     downloaded = fetch_and_report(
                         config_path=config_path,
                         output_dir=DEFAULT_RAW,
@@ -686,13 +736,20 @@ elif page == "Tools":
                             with st.spinner("Ingesting downloaded files..."):
                                 import_result = _ingest_files(downloaded)
                                 # Save unsynced ODS edits before regenerating
-                                sync_from_ods(DEFAULT_DB, DEFAULT_ODS, DEFAULT_DESC_NOTES)
+                                sync_from_ods(
+                                    DEFAULT_DB, DEFAULT_ODS, DEFAULT_DESC_NOTES
+                                )
                                 conn = _get_connection(db_path)
                                 rules = load_rules(DEFAULT_RULES)
                                 if rules:
                                     categorize_transactions(conn, rules)
                                 conn.close()
-                                generate_ods(DEFAULT_DB, DEFAULT_RULES, DEFAULT_ODS, DEFAULT_DESC_NOTES)
+                                generate_ods(
+                                    DEFAULT_DB,
+                                    DEFAULT_RULES,
+                                    DEFAULT_ODS,
+                                    DEFAULT_DESC_NOTES,
+                                )
                                 _load_transactions.clear()
                             _show_import_result(import_result)
                     else:
@@ -746,7 +803,9 @@ elif page == "Tools":
                 updated = categorize_transactions(conn, rules)
                 conn.close()
                 _load_transactions.clear()
-            st.success(f"Applied {len(rules)} rules, categorized {updated} transaction(s).")
+            st.success(
+                f"Applied {len(rules)} rules, categorized {updated} transaction(s)."
+            )
 
     st.divider()
 
@@ -767,6 +826,7 @@ elif page == "Tools":
                 mime="application/vnd.oasis.opendocument.spreadsheet",
             )
             import os
+
             size_kb = os.path.getsize(ods_path) / 1024
             st.caption(f"Size: {size_kb:.0f} KB")
         else:
@@ -807,6 +867,7 @@ elif page == "Tools":
                         generate_missing_monthly_pdfs,
                         months_to_generate,
                     )
+
                     pending = months_to_generate(DEFAULT_REPORTS)
                     pdf_paths = generate_missing_monthly_pdfs(
                         db_path=DEFAULT_DB,
@@ -831,7 +892,9 @@ elif page == "Tools":
 
     # ── Backup ────────────────────────────────────────────────────────────
     st.subheader("💾 Backup")
-    st.caption("Create a zip archive of all your data (database, rules, raw files, and reports).")
+    st.caption(
+        "Create a zip archive of all your data (database, rules, raw files, and reports)."
+    )
 
     bk_col1, bk_col2 = st.columns(2)
     with bk_col1:
@@ -839,7 +902,10 @@ elif page == "Tools":
             with st.spinner("Creating backup..."):
                 try:
                     from expense_tracker.backup import create_backup, format_size
-                    zp = create_backup(DEFAULT_BACKUPS, raw_dir=DEFAULT_RAW, ods_path=DEFAULT_ODS)
+
+                    zp = create_backup(
+                        DEFAULT_BACKUPS, raw_dir=DEFAULT_RAW, ods_path=DEFAULT_ODS
+                    )
                     size = format_size(zp.stat().st_size)
                     st.success(f"Backup created: {zp.name} ({size})")
                 except Exception as e:
@@ -868,6 +934,7 @@ elif page == "Tools":
             try:
                 from expense_tracker.export import export_csv
                 from expense_tracker.constants import DEFAULT_CSV
+
                 export_csv(DEFAULT_DB, DEFAULT_CSV)
                 st.success(f"Exported to {DEFAULT_CSV}")
 
@@ -894,6 +961,7 @@ elif page == "Tools":
         with st.spinner("Importing starter rules..."):
             try:
                 from expense_tracker.starter_rules import import_starter_rules
+
                 added, skipped = import_starter_rules(DEFAULT_RULES)
                 if added:
                     st.success(
@@ -966,9 +1034,11 @@ elif page == "Manual":
                             f"Showing {len(matching)} section(s) matching "
                             f"**{search_term}**"
                         )
-                        st.markdown("\n\n---\n\n".join(matching), unsafe_allow_html=True)
+                        st.markdown(
+                            "\n\n---\n\n".join(matching), unsafe_allow_html=True
+                        )
                     else:
-                        st.info(f"No sections found matching \"{search_term}\".")
+                        st.info(f'No sections found matching "{search_term}".')
                 else:
                     st.markdown(content, unsafe_allow_html=True)
 

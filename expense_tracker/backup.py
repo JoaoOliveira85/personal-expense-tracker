@@ -1,4 +1,5 @@
 """Backup utilities — zip data/, raw/, and expense-report.ods."""
+
 from __future__ import annotations
 
 import zipfile
@@ -6,7 +7,6 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from .constants import DEFAULT_RAW, DEFAULT_DB, DEFAULT_ODS, DEFAULT_BACKUPS
-
 
 # ---------------------------------------------------------------------------
 # Public API

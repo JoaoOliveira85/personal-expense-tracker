@@ -1,4 +1,5 @@
 """Tests for expense_tracker.rules."""
+
 from __future__ import annotations
 
 import sqlite3
@@ -17,7 +18,6 @@ from expense_tracker.rules import (
     categorize_transactions,
     match_rule,
 )
-
 
 # ---------------------------------------------------------------------------
 # add_rule / remove_rule
@@ -350,11 +350,15 @@ class TestCategoryProvenance:
         conn.close()
 
     def test_rule_categorization_is_marked_as_rule(self, conn, tmp_path):
-        categorize_transactions(conn, _rules(tmp_path, "CONTINENTE,description,Groceries,,"))
+        categorize_transactions(
+            conn, _rules(tmp_path, "CONTINENTE,description,Groceries,,")
+        )
         assert _row(conn, "CONTINENTE") == ("Groceries", None, "rule")
 
     def test_changed_rule_recategorizes_its_rows(self, conn, tmp_path):
-        categorize_transactions(conn, _rules(tmp_path, "CONTINENTE,description,Groceries,,"))
+        categorize_transactions(
+            conn, _rules(tmp_path, "CONTINENTE,description,Groceries,,")
+        )
         updated = categorize_transactions(
             conn, _rules(tmp_path, "CONTINENTE,description,Food,Supermarket,")
         )
@@ -373,7 +377,9 @@ class TestCategoryProvenance:
             "UPDATE transactions SET category = 'Household', category_source = 'manual' "
             "WHERE description_raw LIKE '%CONTINENTE%'"
         )
-        categorize_transactions(conn, _rules(tmp_path, "CONTINENTE,description,Groceries,,"))
+        categorize_transactions(
+            conn, _rules(tmp_path, "CONTINENTE,description,Groceries,,")
+        )
         assert _row(conn, "CONTINENTE") == ("Household", None, "manual")
 
     def test_unchanged_rows_are_not_counted(self, conn, tmp_path):
@@ -415,7 +421,9 @@ class TestLegacyCategoryAdoption:
 
     def test_category_the_old_matcher_would_not_produce_is_manual(self, conn, tmp_path):
         self._legacy(conn, "CONTINENTE", "Household")
-        categorize_transactions(conn, _rules(tmp_path, "CONTINENTE,description,Groceries,,"))
+        categorize_transactions(
+            conn, _rules(tmp_path, "CONTINENTE,description,Groceries,,")
+        )
         assert _row(conn, "CONTINENTE") == ("Household", None, "manual")
 
     def test_manually_changed_subcategory_is_manual(self, conn, tmp_path):

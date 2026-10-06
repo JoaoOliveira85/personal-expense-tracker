@@ -8,6 +8,7 @@ UTF-8 CSV exports differ from UTF-16:
 - Different date separators (may use dd-mm-YYYY or dd/mm/YYYY)
 - Semicolon delimiters (same as UTF-16)
 """
+
 from __future__ import annotations
 
 import csv
@@ -19,7 +20,10 @@ from typing import Optional
 
 from ..constants import DEFAULT_CARDS, DOW_NAMES, account_type
 from ..parser import (
-    clean_description, detect_card, detect_payment_type, load_card_holders,
+    clean_description,
+    detect_card,
+    detect_payment_type,
+    load_card_holders,
     parse_amount,
 )
 
@@ -142,7 +146,7 @@ class Utf8CsvParser:
         col_map = self._map_columns(header_parts)
 
         rows: list[dict] = []
-        for line_no, ln in enumerate(lines[header_idx + 1:], start=header_idx + 2):
+        for line_no, ln in enumerate(lines[header_idx + 1 :], start=header_idx + 2):
             if not ln:
                 continue
             if not ROW_RE.match(ln):
@@ -153,7 +157,10 @@ class Utf8CsvParser:
                         logger.warning(
                             "%s line %d: stopped reading at %r; %d later line(s) "
                             "that look like transactions were not imported",
-                            path.name, line_no, ln[:60], unread,
+                            path.name,
+                            line_no,
+                            ln[:60],
+                            unread,
                         )
                     break
                 continue
@@ -227,7 +234,10 @@ class Utf8CsvParser:
         def _skip(reason: str) -> None:
             logger.warning(
                 "%s line %d: row not imported (%s): %s",
-                source_file, line_no, reason, ";".join(parts),
+                source_file,
+                line_no,
+                reason,
+                ";".join(parts),
             )
 
         # Date

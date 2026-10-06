@@ -1,4 +1,5 @@
 """Tests for expense_tracker.parser."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -17,7 +18,6 @@ from expense_tracker.parser import (
     _get_cleaning_patterns,
 )
 from tests.conftest import make_utf16_csv, SAMPLE_ROWS
-
 
 # ---------------------------------------------------------------------------
 # detect_payment_type
@@ -140,10 +140,15 @@ class TestCleanDescription:
 
 class TestDetectCard:
     def test_known_card(self):
-        assert detect_card("COMPRA 1234 CONTINENTE", known_cards={"1234", "5678"}) == "1234"
+        assert (
+            detect_card("COMPRA 1234 CONTINENTE", known_cards={"1234", "5678"})
+            == "1234"
+        )
 
     def test_unknown_card(self):
-        assert detect_card("COMPRA 9999 CONTINENTE", known_cards={"1234", "5678"}) is None
+        assert (
+            detect_card("COMPRA 9999 CONTINENTE", known_cards={"1234", "5678"}) is None
+        )
 
     def test_no_four_digit_groups(self):
         assert detect_card("TRANSFERENCIA SALARIO", known_cards={"1234"}) is None
@@ -254,6 +259,7 @@ class TestParseAmount:
 class TestExtractDateRange:
     def test_valid_range(self, utf16_csv):
         from datetime import date
+
         date_from, date_to = extract_date_range(utf16_csv)
         assert date_from == date(2026, 1, 1)
         assert date_to == date(2026, 1, 31)
@@ -274,8 +280,10 @@ class TestExtractDateRange:
 class TestAutoRenameCsv:
     def test_same_month_rename(self, tmp_path):
         csv_path = make_utf16_csv(
-            tmp_path / "EXPORT_0_1012026.csv", SAMPLE_ROWS[:1],
-            date_from="01-01-2026", date_to="31-01-2026",
+            tmp_path / "EXPORT_0_1012026.csv",
+            SAMPLE_ROWS[:1],
+            date_from="01-01-2026",
+            date_to="31-01-2026",
         )
         result = auto_rename_csv(csv_path)
         assert result.name == "2026-01.csv"
@@ -284,8 +292,10 @@ class TestAutoRenameCsv:
 
     def test_multi_month_keeps_name(self, tmp_path):
         csv_path = make_utf16_csv(
-            tmp_path / "multi.csv", SAMPLE_ROWS[:1],
-            date_from="01-01-2026", date_to="15-02-2026",
+            tmp_path / "multi.csv",
+            SAMPLE_ROWS[:1],
+            date_from="01-01-2026",
+            date_to="15-02-2026",
         )
         result = auto_rename_csv(csv_path)
         assert result.name == "multi.csv"  # unchanged
@@ -293,13 +303,17 @@ class TestAutoRenameCsv:
     def test_target_exists_wider_replaces(self, tmp_path):
         # Create existing narrow-range file
         make_utf16_csv(
-            tmp_path / "2026-01.csv", SAMPLE_ROWS[:1],
-            date_from="10-01-2026", date_to="20-01-2026",
+            tmp_path / "2026-01.csv",
+            SAMPLE_ROWS[:1],
+            date_from="10-01-2026",
+            date_to="20-01-2026",
         )
         # New file with wider range
         new_csv = make_utf16_csv(
-            tmp_path / "EXPORT_new.csv", SAMPLE_ROWS[:1],
-            date_from="01-01-2026", date_to="31-01-2026",
+            tmp_path / "EXPORT_new.csv",
+            SAMPLE_ROWS[:1],
+            date_from="01-01-2026",
+            date_to="31-01-2026",
         )
         result = auto_rename_csv(new_csv)
         assert result.name == "2026-01.csv"
@@ -307,13 +321,17 @@ class TestAutoRenameCsv:
     def test_replaced_statement_is_kept(self, tmp_path):
         """raw/ holds the bank's own files: a narrower one is set aside, not deleted."""
         narrow = make_utf16_csv(
-            tmp_path / "2026-01.csv", SAMPLE_ROWS[:1],
-            date_from="10-01-2026", date_to="20-01-2026",
+            tmp_path / "2026-01.csv",
+            SAMPLE_ROWS[:1],
+            date_from="10-01-2026",
+            date_to="20-01-2026",
         )
         narrow_bytes = narrow.read_bytes()
         wide = make_utf16_csv(
-            tmp_path / "EXPORT_new.csv", SAMPLE_ROWS[:2],
-            date_from="01-01-2026", date_to="31-01-2026",
+            tmp_path / "EXPORT_new.csv",
+            SAMPLE_ROWS[:2],
+            date_from="01-01-2026",
+            date_to="31-01-2026",
         )
         wide_bytes = wide.read_bytes()
 
@@ -322,42 +340,62 @@ class TestAutoRenameCsv:
         assert result.read_bytes() == wide_bytes
         assert (tmp_path / "2026-01.csv.replaced").read_bytes() == narrow_bytes
         assert sorted(p.name for p in tmp_path.iterdir()) == [
-            "2026-01.csv", "2026-01.csv.replaced",
+            "2026-01.csv",
+            "2026-01.csv.replaced",
         ]
 
     def test_second_replacement_keeps_both_earlier_statements(self, tmp_path):
-        ranges = [("10-01-2026", "20-01-2026"), ("05-01-2026", "25-01-2026"),
-                  ("01-01-2026", "31-01-2026")]
-        make_utf16_csv(tmp_path / "2026-01.csv", SAMPLE_ROWS[:1],
-                     date_from=ranges[0][0], date_to=ranges[0][1])
+        ranges = [
+            ("10-01-2026", "20-01-2026"),
+            ("05-01-2026", "25-01-2026"),
+            ("01-01-2026", "31-01-2026"),
+        ]
+        make_utf16_csv(
+            tmp_path / "2026-01.csv",
+            SAMPLE_ROWS[:1],
+            date_from=ranges[0][0],
+            date_to=ranges[0][1],
+        )
         for i, (date_from, date_to) in enumerate(ranges[1:]):
-            auto_rename_csv(make_utf16_csv(
-                tmp_path / f"EXPORT_{i}.csv", SAMPLE_ROWS[:1],
-                date_from=date_from, date_to=date_to,
-            ))
+            auto_rename_csv(
+                make_utf16_csv(
+                    tmp_path / f"EXPORT_{i}.csv",
+                    SAMPLE_ROWS[:1],
+                    date_from=date_from,
+                    date_to=date_to,
+                )
+            )
 
         assert sorted(p.name for p in tmp_path.iterdir()) == [
-            "2026-01.csv", "2026-01.csv.replaced", "2026-01.csv.replaced-2",
+            "2026-01.csv",
+            "2026-01.csv.replaced",
+            "2026-01.csv.replaced-2",
         ]
 
     def test_target_exists_narrower_raises(self, tmp_path):
         # Create existing wide-range file
         make_utf16_csv(
-            tmp_path / "2026-01.csv", SAMPLE_ROWS[:1],
-            date_from="01-01-2026", date_to="31-01-2026",
+            tmp_path / "2026-01.csv",
+            SAMPLE_ROWS[:1],
+            date_from="01-01-2026",
+            date_to="31-01-2026",
         )
         # New file with narrower range
         new_csv = make_utf16_csv(
-            tmp_path / "EXPORT_new.csv", SAMPLE_ROWS[:1],
-            date_from="10-01-2026", date_to="20-01-2026",
+            tmp_path / "EXPORT_new.csv",
+            SAMPLE_ROWS[:1],
+            date_from="10-01-2026",
+            date_to="20-01-2026",
         )
         with pytest.raises(ValueError, match="already exists"):
             auto_rename_csv(new_csv)
 
     def test_already_correct_name(self, tmp_path):
         csv_path = make_utf16_csv(
-            tmp_path / "2026-01.csv", SAMPLE_ROWS[:1],
-            date_from="01-01-2026", date_to="31-01-2026",
+            tmp_path / "2026-01.csv",
+            SAMPLE_ROWS[:1],
+            date_from="01-01-2026",
+            date_to="31-01-2026",
         )
         result = auto_rename_csv(csv_path)
         assert result == csv_path
@@ -412,8 +450,22 @@ class TestParseUtf16Csv:
         assert rows[0]["amount_abs"] == abs(expected_amount)
         assert rows[0]["balance"] == expected_balance
 
-    GOOD_1 = ("15-01-2026", "15-01-2026", "COMPRA 1234 LOJA", "-10,00", "Compra", "990,00")
-    GOOD_2 = ("14-01-2026", "14-01-2026", "COMPRA 1234 CAFE", "-1,00", "Compra", "1000,00")
+    GOOD_1 = (
+        "15-01-2026",
+        "15-01-2026",
+        "COMPRA 1234 LOJA",
+        "-10,00",
+        "Compra",
+        "990,00",
+    )
+    GOOD_2 = (
+        "14-01-2026",
+        "14-01-2026",
+        "COMPRA 1234 CAFE",
+        "-1,00",
+        "Compra",
+        "1000,00",
+    )
 
     def _warnings(self, caplog) -> list[str]:
         return [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
@@ -444,7 +496,8 @@ class TestParseUtf16Csv:
         rows = parse_utf16_csv(path, cards_path=cards_csv)
 
         assert [r["description_raw"] for r in rows] == [
-            "COMPRA 1234 LOJA", "COMPRA 1234 CAFE",
+            "COMPRA 1234 LOJA",
+            "COMPRA 1234 CAFE",
         ]
         messages = self._warnings(caplog)
         assert len(messages) == 1
@@ -511,7 +564,14 @@ class TestParseUtf16Csv:
         _get_cleaning_patterns(noise_words, cleaning_patterns)
 
         rows_data = [
-            ("15-01-2026", "15-01-2026", "COMPRA 1234 LOJA TESTE", "-10,00", "Compra", "100,00"),
+            (
+                "15-01-2026",
+                "15-01-2026",
+                "COMPRA 1234 LOJA TESTE",
+                "-10,00",
+                "Compra",
+                "100,00",
+            ),
         ]
         p = make_utf16_csv(tmp_path / "utf8.csv", rows_data, encoding="utf-8")
         rows = parse_utf16_csv(p, cards_path=cards_csv)

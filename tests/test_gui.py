@@ -3,6 +3,7 @@
 Note: Streamlit apps are tested primarily via browser-based testing.
 These tests verify the data layer and that the module structure is correct.
 """
+
 from __future__ import annotations
 
 import sqlite3
@@ -11,7 +12,6 @@ from pathlib import Path
 import pytest
 
 from expense_tracker.db import ensure_schema, migrate_schema, fetch_all_transactions
-
 
 # ---------------------------------------------------------------------------
 # We can't import gui.py directly (it runs Streamlit page config at import
@@ -197,7 +197,9 @@ GUI_PATH = Path(__file__).parent.parent / "expense_tracker" / "gui.py"
 
 
 @pytest.fixture
-def project(tmp_path, monkeypatch, noise_words, cleaning_patterns, cards_csv, rules_csv):
+def project(
+    tmp_path, monkeypatch, noise_words, cleaning_patterns, cards_csv, rules_csv
+):
     """The GUI's default paths, pointed at an empty project under tmp_path."""
     from types import SimpleNamespace
 
@@ -295,8 +297,16 @@ class TestImportUploadPath:
         february = _statement(
             tmp_path,
             "february.csv",
-            rows=[("03-02-2026", "03-02-2026", "COMPRA 1234 CONTINENTE PORTO",
-                   "-20,00", "Compra", "1214,56")],
+            rows=[
+                (
+                    "03-02-2026",
+                    "03-02-2026",
+                    "COMPRA 1234 CONTINENTE PORTO",
+                    "-20,00",
+                    "Compra",
+                    "1214,56",
+                )
+            ],
         )
         project.raw.mkdir()
         (project.raw / "extrato.csv").write_bytes(january)
@@ -310,7 +320,8 @@ class TestImportUploadPath:
 
         at.run()  # the page saves its uploads again on every rerun
         assert sorted(p.name for p in project.raw.iterdir()) == [
-            "extrato (2).csv", "extrato.csv",
+            "extrato (2).csv",
+            "extrato.csv",
         ]
 
 
@@ -372,10 +383,12 @@ class TestImportFeedback:
     def test_file_that_cannot_be_imported_is_an_error(self, project, tmp_path):
         """The other files are imported and the report is regenerated."""
         at = _open_page("Import")
-        at.file_uploader[0].set_value([
-            ("january.csv", _statement(tmp_path, "january.csv"), "text/csv"),
-            ("notes.csv", b"this;is;not;a;statement\n", "text/csv"),
-        ]).run()
+        at.file_uploader[0].set_value(
+            [
+                ("january.csv", _statement(tmp_path, "january.csv"), "text/csv"),
+                ("notes.csv", b"this;is;not;a;statement\n", "text/csv"),
+            ]
+        ).run()
 
         at = _click(at, "Ingest uploaded files")
 
@@ -388,7 +401,14 @@ class TestImportFeedback:
 
 
 FEBRUARY_ROWS = [
-    ("03-02-2026", "03-02-2026", "COMPRA 1234 CONTINENTE PORTO", "-20,00", "Compra", "1214,56"),
+    (
+        "03-02-2026",
+        "03-02-2026",
+        "COMPRA 1234 CONTINENTE PORTO",
+        "-20,00",
+        "Compra",
+        "1214,56",
+    ),
 ]
 
 

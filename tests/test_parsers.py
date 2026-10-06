@@ -1,4 +1,5 @@
 """Tests for the multi-bank parser framework."""
+
 from __future__ import annotations
 
 import csv
@@ -18,7 +19,6 @@ from expense_tracker.parsers import (
 from expense_tracker.parsers.utf16_csv import Utf16CsvParser
 from expense_tracker.parsers.utf8_csv import Utf8CsvParser
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -30,9 +30,9 @@ def _setup_cleaning(tmp_path):
     noise.write_text("CONTACTLESS\nPT\nPORTO\n", encoding="utf-8")
     patterns = tmp_path / "cleaning-patterns.csv"
     patterns.write_text(
-        'type,pattern,description\n'
-        'prefix,COMPRA\\s+\\d{4}\\s*,Card purchase prefix\n'
-        'prefix,DD\\s+,Direct debit prefix\n',
+        "type,pattern,description\n"
+        "prefix,COMPRA\\s+\\d{4}\\s*,Card purchase prefix\n"
+        "prefix,DD\\s+,Direct debit prefix\n",
         encoding="utf-8",
     )
     reset_cleaning_cache()
@@ -245,14 +245,28 @@ class TestUtf8CsvParser:
         parser = Utf8CsvParser()
         rows = parser.parse(path, cards_path=cards_csv)
         expected_keys = {
-            "date_posted", "date_value", "month", "day_of_week",
-            "description_raw", "description_clean",
-            "amount_signed", "amount_abs", "direction",
-            "tx_type", "balance", "currency", "account",
-            "card_last4", "payment_type", "who", "source_file",
+            "date_posted",
+            "date_value",
+            "month",
+            "day_of_week",
+            "description_raw",
+            "description_clean",
+            "amount_signed",
+            "amount_abs",
+            "direction",
+            "tx_type",
+            "balance",
+            "currency",
+            "account",
+            "card_last4",
+            "payment_type",
+            "who",
+            "source_file",
         }
         for r in rows:
-            assert expected_keys.issubset(r.keys()), f"Missing keys: {expected_keys - r.keys()}"
+            assert expected_keys.issubset(
+                r.keys()
+            ), f"Missing keys: {expected_keys - r.keys()}"
 
     def test_properties(self):
         parser = Utf8CsvParser()

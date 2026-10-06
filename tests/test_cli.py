@@ -1,4 +1,5 @@
 """Tests for expense_tracker.cli command handlers."""
+
 from __future__ import annotations
 
 import argparse
@@ -14,8 +15,22 @@ from expense_tracker.parser import reset_cleaning_cache
 from .conftest import make_utf16_csv
 
 FIRST_HALF = [
-    ("15-01-2026", "15-01-2026", "COMPRA 1234 CONTINENTE", "-45,50", "Compra", "954,50"),
-    ("10-01-2026", "10-01-2026", "COMPRA 1234 PINGO DOCE", "-10,00", "Compra", "1000,00"),
+    (
+        "15-01-2026",
+        "15-01-2026",
+        "COMPRA 1234 CONTINENTE",
+        "-45,50",
+        "Compra",
+        "954,50",
+    ),
+    (
+        "10-01-2026",
+        "10-01-2026",
+        "COMPRA 1234 PINGO DOCE",
+        "-10,00",
+        "Compra",
+        "1000,00",
+    ),
 ]
 SECOND_HALF = [
     ("28-01-2026", "28-01-2026", "COMPRA 1234 LIDL", "-20,00", "Compra", "924,50"),
@@ -76,10 +91,14 @@ class TestAutoWiderStatement:
         cli.cmd_auto(args)
 
         assert _dates(args.db) == [
-            "2026-01-10", "2026-01-15", "2026-01-20", "2026-01-28",
+            "2026-01-10",
+            "2026-01-15",
+            "2026-01-20",
+            "2026-01-28",
         ]
         assert sorted(p.name for p in args.raw.iterdir()) == [
-            "2026-01.csv", "2026-01.csv.replaced",
+            "2026-01.csv",
+            "2026-01.csv.replaced",
         ]
 
     def test_second_run_is_idempotent(self, workspace: Path):
@@ -211,7 +230,9 @@ class TestFetchFailure:
         cli.cmd_fetch(self._args(workspace))
 
 
-def _ingest_args(root: Path, files: list[Path], bank: str | None = None) -> argparse.Namespace:
+def _ingest_args(
+    root: Path, files: list[Path], bank: str | None = None
+) -> argparse.Namespace:
     """`ingest FILES` as typed: the rename step is on."""
     return argparse.Namespace(
         db=root / "data" / "ledger.sqlite",
@@ -226,7 +247,9 @@ class TestIngestRenameStep:
     """`ingest` renames statements before importing them. A file named on
     the command line that the rename step leaves out is not a success."""
 
-    def test_file_skipped_by_the_rename_step_exits_non_zero(self, workspace: Path, capsys):
+    def test_file_skipped_by_the_rename_step_exits_non_zero(
+        self, workspace: Path, capsys
+    ):
         junk = workspace / "raw" / "junk.csv"
         junk.write_text("not a bank statement\n", encoding="utf-8")
 
@@ -305,7 +328,9 @@ class TestIngestOtherBank:
         assert utf8_csv.exists()
         assert "Skipping" not in capsys.readouterr().out
 
-    def test_bank_option_imports_a_utf8_statement(self, workspace: Path, utf8_csv: Path):
+    def test_bank_option_imports_a_utf8_statement(
+        self, workspace: Path, utf8_csv: Path
+    ):
         """The README's `ingest --bank utf8 raw/export-b.csv`."""
         args = _ingest_args(workspace, [utf8_csv], bank="utf8")
 
@@ -326,7 +351,9 @@ class TestIngestOtherBank:
         assert "Skipping" not in out
         assert "Could not find date range" not in out
 
-    def test_utf16_statement_forced_to_utf8_is_left_alone(self, workspace: Path, capsys):
+    def test_utf16_statement_forced_to_utf8_is_left_alone(
+        self, workspace: Path, capsys
+    ):
         utf16 = make_utf16_csv(workspace / "raw" / "MOVS.csv", FIRST_HALF)
         args = _ingest_args(workspace, [utf16], bank="utf8")
 

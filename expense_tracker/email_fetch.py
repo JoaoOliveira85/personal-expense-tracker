@@ -6,6 +6,7 @@ and saves PDF/CSV attachments to the raw/ directory for ingestion.
 
 Uses only Python standard library (imaplib, email).
 """
+
 from __future__ import annotations
 
 import email
@@ -216,12 +217,16 @@ def fetch_statements(
             return []
 
         downloaded: list[Path] = []
-        existing_files = {p.name for p in output_dir.iterdir()} if output_dir.is_dir() else set()
+        existing_files = (
+            {p.name for p in output_dir.iterdir()} if output_dir.is_dir() else set()
+        )
         # "Already downloaded" is decided by content: a bank may give every
         # statement the same attachment name, and auto renames what it imports.
-        existing_digests = {
-            _digest(p.read_bytes()) for p in output_dir.iterdir() if p.is_file()
-        } if output_dir.is_dir() else set()
+        existing_digests = (
+            {_digest(p.read_bytes()) for p in output_dir.iterdir() if p.is_file()}
+            if output_dir.is_dir()
+            else set()
+        )
 
         for msg_id in msg_ids[0].split():
             status, msg_data = conn.fetch(msg_id, "(RFC822)")

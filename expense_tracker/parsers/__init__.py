@@ -15,6 +15,7 @@ Usage:
     rows = parser.parse(path)           # parse transactions
     d1, d2 = parser.extract_date_range(path)  # date range
 """
+
 from __future__ import annotations
 
 from datetime import date
@@ -22,7 +23,6 @@ from pathlib import Path
 from typing import Optional, Protocol, runtime_checkable
 
 from ..constants import DEFAULT_CARDS
-
 
 # ---------------------------------------------------------------------------
 # Parser protocol
@@ -145,6 +145,7 @@ def parse_statement(
 # ---------------------------------------------------------------------------
 # Auto-register built-in parsers
 # ---------------------------------------------------------------------------
+
 
 def _auto_register() -> None:
     """Import and register all built-in bank parsers."""

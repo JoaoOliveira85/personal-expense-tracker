@@ -3,6 +3,7 @@
 No spreadsheet engine is available to evaluate the formulas, so these tests
 pin the generated formula text.
 """
+
 from __future__ import annotations
 
 import sqlite3
@@ -30,7 +31,7 @@ ODS_SPEND = (
     f'-([.Data.G2:.Data.G{N}]="in")*([.Data.H2:.Data.H{N}]<>"")'
     f'*([.Data.H2:.Data.H{N}]<>"Income")*([.Data.H2:.Data.H{N}]<>"Transfers")'
     f'*([.Data.H2:.Data.H{N}]<>"Savings"))'
-    f'*[.Data.F2:.Data.F{N}]'
+    f"*[.Data.F2:.Data.F{N}]"
 )
 
 

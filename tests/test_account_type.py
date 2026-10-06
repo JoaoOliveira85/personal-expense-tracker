@@ -1,4 +1,5 @@
 """The account label on imported rows is configurable, not hardcoded."""
+
 from __future__ import annotations
 
 from expense_tracker.constants import account_type

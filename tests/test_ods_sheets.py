@@ -3,6 +3,7 @@
 No spreadsheet engine is available to evaluate the formulas, so these tests
 pin the generated formula text.
 """
+
 from __future__ import annotations
 
 import re
@@ -54,8 +55,16 @@ def _import_one_more(db: Path, cards_csv: Path, tmp_path: Path) -> None:
     """A sixth transaction, newer than the five sample ones."""
     csv = make_utf16_csv(
         tmp_path / "EXPORT_0_1022026.csv",
-        [("03-02-2026", "03-02-2026", "COMPRA 1234 CONTINENTE PORTO",
-          "-20,00", "Compra", "1214,56")],
+        [
+            (
+                "03-02-2026",
+                "03-02-2026",
+                "COMPRA 1234 CONTINENTE PORTO",
+                "-20,00",
+                "Compra",
+                "1214,56",
+            )
+        ],
         date_from="01-02-2026",
         date_to="28-02-2026",
     )
@@ -114,9 +123,7 @@ class TestRangesFollowTheData:
     def test_fewer_transactions_shrink_the_ranges(self, report, rules_csv):
         db, ods, notes = report
         conn = sqlite3.connect(str(db))
-        conn.execute(
-            "DELETE FROM transactions WHERE description_raw LIKE '%VODAFONE%'"
-        )
+        conn.execute("DELETE FROM transactions WHERE description_raw LIKE '%VODAFONE%'")
         conn.commit()
         conn.close()
 
@@ -190,12 +197,12 @@ class TestRetargetDataRanges:
     @pytest.mark.parametrize(
         "reference",
         [
-            "[.B2:.B6]",                    # same sheet
-            "[$'Monthly Trend'.B2:.B6]",    # another sheet
-            "[$MyData.F2:.F6]",             # a sheet whose name ends in Data
-            "[$Data.F$1:.F$1048576]",       # a whole column (Data.F:F)
-            "[$Data.F3:.F6]",               # not from the first data row
-            "[$Data.F2]",                   # a single cell
+            "[.B2:.B6]",  # same sheet
+            "[$'Monthly Trend'.B2:.B6]",  # another sheet
+            "[$MyData.F2:.F6]",  # a sheet whose name ends in Data
+            "[$Data.F$1:.F$1048576]",  # a whole column (Data.F:F)
+            "[$Data.F3:.F6]",  # not from the first data row
+            "[$Data.F2]",  # a single cell
             "[.Data.F20:.Data.F60]",
         ],
     )
@@ -216,7 +223,9 @@ class TestMonthlySummaryColumns:
     @pytest.fixture
     def doc(self, test_db, rules_csv, tmp_path):
         for i in range(1, 31):
-            add_transaction(test_db, "2026-01-10", f"SHOP {i}", 10.0, category=f"Cat{i:02d}")
+            add_transaction(
+                test_db, "2026-01-10", f"SHOP {i}", 10.0, category=f"Cat{i:02d}"
+            )
         ods = tmp_path / "report.ods"
         generate_ods(test_db, rules_csv, ods, tmp_path / "notes.csv")
         return load_ods(str(ods))
@@ -235,7 +244,15 @@ class TestMonthlySummaryColumns:
 
     @pytest.mark.parametrize(
         "index, letters",
-        [(1, "A"), (26, "Z"), (27, "AA"), (52, "AZ"), (53, "BA"), (702, "ZZ"), (703, "AAA")],
+        [
+            (1, "A"),
+            (26, "Z"),
+            (27, "AA"),
+            (52, "AZ"),
+            (53, "BA"),
+            (702, "ZZ"),
+            (703, "AAA"),
+        ],
     )
     def test_col_letter(self, index, letters):
         assert col_letter(index) == letters

@@ -1,4 +1,5 @@
 """Shared constants and configuration."""
+
 from __future__ import annotations
 
 import os
@@ -92,11 +93,11 @@ DATA_HEADERS = [
 
 # Column indices in the Data sheet (0-based) used for sync-back
 COL_DESCRIPTION_CLEAN = 4  # E
-COL_CATEGORY = 7           # H
-COL_SUBCATEGORY = 8        # I
-COL_TRANSACTION_ID = 16    # Q
-COL_NOTES = 17             # R
-COL_MERCHANT_NOTE = 18     # S
+COL_CATEGORY = 7  # H
+COL_SUBCATEGORY = 8  # I
+COL_TRANSACTION_ID = 16  # Q
+COL_NOTES = 17  # R
+COL_MERCHANT_NOTE = 18  # S
 
 
 # ---------------------------------------------------------------------------

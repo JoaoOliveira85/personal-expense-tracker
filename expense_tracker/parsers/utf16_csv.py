@@ -4,6 +4,7 @@ UTF-16 CSV bank statement parser.
 Wraps the existing parser.py functions into the BankParser protocol.
 This is the original parser — all existing functionality is preserved.
 """
+
 from __future__ import annotations
 
 from datetime import date

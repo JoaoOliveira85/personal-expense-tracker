@@ -1,4 +1,5 @@
 """Command-line interface."""
+
 from __future__ import annotations
 
 import argparse
@@ -7,23 +8,39 @@ import sys
 from pathlib import Path
 
 from .constants import (
-    DEFAULT_RAW, DEFAULT_DB, DEFAULT_RULES, DEFAULT_CARDS, DEFAULT_ODS, DEFAULT_CSV,
-    DEFAULT_DESC_NOTES, DEFAULT_BACKUPS,
+    DEFAULT_RAW,
+    DEFAULT_DB,
+    DEFAULT_RULES,
+    DEFAULT_CARDS,
+    DEFAULT_ODS,
+    DEFAULT_CSV,
+    DEFAULT_DESC_NOTES,
+    DEFAULT_BACKUPS,
 )
 from .backup import (
-    create_backup, create_monthly_backup,
-    previous_month_backup_exists, list_backups, format_size,
+    create_backup,
+    create_monthly_backup,
+    previous_month_backup_exists,
+    list_backups,
+    format_size,
 )
 from .db import (
-    IngestError, ingest, ingested_source_files, migrate_schema,
+    IngestError,
+    ingest,
+    ingested_source_files,
+    migrate_schema,
     reclean_descriptions,
 )
 from .parser import auto_rename_csv, load_card_holders
 from .pdf_parser import extract_pdf_date_range
 from .rules import (
-    load_rules, categorize_transactions,
-    add_rule, remove_rule,
-    add_card, remove_card, _load_cards_raw,
+    load_rules,
+    categorize_transactions,
+    add_rule,
+    remove_rule,
+    add_card,
+    remove_card,
+    _load_cards_raw,
 )
 from .starter_rules import import_starter_rules
 from .ods import generate_ods, sync_from_ods
@@ -32,18 +49,26 @@ from .export import export_csv
 from .pdf_report import generate_monthly_pdf, previous_month_label, DEFAULT_REPORTS
 from .suggest import analyze_patterns, format_suggestions, accept_suggestion
 from .advisor import (
-    generate_prompt, save_prompt, load_context, save_context,
-    ingest_response, get_response_path, update_context_interactive,
-    is_first_run, DEFAULT_CONTEXT_FILE,
-    find_next_catchup_month, find_months_without_responses,
+    generate_prompt,
+    save_prompt,
+    load_context,
+    save_context,
+    ingest_response,
+    get_response_path,
+    update_context_interactive,
+    is_first_run,
+    DEFAULT_CONTEXT_FILE,
+    find_next_catchup_month,
+    find_months_without_responses,
 )
 from .constants import DEFAULT_ADVISOR_DIR
 from .email_fetch import (
-    load_email_config, create_email_config, fetch_and_report,
+    load_email_config,
+    create_email_config,
+    fetch_and_report,
     DEFAULT_EMAIL_CONFIG,
 )
 from .parsers import detect_parser, get_parser_by_id, get_registered_parsers
-
 
 # ---------------------------------------------------------------------------
 # Pre-flight checks
@@ -153,8 +178,10 @@ def _auto_rename_pdf(path: Path) -> Path:
     date_from, date_to = extract_pdf_date_range(path)
 
     if date_from.year != date_to.year or date_from.month != date_to.month:
-        print(f"  Date range spans multiple months ({date_from} to {date_to}), "
-              f"keeping original filename: {path.name}")
+        print(
+            f"  Date range spans multiple months ({date_from} to {date_to}), "
+            f"keeping original filename: {path.name}"
+        )
         return path
 
     target_name = date_from.strftime("%Y-%m") + ".pdf"
@@ -165,8 +192,10 @@ def _auto_rename_pdf(path: Path) -> Path:
 
     if not target_path.exists():
         path.rename(target_path)
-        print(f"  Renamed {path.name} -> {target_name} "
-              f"(covers {date_from} to {date_to})")
+        print(
+            f"  Renamed {path.name} -> {target_name} "
+            f"(covers {date_from} to {date_to})"
+        )
         return target_path
 
     # Target exists — just keep original name to avoid conflicts
@@ -203,11 +232,13 @@ def cmd_auto(args):
         backup_dir = args.backup_dir
         if not previous_month_backup_exists(backup_dir):
             zp = create_monthly_backup(
-                backup_dir, raw_dir=args.raw, ods_path=args.out,
+                backup_dir,
+                raw_dir=args.raw,
+                ods_path=args.out,
             )
             _info(f"Auto-backup created: {zp} ({format_size(zp.stat().st_size)})")
         # (if it already exists we stay silent)
-    
+
     raw_dir = args.raw
     _check_raw_dir(raw_dir)
     _info(f"Scanning {raw_dir}/ for new bank statements...")
@@ -231,13 +262,13 @@ def cmd_auto(args):
         # Re-discover after renames (names may have changed). Keep the renamed
         # files too: a wider statement that replaced YYYY-MM.csv takes a name
         # already in the DB, and rows are deduplicated on insert anyway.
-        new_files = list(dict.fromkeys(
-            renamed + _discover_new_files(raw_dir, args.db)
-        ))
+        new_files = list(dict.fromkeys(renamed + _discover_new_files(raw_dir, args.db)))
 
     ingest_error = None
     if new_files:
-        _info(f"Found {len(new_files)} new file(s): {', '.join(f.name for f in new_files)}")
+        _info(
+            f"Found {len(new_files)} new file(s): {', '.join(f.name for f in new_files)}"
+        )
         try:
             ingest(args.db, new_files)
         except IngestError as e:
@@ -249,9 +280,9 @@ def cmd_auto(args):
 
     # Step 3: Sync manual edits, apply rules, regenerate report
     _detail("")
-    
+
     output_format = getattr(args, "format", "xlsx")
-    
+
     # Sync from ODS if it exists (for backward compatibility)
     ods_path = args.out.with_suffix(".ods") if args.out.suffix == ".xlsx" else args.out
     if ods_path.exists():
@@ -272,16 +303,22 @@ def cmd_auto(args):
 
     # Generate report in the specified format
     if output_format == "xlsx":
-        xlsx_path = args.out if args.out.suffix == ".xlsx" else args.out.with_suffix(".xlsx")
+        xlsx_path = (
+            args.out if args.out.suffix == ".xlsx" else args.out.with_suffix(".xlsx")
+        )
         generate_xlsx(args.db, args.rules, xlsx_path, args.desc_notes)
         _info(f"\nDone! Report saved to {xlsx_path}")
     elif output_format == "ods":
         generate_ods(args.db, args.rules, ods_path, args.desc_notes)
         _info(f"\nDone! Report saved to {ods_path}")
     elif output_format == "both":
-        generate_xlsx(args.db, args.rules, args.out.with_suffix(".xlsx"), args.desc_notes)
+        generate_xlsx(
+            args.db, args.rules, args.out.with_suffix(".xlsx"), args.desc_notes
+        )
         generate_ods(args.db, args.rules, ods_path, args.desc_notes)
-        _info(f"\nDone! Reports saved to {args.out.with_suffix('.xlsx')} and {ods_path}")
+        _info(
+            f"\nDone! Reports saved to {args.out.with_suffix('.xlsx')} and {ods_path}"
+        )
 
     if ingest_error is not None:
         sys.exit(1)
@@ -334,12 +371,14 @@ def cmd_report(args):
     """Handle the 'report' subcommand."""
     _check_setup()
     _set_verbosity(args)
-    
+
     output_format = getattr(args, "format", "xlsx")
-    
+
     # Determine output paths based on format
     out_path = args.out
-    xlsx_path = out_path if out_path.suffix == ".xlsx" else out_path.with_suffix(".xlsx")
+    xlsx_path = (
+        out_path if out_path.suffix == ".xlsx" else out_path.with_suffix(".xlsx")
+    )
     ods_path = out_path if out_path.suffix == ".ods" else out_path.with_suffix(".ods")
 
     # Step 1: Sync back any manual edits from the existing ODS (if it exists)
@@ -369,13 +408,13 @@ def cmd_report(args):
             ods_path.unlink()
             _info(f"Deleted existing {ods_path} (--fresh flag).")
         generate_ods(args.db, args.rules, ods_path, args.desc_notes)
-    
+
     elif output_format == "xlsx":
         if args.fresh and xlsx_path.exists():
             xlsx_path.unlink()
             _info(f"Deleted existing {xlsx_path} (--fresh flag).")
         generate_xlsx(args.db, args.rules, xlsx_path, args.desc_notes)
-    
+
     elif output_format == "both":
         if args.fresh:
             if ods_path.exists():
@@ -397,8 +436,10 @@ def cmd_cards(args):
     if action == "list":
         holders = load_card_holders(cards_path)
         if not holders:
-            print(f"No card holders defined. Add one with:\n"
-                  f"  python bank_ingest.py cards add <last4> <name>")
+            print(
+                f"No card holders defined. Add one with:\n"
+                f"  python bank_ingest.py cards add <last4> <name>"
+            )
             return
         print(f"Card holders ({cards_path}):\n")
         print(f"  {'Last 4':>6}  Name")
@@ -440,34 +481,45 @@ def cmd_rules(args):
     if action == "list":
         rules = load_rules(rules_path)
         if not rules:
-            print(f"No rules defined. Add one with:\n"
-                  f"  python bank_ingest.py rules add <pattern> <category>")
+            print(
+                f"No rules defined. Add one with:\n"
+                f"  python bank_ingest.py rules add <pattern> <category>"
+            )
             return
         print(f"Categorization rules ({rules_path}):\n")
-        print(f"  {'#':>3}  {'Pattern':<30} {'Field':<16} {'Category':<20} {'Subcategory':<20} {'Payment'}")
+        print(
+            f"  {'#':>3}  {'Pattern':<30} {'Field':<16} {'Category':<20} {'Subcategory':<20} {'Payment'}"
+        )
         print(f"  {'─' * 3}  {'─' * 30} {'─' * 16} {'─' * 20} {'─' * 20} {'─' * 12}")
         for i, r in enumerate(rules, 1):
-            print(f"  {i:>3}  {r['pattern']:<30} {r['match_field']:<16} "
-                  f"{r['category']:<20} {r.get('subcategory', ''):<20} "
-                  f"{r.get('payment_type', '')}")
+            print(
+                f"  {i:>3}  {r['pattern']:<30} {r['match_field']:<16} "
+                f"{r['category']:<20} {r.get('subcategory', ''):<20} "
+                f"{r.get('payment_type', '')}"
+            )
 
     elif action == "add":
         if len(args.extra) < 2:
-            print("Usage: rules add <pattern> <category> [--field X] [--sub Y] [--payment Z]")
+            print(
+                "Usage: rules add <pattern> <category> [--field X] [--sub Y] [--payment Z]"
+            )
             print("  Example: rules add CONTINENTE Groceries")
             print("  Example: rules add FARMACIA Health --sub Pharmacy --payment card")
             return
         pattern = args.extra[0]
         category = args.extra[1]
         add_rule(
-            rules_path, pattern,
+            rules_path,
+            pattern,
             match_field=args.field,
             category=category,
             subcategory=args.sub or "",
             payment_type=args.payment or "",
         )
-        print(f"Added rule: {pattern} -> {category}"
-              + (f" / {args.sub}" if args.sub else ""))
+        print(
+            f"Added rule: {pattern} -> {category}"
+            + (f" / {args.sub}" if args.sub else "")
+        )
 
     elif action == "remove":
         if not args.extra:
@@ -483,8 +535,10 @@ def cmd_rules(args):
         dry = args.extra and args.extra[0] == "--dry-run"
         added, skipped = import_starter_rules(rules_path, dry_run=dry)
         if dry:
-            print(f"[dry-run] Would add {added} starter rule(s), "
-                  f"skip {skipped} already present.")
+            print(
+                f"[dry-run] Would add {added} starter rule(s), "
+                f"skip {skipped} already present."
+            )
         elif added:
             print(f"Imported {added} Portuguese starter rule(s) into {rules_path}.")
             if skipped:
@@ -542,25 +596,25 @@ def cmd_reset(args):
     """Handle the 'reset' subcommand: backup everything and start fresh."""
     import shutil
     from datetime import datetime
-    
+
     # Paths to clean
     data_dir = DEFAULT_DB.parent  # data/
     raw_dir = args.raw
     reports_dir = DEFAULT_REPORTS
     ods_path = DEFAULT_ODS
     xlsx_path = Path("expense-report.xlsx")
-    
+
     # Check if there's anything to reset
     has_data = data_dir.is_dir() and any(data_dir.iterdir())
     has_raw = raw_dir.is_dir() and any(raw_dir.iterdir())
     has_reports = reports_dir.is_dir() and any(reports_dir.iterdir())
     has_ods = ods_path.is_file()
     has_xlsx = xlsx_path.is_file()
-    
+
     if not any([has_data, has_raw, has_reports, has_ods, has_xlsx]):
         print("Nothing to reset - workspace is already clean.")
         return
-    
+
     # Show what will be affected
     print("This will backup and then DELETE the following:")
     if has_data:
@@ -577,29 +631,29 @@ def cmd_reset(args):
     if has_xlsx:
         print(f"  - {xlsx_path}")
     print()
-    
+
     # Confirm unless --yes flag
     if not args.yes:
         response = input("Are you sure? Type 'yes' to confirm: ")
         if response.lower() != "yes":
             print("Aborted.")
             return
-    
+
     # Create backup first
     backup_dir = args.backup_dir
     backup_dir.mkdir(parents=True, exist_ok=True)
     label = f"pre-reset-{datetime.now().strftime('%Y-%m-%dT%H-%M-%S')}"
-    
+
     print()
     print("Creating backup...")
     zp = create_backup(backup_dir, label=label, raw_dir=raw_dir, ods_path=ods_path)
     size = format_size(zp.stat().st_size)
     print(f"  Backup saved: {zp} ({size})")
-    
+
     # Now delete everything
     print()
     print("Cleaning up...")
-    
+
     if has_data:
         # Keep the data/ directory but remove contents (except advisor context if --keep-context)
         for item in data_dir.iterdir():
@@ -612,7 +666,7 @@ def cmd_reset(args):
             else:
                 item.unlink()
                 print(f"  Removed {item}")
-    
+
     if has_raw:
         # Keep the raw/ directory but remove contents
         for item in raw_dir.iterdir():
@@ -621,7 +675,7 @@ def cmd_reset(args):
             else:
                 item.unlink()
         print(f"  Cleared {raw_dir}/")
-    
+
     if has_reports:
         # Keep the reports/ directory but remove contents
         for item in reports_dir.iterdir():
@@ -630,15 +684,15 @@ def cmd_reset(args):
             else:
                 item.unlink()
         print(f"  Cleared {reports_dir}/")
-    
+
     if has_ods:
         ods_path.unlink()
         print(f"  Removed {ods_path}")
-    
+
     if has_xlsx:
         xlsx_path.unlink()
         print(f"  Removed {xlsx_path}")
-    
+
     print()
     print("Reset complete! Workspace is now clean.")
     print(f"  To restore, unzip: {zp}")
@@ -648,7 +702,7 @@ def cmd_pdf(args):
     """Handle the 'pdf' subcommand: generate a monthly PDF report."""
     _check_setup()
     _set_verbosity(args)
-    
+
     if args.all:
         # Generate PDFs for all months with data
         conn = sqlite3.connect(str(args.db))
@@ -659,11 +713,11 @@ def cmd_pdf(args):
             months = [r[0] for r in rows if r[0]]
         finally:
             conn.close()
-        
+
         if not months:
             print("No transactions found in database.")
             return
-        
+
         _info(f"Generating PDFs for {len(months)} month(s)...")
         generated = 0
         for month in months:
@@ -678,7 +732,7 @@ def cmd_pdf(args):
                 generated += 1
             except Exception as e:
                 _info(f"  {month} -> Error: {e}")
-        
+
         print(f"\nGenerated {generated} PDF report(s) in reports/")
     else:
         # Generate for a single month
@@ -709,8 +763,9 @@ def cmd_suggest(args):
     print(format_suggestions(results))
 
     # Summary
-    total = (len(results["recurring"]) + len(results["similar"])
-             + len(results["frequent"]))
+    total = (
+        len(results["recurring"]) + len(results["similar"]) + len(results["frequent"])
+    )
     if total:
         print(f"\nFound {total} suggestion(s). To accept a suggestion as a rule:")
         print(f"  python bank_ingest.py rules add <PATTERN> <CATEGORY>")
@@ -798,16 +853,26 @@ def cmd_gui(args):
 
     print(f"Starting Expense Tracker GUI on http://localhost:{port}")
     print("Press Ctrl+C to stop.")
-    subprocess.run([
-        sys.executable, "-m", "streamlit", "run",
-        str(gui_path),
-        "--server.port", str(port),
-        # Streamlit listens on every interface unless told otherwise; the URL
-        # printed above says localhost, and this serves the whole ledger.
-        "--server.address", "localhost",
-        "--server.headless", "true",
-        "--browser.gatherUsageStats", "false",
-    ], cwd=project_root)
+    subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "streamlit",
+            "run",
+            str(gui_path),
+            "--server.port",
+            str(port),
+            # Streamlit listens on every interface unless told otherwise; the URL
+            # printed above says localhost, and this serves the whole ledger.
+            "--server.address",
+            "localhost",
+            "--server.headless",
+            "true",
+            "--browser.gatherUsageStats",
+            "false",
+        ],
+        cwd=project_root,
+    )
 
 
 def cmd_banks(args):
@@ -828,28 +893,28 @@ def cmd_banks(args):
 def cmd_advisor(args):
     """Handle the 'advisor' subcommand: generate LLM prompts for financial advice."""
     _check_setup()
-    
+
     action = args.action
-    
+
     # Handle catchup mode - find next month without response
     if action == "catchup":
         missing = find_months_without_responses(args.db, args.out)
         if not missing:
             print("All months are up to date! No catch-up needed.")
             return
-        
+
         print(f"Found {len(missing)} month(s) without advisor responses:")
         for m in missing:
             print(f"  - {m}")
         print()
-        
+
         # Use the oldest missing month
         month = missing[0]
         print(f"Generating prompt for oldest missing month: {month}")
         action = "generate"  # Fall through to generate
     else:
         month = args.month or previous_month_label()
-    
+
     if action == "generate":
         # Generate the prompt
         _info(f"Generating advisor prompt for {month}...")
@@ -858,11 +923,11 @@ def cmd_advisor(args):
             context_path=args.context,
             target_month=month,
         )
-        
+
         # Save to file
         prompt_path = save_prompt(prompt, month, args.out)
         _info(f"\nPrompt saved to: {prompt_path}")
-        
+
         # Show instructions
         response_path = get_response_path(month, args.out)
         print(f"""
@@ -872,53 +937,58 @@ Next steps:
   3. Save the LLM's response to: {response_path}
   4. Run: ./run.sh advisor ingest --month {month}
 """)
-        
+
         context = load_context(args.context)
         if is_first_run(context):
             print("Note: This is your first advisor session. The prompt includes")
             print("      discovery questions to establish your financial context.")
-    
+
     elif action == "ingest":
         # Ingest a response
         response_path = args.response or get_response_path(month, args.out)
-        
+
         if not response_path.exists():
             print(f"Error: Response file not found: {response_path}")
             print(f"\nSave your LLM's response to this file and try again.")
             return
-        
+
         _info(f"Ingesting response from: {response_path}")
         ingest_response(response_path, args.context, month)
         _info("Response recorded in context.")
-        
+
         # Offer interactive context update
         if not args.no_interactive:
             try:
-                update = input("\nWould you like to update your context now? [y/N] ").strip().lower()
+                update = (
+                    input("\nWould you like to update your context now? [y/N] ")
+                    .strip()
+                    .lower()
+                )
                 if update == "y":
                     update_context_interactive(args.context)
             except (EOFError, KeyboardInterrupt):
                 print()
-    
+
     elif action == "context":
         # Show or update context
         context = load_context(args.context)
-        
+
         if args.edit:
             update_context_interactive(args.context)
         else:
             # Display current context
             import json
+
             print(json.dumps(context, indent=2, ensure_ascii=False))
-    
+
     elif action == "status":
         # Show advisor status
         context = load_context(args.context)
         missing = find_months_without_responses(args.db, args.out)
-        
+
         print("Advisor Status")
         print("=" * 40)
-        
+
         if is_first_run(context):
             print("Status: Not yet initialized")
             print("\nRun './run.sh advisor' to generate your first prompt.")
@@ -926,19 +996,19 @@ Next steps:
             print(f"Context file: {args.context}")
             print(f"Created: {context.get('created_at', 'Unknown')}")
             print(f"Last updated: {context.get('last_updated', 'Unknown')}")
-            
+
             goals = context.get("goals", {})
             total_goals = sum(len(g) for g in goals.values())
             print(f"Goals tracked: {total_goals}")
-            
+
             insights = context.get("insights", [])
             print(f"Insights recorded: {len(insights)}")
-            
+
             responses = context.get("responses", {})
             print(f"Months with responses: {len(responses)}")
             if responses:
                 print(f"  Latest: {max(responses.keys())}")
-        
+
         # Show missing months
         if missing:
             print(f"\nMonths needing catch-up: {len(missing)}")
@@ -959,11 +1029,15 @@ def main() -> None:
         description="Expense tracking pipeline for Portuguese bank statements."
     )
     ap.add_argument(
-        "-q", "--quiet", action="store_true",
+        "-q",
+        "--quiet",
+        action="store_true",
         help="Suppress all output except errors",
     )
     ap.add_argument(
-        "-v", "--verbose", action="store_true",
+        "-v",
+        "--verbose",
+        action="store_true",
         help="Show detailed progress information",
     )
     sub = ap.add_subparsers(dest="cmd")
@@ -974,66 +1048,92 @@ def main() -> None:
         help="Scan raw/ for new CSVs, ingest them, and regenerate the report (default)",
     )
     ap_auto.add_argument(
-        "--raw", type=Path, default=DEFAULT_RAW,
+        "--raw",
+        type=Path,
+        default=DEFAULT_RAW,
         help=f"Directory containing raw bank CSV files (default: {DEFAULT_RAW})",
     )
     ap_auto.add_argument(
-        "--db", type=Path, default=DEFAULT_DB,
+        "--db",
+        type=Path,
+        default=DEFAULT_DB,
         help=f"SQLite database path (default: {DEFAULT_DB})",
     )
     ap_auto.add_argument(
-        "--rules", type=Path, default=DEFAULT_RULES,
+        "--rules",
+        type=Path,
+        default=DEFAULT_RULES,
         help=f"Categorization rules CSV (default: {DEFAULT_RULES})",
     )
     ap_auto.add_argument(
-        "--out", type=Path, default=Path("expense-report.xlsx"),
+        "--out",
+        type=Path,
+        default=Path("expense-report.xlsx"),
         help="Output file path (default: expense-report.xlsx)",
     )
     ap_auto.add_argument(
-        "--format", type=str, default="xlsx",
+        "--format",
+        type=str,
+        default="xlsx",
         choices=["ods", "xlsx", "both"],
         help="Output format: xlsx (default), ods (LibreOffice), or both",
     )
     ap_auto.add_argument(
-        "--desc-notes", type=Path, default=DEFAULT_DESC_NOTES,
+        "--desc-notes",
+        type=Path,
+        default=DEFAULT_DESC_NOTES,
         help=f"Merchant notes CSV (default: {DEFAULT_DESC_NOTES})",
     )
     ap_auto.add_argument(
-        "--backup-dir", type=Path, default=DEFAULT_BACKUPS,
+        "--backup-dir",
+        type=Path,
+        default=DEFAULT_BACKUPS,
         help=f"Directory for backup archives (default: {DEFAULT_BACKUPS})",
     )
     ap_auto.add_argument(
-        "--no-backup", action="store_true",
+        "--no-backup",
+        action="store_true",
         help="Skip the automatic monthly backup",
     )
     ap_auto.add_argument(
-        "--dry-run", action="store_true",
+        "--dry-run",
+        action="store_true",
         help="Show what would happen without making any changes",
     )
     ap_auto.set_defaults(func=cmd_auto)
 
     # -- ingest --
     ap_ingest = sub.add_parser(
-        "ingest", help="Parse specific bank statement files (CSV or PDF) and store in SQLite"
+        "ingest",
+        help="Parse specific bank statement files (CSV or PDF) and store in SQLite",
     )
     ap_ingest.add_argument(
-        "--db", type=Path, default=DEFAULT_DB,
+        "--db",
+        type=Path,
+        default=DEFAULT_DB,
         help=f"SQLite database path (default: {DEFAULT_DB})",
     )
     ap_ingest.add_argument(
-        "--bank", type=str, default=None,
+        "--bank",
+        type=str,
+        default=None,
         help="Bank format to use (e.g. 'utf16', 'utf8'). Auto-detected if omitted.",
     )
     ap_ingest.add_argument(
-        "--no-rename", action="store_true",
+        "--no-rename",
+        action="store_true",
         help="Skip auto-renaming CSV files based on their date range",
     )
     ap_ingest.add_argument(
-        "--dry-run", action="store_true",
+        "--dry-run",
+        action="store_true",
         help="Show what would happen without making any changes",
     )
     ap_ingest.add_argument(
-        "files", nargs="+", type=Path, help="Bank statement files to ingest (CSV or PDF)",
+        "files",
+        nargs="+",
+        type=Path,
+        help="Bank statement files to ingest (CSV or PDF)",
     )
     ap_ingest.set_defaults(func=cmd_ingest)
 
@@ -1042,106 +1142,133 @@ def main() -> None:
         "report", help="Apply rules and generate expense report (ODS, XLSX, or both)"
     )
     ap_report.add_argument(
-        "--format", type=str, default="xlsx",
+        "--format",
+        type=str,
+        default="xlsx",
         choices=["ods", "xlsx", "both"],
         help="Output format: xlsx (default, works with Excel/Numbers/Sheets), ods (LibreOffice), or both",
     )
     ap_report.add_argument(
-        "--db", type=Path, default=DEFAULT_DB,
+        "--db",
+        type=Path,
+        default=DEFAULT_DB,
         help=f"SQLite database path (default: {DEFAULT_DB})",
     )
     ap_report.add_argument(
-        "--rules", type=Path, default=DEFAULT_RULES,
+        "--rules",
+        type=Path,
+        default=DEFAULT_RULES,
         help=f"Categorization rules CSV (default: {DEFAULT_RULES})",
     )
     ap_report.add_argument(
-        "--out", type=Path, default=Path("expense-report.xlsx"),
+        "--out",
+        type=Path,
+        default=Path("expense-report.xlsx"),
         help="Output file path (default: expense-report.xlsx)",
     )
     ap_report.add_argument(
-        "--fresh", action="store_true",
+        "--fresh",
+        action="store_true",
         help="Delete existing ODS and regenerate all sheets from scratch "
-             "(manual category edits are still synced to DB first unless --no-sync)",
+        "(manual category edits are still synced to DB first unless --no-sync)",
     )
     ap_report.add_argument(
-        "--no-sync", action="store_true",
+        "--no-sync",
+        action="store_true",
         help="Skip syncing manual edits from the ODS back to the database",
     )
     ap_report.add_argument(
-        "--desc-notes", type=Path, default=DEFAULT_DESC_NOTES,
+        "--desc-notes",
+        type=Path,
+        default=DEFAULT_DESC_NOTES,
         help=f"Merchant notes CSV (default: {DEFAULT_DESC_NOTES})",
     )
     ap_report.add_argument(
-        "--backup-dir", type=Path, default=DEFAULT_BACKUPS,
+        "--backup-dir",
+        type=Path,
+        default=DEFAULT_BACKUPS,
         help=f"Directory for backup archives (default: {DEFAULT_BACKUPS})",
     )
     ap_report.add_argument(
-        "--raw", type=Path, default=DEFAULT_RAW,
+        "--raw",
+        type=Path,
+        default=DEFAULT_RAW,
         help=f"Directory containing raw bank CSV files (default: {DEFAULT_RAW})",
     )
     ap_report.set_defaults(func=cmd_report)
 
     # -- cards --
-    ap_cards = sub.add_parser(
-        "cards", help="List, add, or remove card-holder mappings"
-    )
+    ap_cards = sub.add_parser("cards", help="List, add, or remove card-holder mappings")
     ap_cards.add_argument(
-        "action", nargs="?", default="list",
+        "action",
+        nargs="?",
+        default="list",
         choices=["list", "add", "remove"],
         help="Action to perform (default: list)",
     )
     ap_cards.add_argument(
-        "extra", nargs="*",
+        "extra",
+        nargs="*",
         help="Additional arguments (e.g. last4 digits and name for 'add')",
     )
     ap_cards.add_argument(
-        "--cards", type=Path, default=DEFAULT_CARDS,
+        "--cards",
+        type=Path,
+        default=DEFAULT_CARDS,
         help=f"Card holders CSV (default: {DEFAULT_CARDS})",
     )
     ap_cards.set_defaults(func=cmd_cards)
 
     # -- rules --
-    ap_rules = sub.add_parser(
-        "rules", help="List, add, or remove categorization rules"
-    )
+    ap_rules = sub.add_parser("rules", help="List, add, or remove categorization rules")
     ap_rules.add_argument(
-        "action", nargs="?", default="list",
+        "action",
+        nargs="?",
+        default="list",
         choices=["list", "add", "remove", "import-starter"],
         help="Action to perform (default: list)",
     )
     ap_rules.add_argument(
-        "extra", nargs="*",
+        "extra",
+        nargs="*",
         help="Additional arguments (e.g. pattern and category for 'add')",
     )
     ap_rules.add_argument(
-        "--rules", type=Path, default=DEFAULT_RULES,
+        "--rules",
+        type=Path,
+        default=DEFAULT_RULES,
         help=f"Rules CSV (default: {DEFAULT_RULES})",
     )
     ap_rules.add_argument(
-        "--field", default="description",
+        "--field",
+        default="description",
         choices=["description", "description_raw"],
         help="Field to match against (default: description)",
     )
     ap_rules.add_argument(
-        "--sub", default="",
+        "--sub",
+        default="",
         help="Subcategory (for 'add')",
     )
     ap_rules.add_argument(
-        "--payment", default="",
+        "--payment",
+        default="",
         help="Payment type override (for 'add'): card, transfer, direct_debit, fee, tax",
     )
     ap_rules.set_defaults(func=cmd_rules)
 
     # -- export --
-    ap_export = sub.add_parser(
-        "export", help="Export ledger to a clean UTF-8 CSV"
-    )
+    ap_export = sub.add_parser("export", help="Export ledger to a clean UTF-8 CSV")
     ap_export.add_argument(
-        "--db", type=Path, default=DEFAULT_DB,
+        "--db",
+        type=Path,
+        default=DEFAULT_DB,
         help=f"SQLite database path (default: {DEFAULT_DB})",
     )
     ap_export.add_argument(
-        "--out", type=Path, default=DEFAULT_CSV,
+        "--out",
+        type=Path,
+        default=DEFAULT_CSV,
         help=f"Output CSV path (default: {DEFAULT_CSV})",
     )
     ap_export.set_defaults(func=cmd_export)
@@ -1152,23 +1279,33 @@ def main() -> None:
         help="Re-clean all descriptions using current patterns and regenerate report",
     )
     ap_reclean.add_argument(
-        "--db", type=Path, default=DEFAULT_DB,
+        "--db",
+        type=Path,
+        default=DEFAULT_DB,
         help=f"SQLite database path (default: {DEFAULT_DB})",
     )
     ap_reclean.add_argument(
-        "--rules", type=Path, default=DEFAULT_RULES,
+        "--rules",
+        type=Path,
+        default=DEFAULT_RULES,
         help=f"Categorization rules CSV (default: {DEFAULT_RULES})",
     )
     ap_reclean.add_argument(
-        "--out", type=Path, default=DEFAULT_ODS,
+        "--out",
+        type=Path,
+        default=DEFAULT_ODS,
         help=f"Output ODS file path (default: {DEFAULT_ODS})",
     )
     ap_reclean.add_argument(
-        "--desc-notes", type=Path, default=DEFAULT_DESC_NOTES,
+        "--desc-notes",
+        type=Path,
+        default=DEFAULT_DESC_NOTES,
         help=f"Merchant notes CSV (default: {DEFAULT_DESC_NOTES})",
     )
     ap_reclean.add_argument(
-        "--backup-dir", type=Path, default=DEFAULT_BACKUPS,
+        "--backup-dir",
+        type=Path,
+        default=DEFAULT_BACKUPS,
         help=f"Directory for backup archives (default: {DEFAULT_BACKUPS})",
     )
     ap_reclean.set_defaults(func=cmd_reclean)
@@ -1178,15 +1315,21 @@ def main() -> None:
         "backup", help="Create a zip backup of all data (data/, raw/, ODS report)"
     )
     ap_backup.add_argument(
-        "--out", type=Path, default=DEFAULT_BACKUPS,
+        "--out",
+        type=Path,
+        default=DEFAULT_BACKUPS,
         help=f"Directory to store the backup zip (default: {DEFAULT_BACKUPS})",
     )
     ap_backup.add_argument(
-        "--raw", type=Path, default=DEFAULT_RAW,
+        "--raw",
+        type=Path,
+        default=DEFAULT_RAW,
         help=f"Directory containing raw bank CSV files (default: {DEFAULT_RAW})",
     )
     ap_backup.add_argument(
-        "--ods", type=Path, default=DEFAULT_ODS,
+        "--ods",
+        type=Path,
+        default=DEFAULT_ODS,
         help=f"ODS report file path (default: {DEFAULT_ODS})",
     )
     ap_backup.set_defaults(func=cmd_backup)
@@ -1197,19 +1340,26 @@ def main() -> None:
         help="Backup everything and delete all data for a fresh start",
     )
     ap_reset.add_argument(
-        "--yes", "-y", action="store_true",
+        "--yes",
+        "-y",
+        action="store_true",
         help="Skip confirmation prompt",
     )
     ap_reset.add_argument(
-        "--keep-context", action="store_true",
+        "--keep-context",
+        action="store_true",
         help="Keep the advisor context file (data/advisor/context.json)",
     )
     ap_reset.add_argument(
-        "--raw", type=Path, default=DEFAULT_RAW,
+        "--raw",
+        type=Path,
+        default=DEFAULT_RAW,
         help=f"Directory containing raw bank files (default: {DEFAULT_RAW})",
     )
     ap_reset.add_argument(
-        "--backup-dir", type=Path, default=DEFAULT_BACKUPS,
+        "--backup-dir",
+        type=Path,
+        default=DEFAULT_BACKUPS,
         help=f"Directory to store the backup zip (default: {DEFAULT_BACKUPS})",
     )
     ap_reset.set_defaults(func=cmd_reset)
@@ -1219,23 +1369,32 @@ def main() -> None:
         "pdf", help="Generate a single-page monthly PDF summary report"
     )
     ap_pdf.add_argument(
-        "--month", type=str, default=None,
+        "--month",
+        type=str,
+        default=None,
         help="Month to report on (YYYY-MM format, default: previous month)",
     )
     ap_pdf.add_argument(
-        "--all", action="store_true",
+        "--all",
+        action="store_true",
         help="Generate PDFs for all months with transaction data",
     )
     ap_pdf.add_argument(
-        "--db", type=Path, default=DEFAULT_DB,
+        "--db",
+        type=Path,
+        default=DEFAULT_DB,
         help=f"SQLite database path (default: {DEFAULT_DB})",
     )
     ap_pdf.add_argument(
-        "--out", type=Path, default=None,
+        "--out",
+        type=Path,
+        default=None,
         help="Output PDF file path (default: reports/report-YYYY-MM.pdf)",
     )
     ap_pdf.add_argument(
-        "--desc-notes", type=Path, default=DEFAULT_DESC_NOTES,
+        "--desc-notes",
+        type=Path,
+        default=DEFAULT_DESC_NOTES,
         help=f"Merchant notes CSV (default: {DEFAULT_DESC_NOTES})",
     )
     ap_pdf.set_defaults(func=cmd_pdf)
@@ -1246,19 +1405,27 @@ def main() -> None:
         help="Analyze transaction patterns and suggest categorization rules",
     )
     ap_suggest.add_argument(
-        "--db", type=Path, default=DEFAULT_DB,
+        "--db",
+        type=Path,
+        default=DEFAULT_DB,
         help=f"SQLite database path (default: {DEFAULT_DB})",
     )
     ap_suggest.add_argument(
-        "--min-months", type=int, default=3,
+        "--min-months",
+        type=int,
+        default=3,
         help="Minimum months for recurring detection (default: 3)",
     )
     ap_suggest.add_argument(
-        "--similarity", type=float, default=0.65,
+        "--similarity",
+        type=float,
+        default=0.65,
         help="Name similarity threshold 0.0-1.0 (default: 0.65)",
     )
     ap_suggest.add_argument(
-        "--min-count", type=int, default=5,
+        "--min-count",
+        type=int,
+        default=5,
         help="Minimum transaction count for frequent merchants (default: 5)",
     )
     ap_suggest.set_defaults(func=cmd_suggest)
@@ -1269,49 +1436,58 @@ def main() -> None:
         help="Download bank statements from email via IMAP",
     )
     ap_fetch.add_argument(
-        "--setup", action="store_true",
+        "--setup",
+        action="store_true",
         help="Interactive setup: create email configuration file",
     )
     ap_fetch.add_argument(
-        "--config", type=Path, default=DEFAULT_EMAIL_CONFIG,
+        "--config",
+        type=Path,
+        default=DEFAULT_EMAIL_CONFIG,
         help=f"Email config JSON file (default: {DEFAULT_EMAIL_CONFIG})",
     )
     ap_fetch.add_argument(
-        "--raw", type=Path, default=DEFAULT_RAW,
+        "--raw",
+        type=Path,
+        default=DEFAULT_RAW,
         help=f"Directory to save downloaded files (default: {DEFAULT_RAW})",
     )
     ap_fetch.add_argument(
-        "--db", type=Path, default=DEFAULT_DB,
+        "--db",
+        type=Path,
+        default=DEFAULT_DB,
         help=f"SQLite database path (default: {DEFAULT_DB})",
     )
     ap_fetch.add_argument(
-        "--days", type=int, default=60,
+        "--days",
+        type=int,
+        default=60,
         help="How many days back to search (default: 60)",
     )
     ap_fetch.add_argument(
-        "--no-ingest", action="store_true",
+        "--no-ingest",
+        action="store_true",
         help="Download only, don't auto-ingest the files",
     )
     ap_fetch.add_argument(
-        "--dry-run", action="store_true",
+        "--dry-run",
+        action="store_true",
         help="Show what would be downloaded without saving anything",
     )
     ap_fetch.set_defaults(func=cmd_fetch)
 
     # -- gui --
-    ap_gui = sub.add_parser(
-        "gui", help="Launch the Streamlit web interface"
-    )
+    ap_gui = sub.add_parser("gui", help="Launch the Streamlit web interface")
     ap_gui.add_argument(
-        "--port", type=int, default=8501,
+        "--port",
+        type=int,
+        default=8501,
         help="Port for the web server (default: 8501)",
     )
     ap_gui.set_defaults(func=cmd_gui)
 
     # -- banks --
-    ap_banks = sub.add_parser(
-        "banks", help="List supported bank statement formats"
-    )
+    ap_banks = sub.add_parser("banks", help="List supported bank statement formats")
     ap_banks.set_defaults(func=cmd_banks)
 
     # -- advisor --
@@ -1320,36 +1496,50 @@ def main() -> None:
         help="Generate LLM prompts for financial advice and track context",
     )
     ap_advisor.add_argument(
-        "action", nargs="?", default="generate",
+        "action",
+        nargs="?",
+        default="generate",
         choices=["generate", "ingest", "context", "status", "catchup"],
         help="Action: generate prompt (default), ingest response, show/edit context, status, or catchup (oldest missing month)",
     )
     ap_advisor.add_argument(
-        "--month", type=str, default=None,
+        "--month",
+        type=str,
+        default=None,
         help="Month to analyze (YYYY-MM format, default: previous month)",
     )
     ap_advisor.add_argument(
-        "--db", type=Path, default=DEFAULT_DB,
+        "--db",
+        type=Path,
+        default=DEFAULT_DB,
         help=f"SQLite database path (default: {DEFAULT_DB})",
     )
     ap_advisor.add_argument(
-        "--out", type=Path, default=DEFAULT_ADVISOR_DIR,
+        "--out",
+        type=Path,
+        default=DEFAULT_ADVISOR_DIR,
         help=f"Output directory for prompts/responses (default: {DEFAULT_ADVISOR_DIR})",
     )
     ap_advisor.add_argument(
-        "--context", type=Path, default=DEFAULT_CONTEXT_FILE,
+        "--context",
+        type=Path,
+        default=DEFAULT_CONTEXT_FILE,
         help=f"Context JSON file (default: {DEFAULT_CONTEXT_FILE})",
     )
     ap_advisor.add_argument(
-        "--response", type=Path, default=None,
+        "--response",
+        type=Path,
+        default=None,
         help="Path to response file (for 'ingest' action)",
     )
     ap_advisor.add_argument(
-        "--no-interactive", action="store_true",
+        "--no-interactive",
+        action="store_true",
         help="Skip interactive context update after ingesting",
     )
     ap_advisor.add_argument(
-        "--edit", action="store_true",
+        "--edit",
+        action="store_true",
         help="Edit context interactively (for 'context' action)",
     )
     ap_advisor.set_defaults(func=cmd_advisor)

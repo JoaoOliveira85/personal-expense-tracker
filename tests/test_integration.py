@@ -1,4 +1,5 @@
 """End-to-end integration tests for the expense tracking pipeline."""
+
 from __future__ import annotations
 
 import sqlite3
@@ -69,21 +70,37 @@ class TestFullWorkflow:
     def test_multiple_csv_ingestion(self, test_db, tmp_path, cards_csv):
         # Create two separate CSV files for different months
         jan_rows = [
-            ("15-01-2026", "15-01-2026", "COMPRA 1234 CONTINENTE PORTO",
-             "-45,50", "Compra", "1000,00"),
+            (
+                "15-01-2026",
+                "15-01-2026",
+                "COMPRA 1234 CONTINENTE PORTO",
+                "-45,50",
+                "Compra",
+                "1000,00",
+            ),
         ]
         feb_rows = [
-            ("15-02-2026", "15-02-2026", "COMPRA 1234 PINGO DOCE PORTO",
-             "-30,00", "Compra", "970,00"),
+            (
+                "15-02-2026",
+                "15-02-2026",
+                "COMPRA 1234 PINGO DOCE PORTO",
+                "-30,00",
+                "Compra",
+                "970,00",
+            ),
         ]
 
         jan_csv = make_utf16_csv(
-            tmp_path / "jan.csv", jan_rows,
-            date_from="01-01-2026", date_to="31-01-2026",
+            tmp_path / "jan.csv",
+            jan_rows,
+            date_from="01-01-2026",
+            date_to="31-01-2026",
         )
         feb_csv = make_utf16_csv(
-            tmp_path / "feb.csv", feb_rows,
-            date_from="01-02-2026", date_to="28-02-2026",
+            tmp_path / "feb.csv",
+            feb_rows,
+            date_from="01-02-2026",
+            date_to="28-02-2026",
         )
 
         ingest(test_db, [jan_csv, feb_csv], cards_path=cards_csv)
@@ -132,9 +149,7 @@ class TestFullWorkflow:
         # At least the FARMACIA DA GARE transaction should have changed
         # (GARE is now a noise word)
         farmacia_changed = any(
-            before[tid] != after[tid]
-            for tid in before
-            if "FARMACIA" in before[tid]
+            before[tid] != after[tid] for tid in before if "FARMACIA" in before[tid]
         )
         assert farmacia_changed or updated > 0
 

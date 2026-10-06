@@ -1,4 +1,5 @@
 """Tests for expense_tracker.pdf_parser."""
+
 from __future__ import annotations
 
 import logging
@@ -18,7 +19,6 @@ from expense_tracker.pdf_parser import (
     extract_pdf_date_range,
 )
 
-
 # ---------------------------------------------------------------------------
 # Synthetic PDF builder using fpdf2
 # ---------------------------------------------------------------------------
@@ -30,7 +30,12 @@ def _make_pdf_statement(
     date_from: str = "01-01-2026",
     date_to: str = "31-01-2026",
     header_labels: tuple[str, ...] = (
-        "Data Lançamento", "Data Valor", "Descrição", "Montante", "Tipo", "Saldo",
+        "Data Lançamento",
+        "Data Valor",
+        "Descrição",
+        "Montante",
+        "Tipo",
+        "Saldo",
     ),
 ) -> Path:
     """
@@ -45,7 +50,13 @@ def _make_pdf_statement(
     pdf.set_font("Helvetica", size=10)
 
     # Header with date range
-    pdf.cell(0, 10, f"Extrato de Conta - {date_from} a {date_to}", new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(
+        0,
+        10,
+        f"Extrato de Conta - {date_from} a {date_to}",
+        new_x="LMARGIN",
+        new_y="NEXT",
+    )
     pdf.cell(0, 8, "Conta: 123456789", new_x="LMARGIN", new_y="NEXT")
     pdf.ln(5)
 
@@ -73,11 +84,32 @@ def _make_pdf_statement(
 
 # Reusable sample rows matching conftest.py SAMPLE_ROWS
 SAMPLE_PDF_ROWS = [
-    ("15-01-2026", "15-01-2026", "COMPRA 1234 CONTINENTE PORTO", "-45,50", "Compra", "1234,56"),
-    ("14-01-2026", "14-01-2026", "COMPRA 5678 FARMACIA DA GARE", "-12,80", "Compra", "1280,06"),
+    (
+        "15-01-2026",
+        "15-01-2026",
+        "COMPRA 1234 CONTINENTE PORTO",
+        "-45,50",
+        "Compra",
+        "1234,56",
+    ),
+    (
+        "14-01-2026",
+        "14-01-2026",
+        "COMPRA 5678 FARMACIA DA GARE",
+        "-12,80",
+        "Compra",
+        "1280,06",
+    ),
     ("13-01-2026", "13-01-2026", "DD VODAFONE PORTU", "-35,99", "Debito", "1292,86"),
     ("12-01-2026", "12-01-2026", "TRF. P/O EXEMPLO", "-150,00", "Transf.", "1328,85"),
-    ("10-01-2026", "10-01-2026", "TRANSFERENCIA - SALARIO", "2500,00", "Credito", "1478,85"),
+    (
+        "10-01-2026",
+        "10-01-2026",
+        "TRANSFERENCIA - SALARIO",
+        "2500,00",
+        "Credito",
+        "1478,85",
+    ),
 ]
 
 
@@ -108,9 +140,9 @@ def _setup_cleaning(tmp_path):
     noise.write_text("CONTACTLESS\nPT\nPORTO\n", encoding="utf-8")
     patterns = tmp_path / "cleaning-patterns.csv"
     patterns.write_text(
-        'type,pattern,description\n'
-        'prefix,COMPRA\\s+\\d{4}\\s*,Card purchase prefix\n'
-        'prefix,DD\\s+,Direct debit prefix\n',
+        "type,pattern,description\n"
+        "prefix,COMPRA\\s+\\d{4}\\s*,Card purchase prefix\n"
+        "prefix,DD\\s+,Direct debit prefix\n",
         encoding="utf-8",
     )
     reset_cleaning_cache()
@@ -187,7 +219,14 @@ class TestIsHeaderRow:
 
 class TestFindColumnMapping:
     def test_standard_utf16_headers(self):
-        headers = ["Data Lançamento", "Data Valor", "Descrição", "Montante", "Tipo", "Saldo"]
+        headers = [
+            "Data Lançamento",
+            "Data Valor",
+            "Descrição",
+            "Montante",
+            "Tipo",
+            "Saldo",
+        ]
         mapping = _find_column_mapping(headers)
         assert mapping["date_posted"] == 0
         assert mapping["date_value"] == 1
@@ -289,6 +328,7 @@ class TestParsePdfStatement:
     def test_empty_pdf_returns_empty(self, tmp_path, cards_csv):
         """A PDF with no transaction table should return empty list."""
         from fpdf import FPDF
+
         pdf = FPDF()
         pdf.add_page()
         pdf.set_font("Helvetica", size=10)
@@ -320,6 +360,7 @@ class TestExtractPdfDateRange:
 
     def test_empty_pdf_raises(self, tmp_path):
         from fpdf import FPDF
+
         pdf = FPDF()
         pdf.add_page()
         pdf.set_font("Helvetica", size=10)
@@ -494,7 +535,9 @@ class TestBalanceCheck:
 
         assert self._warnings(caplog) == []
 
-    def test_newest_first_statement_reports_nothing(self, pdf_statement, cards_csv, caplog):
+    def test_newest_first_statement_reports_nothing(
+        self, pdf_statement, cards_csv, caplog
+    ):
         """The table fixture lists the latest transaction first."""
         rows = parse_pdf_statement(pdf_statement, cards_path=cards_csv)
 
@@ -507,9 +550,30 @@ class TestBalanceCheck:
         """Equal amounts explain the balance in either order: the dates
         say which order it is."""
         rows = [
-            ("15-01-2026", "15-01-2026", "COMPRA 1234 CAFE", "-10,00", "Compra", "980,00"),
-            ("14-01-2026", "14-01-2026", "COMPRA 1234 CAFE", "-10,00", "Compra", "990,00"),
-            ("13-01-2026", "13-01-2026", "COMPRA 1234 CAFE", "-10,00", "Compra", "1000,00"),
+            (
+                "15-01-2026",
+                "15-01-2026",
+                "COMPRA 1234 CAFE",
+                "-10,00",
+                "Compra",
+                "980,00",
+            ),
+            (
+                "14-01-2026",
+                "14-01-2026",
+                "COMPRA 1234 CAFE",
+                "-10,00",
+                "Compra",
+                "990,00",
+            ),
+            (
+                "13-01-2026",
+                "13-01-2026",
+                "COMPRA 1234 CAFE",
+                "-10,00",
+                "Compra",
+                "1000,00",
+            ),
         ]
         path = _make_pdf_statement(tmp_path / "statement.pdf", rows)
 
@@ -534,7 +598,14 @@ class TestBalanceCheck:
         self, tmp_path, cards_csv, caplog
     ):
         rows = list(SAMPLE_PDF_ROWS)
-        rows[1] = ("14-01-2026", "14-01-2026", "COMPRA 5678 FARMACIA DA GARE", "-1.280,00", "Compra", "1280,06")
+        rows[1] = (
+            "14-01-2026",
+            "14-01-2026",
+            "COMPRA 5678 FARMACIA DA GARE",
+            "-1.280,00",
+            "Compra",
+            "1280,06",
+        )
         path = _make_pdf_statement(tmp_path / "statement.pdf", rows)
         parse_pdf_statement(path, cards_path=cards_csv)
 
@@ -672,8 +743,7 @@ class TestTextAmountSplit:
     @pytest.mark.parametrize("label", ["SALDO INICIAL", "TRANSPORTE"])
     def test_opening_or_carried_balance_settles_the_first_line(self, label, caplog):
         triples = _text_triples(
-            f"{label} 1 529.13\n"
-            "2.03 2.03 COMPRA 1234 LIDL 280 150.00 1 379.13"
+            f"{label} 1 529.13\n" "2.03 2.03 COMPRA 1234 LIDL 280 150.00 1 379.13"
         )
 
         assert triples == [("COMPRA 1234 LIDL 280", -150.00, 1379.13)]
@@ -906,9 +976,7 @@ class TestTextSkippedLines:
 
     def test_every_unreadable_line_is_reported(self, caplog):
         lines = [f"2.0{d} 2.0{d} COMPRA LOJA {d} {d},50" for d in range(1, 8)]
-        rows = _text_rows(
-            "\n".join(["2.01 2.01 COMPRA KIOSK 3.00 1 529.13"] + lines)
-        )
+        rows = _text_rows("\n".join(["2.01 2.01 COMPRA KIOSK 3.00 1 529.13"] + lines))
 
         assert len(rows) == 1
         messages = _text_warnings(caplog)
@@ -952,8 +1020,16 @@ class TestTableSkippedRows:
         self, tmp_path, cards_csv, caplog, amount
     ):
         parsed = self._parse(
-            tmp_path, cards_csv,
-            ("14-01-2026", "14-01-2026", "COMPRA 5678 FARMACIA DA GARE", amount, "Compra", "1280,06"),
+            tmp_path,
+            cards_csv,
+            (
+                "14-01-2026",
+                "14-01-2026",
+                "COMPRA 5678 FARMACIA DA GARE",
+                amount,
+                "Compra",
+                "1280,06",
+            ),
         )
 
         assert len(parsed) == 4
@@ -965,7 +1041,8 @@ class TestTableSkippedRows:
 
     def test_row_without_description_is_reported(self, tmp_path, cards_csv, caplog):
         parsed = self._parse(
-            tmp_path, cards_csv,
+            tmp_path,
+            cards_csv,
             ("14-01-2026", "14-01-2026", "", "-12,80", "Compra", "1280,06"),
         )
 

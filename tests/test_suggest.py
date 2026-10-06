@@ -1,4 +1,5 @@
 """Tests for expense_tracker.suggest."""
+
 from __future__ import annotations
 
 import sqlite3
@@ -21,7 +22,6 @@ from expense_tracker.suggest import (
     accept_suggestion,
 )
 from expense_tracker.rules import load_rules
-
 
 # ---------------------------------------------------------------------------
 # Helper to populate a test DB with transactions
@@ -135,9 +135,12 @@ class TestClusterByName:
 
 class TestExtractCommonPrefix:
     def test_common_prefix(self):
-        assert _extract_common_prefix(
-            ["FARMACIA DA GARE", "FARMACIA SAO JOAO", "FARMACIA CENTRAL"]
-        ) == "FARMACIA"
+        assert (
+            _extract_common_prefix(
+                ["FARMACIA DA GARE", "FARMACIA SAO JOAO", "FARMACIA CENTRAL"]
+            )
+            == "FARMACIA"
+        )
 
     def test_no_common_prefix(self):
         assert _extract_common_prefix(["ABC", "XYZ"]) == ""
@@ -153,10 +156,20 @@ class TestExtractCommonPrefix:
 class TestMerchantStats:
     def test_basic_stats(self):
         txs = [
-            {"description_clean": "CONTINENTE", "description_raw": "COMPRA CONTINENTE",
-             "amount_abs": 50.0, "date_posted": "2026-01-15", "payment_type": "card"},
-            {"description_clean": "CONTINENTE", "description_raw": "COMPRA CONTINENTE",
-             "amount_abs": 60.0, "date_posted": "2026-02-15", "payment_type": "card"},
+            {
+                "description_clean": "CONTINENTE",
+                "description_raw": "COMPRA CONTINENTE",
+                "amount_abs": 50.0,
+                "date_posted": "2026-01-15",
+                "payment_type": "card",
+            },
+            {
+                "description_clean": "CONTINENTE",
+                "description_raw": "COMPRA CONTINENTE",
+                "amount_abs": 60.0,
+                "date_posted": "2026-02-15",
+                "payment_type": "card",
+            },
         ]
         stats = _merchant_stats(txs)
         assert "CONTINENTE" in stats
@@ -166,12 +179,27 @@ class TestMerchantStats:
 
     def test_months_tracked(self):
         txs = [
-            {"description_clean": "NETFLIX", "description_raw": "NETFLIX",
-             "amount_abs": 10.0, "date_posted": "2026-01-15", "payment_type": "card"},
-            {"description_clean": "NETFLIX", "description_raw": "NETFLIX",
-             "amount_abs": 10.0, "date_posted": "2026-02-15", "payment_type": "card"},
-            {"description_clean": "NETFLIX", "description_raw": "NETFLIX",
-             "amount_abs": 10.0, "date_posted": "2026-03-15", "payment_type": "card"},
+            {
+                "description_clean": "NETFLIX",
+                "description_raw": "NETFLIX",
+                "amount_abs": 10.0,
+                "date_posted": "2026-01-15",
+                "payment_type": "card",
+            },
+            {
+                "description_clean": "NETFLIX",
+                "description_raw": "NETFLIX",
+                "amount_abs": 10.0,
+                "date_posted": "2026-02-15",
+                "payment_type": "card",
+            },
+            {
+                "description_clean": "NETFLIX",
+                "description_raw": "NETFLIX",
+                "amount_abs": 10.0,
+                "date_posted": "2026-03-15",
+                "payment_type": "card",
+            },
         ]
         stats = _merchant_stats(txs)
         assert stats["NETFLIX"]["months_count"] == 3
@@ -194,8 +222,14 @@ class TestDetectRecurring:
                 "amount_stddev": 0.0,
                 "months_count": 6,
                 "primary_payment_type": "card",
-                "months": {"2026-01", "2026-02", "2026-03",
-                           "2026-04", "2026-05", "2026-06"},
+                "months": {
+                    "2026-01",
+                    "2026-02",
+                    "2026-03",
+                    "2026-04",
+                    "2026-05",
+                    "2026-06",
+                },
                 "payment_types": {"card": 6},
                 "raw_samples": {"NETFLIX"},
             },
@@ -235,7 +269,9 @@ class TestDetectSimilarMerchants:
         }
         results = detect_similar_merchants(merchants, threshold=0.55)
         # Should have a pharmacy cluster
-        pharmacy_group = [r for r in results if any("FARMACIA" in m for m in r["merchants"])]
+        pharmacy_group = [
+            r for r in results if any("FARMACIA" in m for m in r["merchants"])
+        ]
         assert len(pharmacy_group) == 1
         assert len(pharmacy_group[0]["merchants"]) >= 2
 
@@ -286,27 +322,33 @@ class TestAnalyzePatterns:
         # Create a year of Netflix-like subscriptions + some random purchases
         txs = []
         for month in range(1, 13):
-            txs.append({
-                "description_clean": "NETFLIX",
-                "description_raw": "DD NETFLIX INTL",
-                "amount_signed": -14.99,
-                "date_posted": f"2026-{month:02d}-15",
-                "payment_type": "direct_debit",
-                "category": "",
-            })
+            txs.append(
+                {
+                    "description_clean": "NETFLIX",
+                    "description_raw": "DD NETFLIX INTL",
+                    "amount_signed": -14.99,
+                    "date_posted": f"2026-{month:02d}-15",
+                    "payment_type": "direct_debit",
+                    "category": "",
+                }
+            )
         # Add some frequent merchant
         for i in range(8):
-            txs.append({
-                "description_clean": "CAFE CENTRAL",
-                "description_raw": "COMPRA CAFE CENTRAL",
-                "amount_signed": -3.50,
-                "date_posted": f"2026-01-{i+1:02d}",
-                "payment_type": "card",
-                "category": "",
-            })
+            txs.append(
+                {
+                    "description_clean": "CAFE CENTRAL",
+                    "description_raw": "COMPRA CAFE CENTRAL",
+                    "amount_signed": -3.50,
+                    "date_posted": f"2026-01-{i+1:02d}",
+                    "payment_type": "card",
+                    "category": "",
+                }
+            )
 
         _populate_db(db_path, txs)
-        results = analyze_patterns(db_path, min_months_recurring=3, min_count_frequent=5)
+        results = analyze_patterns(
+            db_path, min_months_recurring=3, min_count_frequent=5
+        )
 
         assert results["stats"]["total_uncategorized"] == 20
         # Netflix should be detected as recurring
@@ -320,12 +362,14 @@ class TestAnalyzePatterns:
 
         txs = []
         for month in range(1, 6):
-            txs.append({
-                "description_clean": "NETFLIX",
-                "amount_signed": -14.99,
-                "date_posted": f"2026-{month:02d}-15",
-                "category": "Subscriptions",  # Already categorized
-            })
+            txs.append(
+                {
+                    "description_clean": "NETFLIX",
+                    "amount_signed": -14.99,
+                    "date_posted": f"2026-{month:02d}-15",
+                    "category": "Subscriptions",  # Already categorized
+                }
+            )
 
         _populate_db(db_path, txs)
         results = analyze_patterns(db_path)
