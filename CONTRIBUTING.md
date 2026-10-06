@@ -10,8 +10,8 @@ The system follows a **three-layer pipeline** architecture:
 
 ```
 ┌──────────────┐     ┌──────────────┐     ┌──────────────┐     ┌──────────────┐     ┌──────────────┐
-│  Raw CSVs    │────>│ Auto-detect  │────>│ Bank Parser  │────>│   SQLite DB  │────>│  ODS Report  │
-│  (raw/)      │     │ (parsers/)   │     │ (UTF-16/UTF8/...)│     │  (ledger.db) │     │  (odfpy)     │
+│ Raw CSV/PDF  │────>│ Auto-detect  │────>│ Bank Parser  │────>│   SQLite DB  │────>│   Reports    │
+│  (raw/)      │     │ (parsers/)   │     │ (CSV / PDF)  │     │ (ledger.db)  │     │ xlsx/ODS/PDF │
 └──────────────┘     └──────────────┘     └──────────────┘     └──────────────┘     └──────────────┘
                            │                     │                     │
                      ┌─────┴──────┐        ┌─────┴──────┐       ┌─────┴──────┐
@@ -27,7 +27,7 @@ The system follows a **three-layer pipeline** architecture:
 1. **Ingest**: Raw bank CSVs are auto-detected (or explicitly specified), parsed by the appropriate bank parser, cleaned, and inserted into SQLite with SHA-1 deduplication
 2. **Categorize**: Rules from `data/rules.csv` are applied to every transaction not categorized by hand (longest matching pattern wins)
 3. **Sync back**: Before regenerating the report, manual edits (category, subcategory, notes, merchant notes) are read from the existing ODS and written back to the DB or `description-notes.csv`
-4. **Generate**: The ODS report is created/updated using `odfpy` — Intro/Data/Rules sheets are always rebuilt, analysis sheets are generated only on the first run and then preserved
+4. **Generate**: The xlsx report (default) is rewritten from scratch with `openpyxl`. The ODS report (`--format ods`) is created/updated using `odfpy` — Intro/Data/Rules sheets are always rebuilt, analysis sheets are generated only on the first run and then preserved. Monthly PDF summaries are rendered with `fpdf2`
 
 ### Key design principle: SQLite as the source of truth
 
@@ -156,6 +156,26 @@ This means users can customize the analysis sheets (change formulas, add charts,
 
 **Formula notation:** ODS uses OpenFormula with bracket notation: `[.Data.B2:.Data.B100]`. This is different from what you see in LibreOffice's formula bar (`Data.B2:B100`). All formulas in the code use the `of:=` prefix for OpenFormula.
 
+### `expense_tracker/xlsx.py`
+
+The default report: an Excel workbook (`expense-report.xlsx`) built with `openpyxl`, which also opens in Apple Numbers, Google Sheets and LibreOffice. It writes the same sheets as the ODS report with working Excel formulas.
+
+**Key functions:**
+- `generate_xlsx(db_path, rules_path, xlsx_path, desc_notes_path)` — Main entry point. Rewrites the whole workbook on every run; unlike the ODS, it keeps no custom sheets and its edits are not synced back.
+
+Statement text is always written as a cell value, never as a formula, and merchant/category names are matched literally inside formulas, so a description can't inject a formula.
+
+### `expense_tracker/advisor.py`
+
+Builds prompts for LLM-based financial advice and keeps a context file (`data/advisor/context.json`) of goals, insights and past responses, so each month's prompt builds on the last. It never calls an LLM: the user pastes the prompt and saves the reply.
+
+**Key functions:**
+- `generate_prompt(db_path, context_path, target_month)` — Summarizes the month's spending (via `fetch_expense_data()`, using the shared `SPEND_SQL`/`REFUND_SQL`/`INCOME_SQL` rules) together with the context into one prompt. The first prompt adds discovery questions.
+- `save_prompt()` / `get_response_path()` — Where each month's prompt and response live in `data/advisor/`.
+- `ingest_response(response_path, context_path, target_month)` — Records a saved response in the context.
+- `find_months_without_responses()` / `find_next_catchup_month()` — Drive `advisor status` and `advisor catchup`.
+- `load_context()` / `save_context()` / `update_context_interactive()` — Context file I/O; saves never leave a truncated file.
+
 ### `expense_tracker/export.py`
 
 Simple CSV export — reads all transactions from the DB and writes a UTF-8 CSV using `DATA_COLUMNS`/`DATA_HEADERS` from constants.
@@ -189,7 +209,7 @@ Backup utilities using Python's `zipfile` module (no external dependencies).
 
 ### `expense_tracker/starter_rules.py`
 
-A curated collection of ~100 categorization rules tailored for Portuguese merchants and services. These cover supermarkets (Continente, Pingo Doce, Lidl, etc.), utilities (EDP, Galp), telecoms (NOS, MEO, Vodafone), transport (CP, VIVA, Uber), health, insurance, eating out, subscriptions, taxes, and bank fees.
+A curated collection of ~200 categorization rules tailored for Portuguese merchants and services. These cover supermarkets (Continente, Pingo Doce, Lidl, etc.), utilities (EDP, Galp), telecoms (NOS, MEO, Vodafone), transport (CP, VIVA, Uber), health, insurance, eating out, subscriptions, taxes, and bank fees.
 
 **Key exports:**
 - `STARTER_RULES` — The master list of `(pattern, match_field, category, subcategory, payment_type)` tuples
@@ -201,12 +221,12 @@ A curated collection of ~100 categorization rules tailored for Portuguese mercha
 Analyzes transaction data to detect patterns and suggest categorization rules. Uses frequency analysis, text similarity (via `difflib.SequenceMatcher`), and temporal analysis to find uncategorized merchants that could benefit from rules.
 
 **Key functions:**
-- `analyze_patterns(db_path, min_months_recurring, similarity_threshold, min_count_frequent)` — Main entry point. Returns a dict with three lists: `recurring`, `similar_merchants`, and `frequent`.
+- `analyze_patterns(db_path, min_months_recurring, similarity_threshold, min_count_frequent)` — Main entry point. Returns a dict with three lists: `recurring`, `similar`, and `frequent`.
 - `detect_recurring(transactions, min_months)` — Finds uncategorized merchants appearing in N+ distinct months.
 - `detect_similar_merchants(transactions, threshold)` — Clusters merchant descriptions by text similarity to spot variants of the same merchant.
 - `detect_frequent_merchants(transactions, min_count)` — Finds uncategorized merchants by raw transaction count.
 - `format_suggestions(results)` — Formats the analysis results as human-readable text.
-- `accept_suggestion(results, key, rules_path)` — Accepts a suggestion by type:index (e.g. `recurring:0`) and appends it as a new rule.
+- `accept_suggestion(results, key, rules_path)` — Accepts a suggestion by type:index (e.g. `recurring:0`) and appends it as a new rule. Not exposed by the CLI, which points users to `rules add`.
 
 **Internal helpers:**
 - `_merchant_stats(transactions)` — Computes per-merchant frequency, totals, average, stddev, and date range.
@@ -267,7 +287,7 @@ A Streamlit-based web interface that provides graphical access to the expense tr
 
 ### `expense_tracker/cli.py`
 
-`argparse`-based CLI. Each subcommand has its own `cmd_*` function. The `auto` command is the default (used by `run.sh`) and orchestrates the full pipeline: discover → rename → ingest → sync → categorize → generate.
+`argparse`-based CLI with 15 subcommands (`auto`, `ingest`, `report`, `cards`, `rules`, `export`, `reclean`, `backup`, `reset`, `pdf`, `suggest`, `fetch`, `gui`, `banks`, `advisor`). Each subcommand has its own `cmd_*` function. The `auto` command is the default (used by `run.sh`) and orchestrates the full pipeline: discover → rename → ingest → sync → categorize → generate.
 
 **Pre-flight checks:** `_check_setup()` verifies that `odfpy` is installed and the `data/` directory exists, providing friendly error messages that point to `install.sh`.
 
@@ -291,23 +311,32 @@ python -m pytest tests/ -v
 
 ```
 tests/
-├── conftest.py          # Shared fixtures and UTF-16 CSV builder
-├── test_parser.py       # 39 tests: cleaning, detection, parsing, renaming
-├── test_db.py           # 19 tests: schema, ingestion, dedup, reclean, queries
-├── test_rules.py        # 17 tests: CRUD, loading, categorization logic
-├── test_export.py       #  4 tests: CSV export
-├── test_backup.py       # 16 tests: zip creation, monthly checks, formatting
-├── test_pdf_report.py   # 26 tests: stats computation, tag extraction, PDF generation
-├── test_integration.py  #  4 tests: end-to-end workflows
-├── test_starter_rules.py # 14 tests: starter rules data integrity + import logic
-├── test_suggest.py      # 28 tests: pattern detection, clustering, suggestions
-├── test_pdf_parser.py   # 34 tests: PDF parsing, date/amount helpers, column detection
-├── test_email_fetch.py  # 26 tests: email config, IMAP fetch, attachment filtering
-├── test_gui.py          #  6 tests: GUI data loading, module structure
-└── test_parsers.py      # 29 tests: parser registry, auto-detection, UTF-16 + UTF8 parsing
+├── conftest.py                  # Shared fixtures and UTF-16 CSV builder
+├── test_parser.py               #  99 tests: cleaning, detection, parsing, renaming
+├── test_pdf_parser.py           # 108 tests: PDF parsing, date/amount helpers, running-balance checks
+├── test_parsers.py              #  37 tests: parser registry, auto-detection, UTF-16 + UTF-8 parsing
+├── test_db.py                   #  50 tests: schema, ingestion, dedup, reclean, queries
+├── test_rules.py                #  43 tests: CRUD, loading, word-boundary matching, longest-pattern wins
+├── test_starter_rules.py        #  20 tests: starter rules data integrity + import logic
+├── test_suggest.py              #  28 tests: pattern detection, clustering, suggestions
+├── test_ods_sheets.py           #  32 tests: ODS sheet builders and formulas
+├── test_ods_sync.py             #  23 tests: ODS sync-back and baselines
+├── test_spreadsheet_text.py     #  25 tests: statement text stays text in xlsx/ODS (no formula injection)
+├── test_spreadsheet_refunds.py  #   9 tests: refunds and savings in the spreadsheet formulas
+├── test_top_categories.py       #   2 tests: Top Categories ordering
+├── test_pdf_report.py           #  49 tests: stats computation, tag extraction, PDF generation
+├── test_advisor.py              #   6 tests: advisor prompt and context file
+├── test_email_fetch.py          #  35 tests: email config, IMAP fetch, attachment filtering
+├── test_cli.py                  #  22 tests: CLI commands and exit codes
+├── test_cron.py                 #   8 tests: daily sync script
+├── test_account_type.py         #   4 tests: configurable account label
+├── test_gui.py                  #  19 tests: GUI data loading, uploads, module structure
+├── test_export.py               #   4 tests: CSV export
+├── test_backup.py               #  17 tests: zip creation, monthly checks, formatting
+└── test_integration.py          #   4 tests: end-to-end workflows
 ```
 
-**Total: 285 tests** (runs in under a second)
+**Total: 644 tests** (about 20 seconds). CI (`.github/workflows/ci.yml`) runs them on Python 3.10 and 3.12, plus `black --check .` and `ruff check .` (settings in `pyproject.toml`).
 
 ### Test design principles
 
@@ -327,9 +356,12 @@ tests/
 
 ## Design Decisions
 
-### Why ODS (not XLSX)?
+### Why both xlsx and ODS?
 
-ODS is an open ISO standard. It works natively in LibreOffice (the primary target), can be uploaded to Google Sheets, and has a Python library (`odfpy`) that doesn't require a commercial dependency. XLSX would require `openpyxl`, which is fine but ODS was chosen for openness.
+The project started ODS-only: ODS is an open ISO standard, works natively in LibreOffice and has a pure-Python library (`odfpy`). xlsx (via `openpyxl`) was added later and is now the default because it opens everywhere — Excel, Numbers, Google Sheets and LibreOffice. The two play different roles:
+
+- **xlsx** is a read-only view, rewritten from scratch on every run.
+- **ODS** is the editable report: edits to Category, Subcategory, Notes and Merchant Note are synced back to the database, and the analysis sheets and any custom sheets survive regeneration.
 
 ### Why SQLite (not just CSV)?
 
@@ -418,47 +450,43 @@ The parser will automatically work with `ingest` (auto-detected or via `--bank n
 |------|-------|---------|
 | `bank_ingest.py` | 16 | Entry point wrapper — imports and runs `cli.main()` |
 | `expense_tracker/__init__.py` | 1 | Package marker |
-| `expense_tracker/__main__.py` | 4 | Allows `python -m expense_tracker` |
-| `expense_tracker/constants.py` | 83 | Default paths, column definitions, column indices |
-| `expense_tracker/parsers/__init__.py` | ~120 | BankParser protocol, registry, auto-detection, unified parse_statement |
-| `expense_tracker/parsers/utf16_csv.py` | ~60 | BankParser implementation for UTF-16 CSV (wraps parser.py) |
-| `expense_tracker/parsers/utf8_csv.py` | ~180 | BankParser implementation for UTF-8 CSV |
-| `expense_tracker/parser.py` | 380 | (legacy) UTF-16 CSV parser, description cleaning, card/payment detection |
-| `expense_tracker/pdf_parser.py` | ~250 | PDF statement parser using pdfplumber |
-| `expense_tracker/db.py` | 232 | SQLite schema, ingestion, dedup, reclean, queries |
-| `expense_tracker/rules.py` | 194 | Rule/card CRUD, rule loading, categorization engine |
-| `expense_tracker/ods.py` | ~280 | ODS orchestration (generate/update), sync-back, description notes |
-| `expense_tracker/ods_sheets.py` | ~700 | ODS sheet builders: styles, cell helpers, 10 sheet generators |
+| `expense_tracker/__main__.py` | 5 | Allows `python -m expense_tracker` |
+| `expense_tracker/constants.py` | 112 | Default paths, column definitions, column indices, refund/savings categories |
+| `expense_tracker/parsers/__init__.py` | 159 | BankParser protocol, registry, auto-detection, unified parse_statement |
+| `expense_tracker/parsers/utf16_csv.py` | 53 | BankParser implementation for UTF-16 CSV (wraps parser.py) |
+| `expense_tracker/parsers/utf8_csv.py` | 302 | BankParser implementation for UTF-8 CSV |
+| `expense_tracker/parser.py` | 465 | (legacy) UTF-16 CSV parser, description cleaning, card/payment detection |
+| `expense_tracker/pdf_parser.py` | 861 | PDF statement parser using pdfplumber |
+| `expense_tracker/db.py` | 386 | SQLite schema, ingestion, dedup, reclean, queries, shared spend/income SQL |
+| `expense_tracker/rules.py` | 288 | Rule/card CRUD, rule loading, categorization engine |
+| `expense_tracker/ods.py` | 477 | ODS orchestration (generate/update), sync-back, description notes |
+| `expense_tracker/ods_sheets.py` | 1236 | ODS sheet builders: styles, cell helpers, 10 sheet generators |
+| `expense_tracker/xlsx.py` | 861 | xlsx report (default format) using openpyxl |
 | `expense_tracker/export.py` | 29 | Simple CSV export |
-| `expense_tracker/backup.py` | 120 | Backup utilities — zip creation, monthly checks, size formatting |
-| `expense_tracker/starter_rules.py` | ~120 | Curated Portuguese starter rules (~100 rules) + import logic |
-| `expense_tracker/suggest.py` | ~300 | Pattern detection: recurring, similar, frequent merchants |
-| `expense_tracker/email_fetch.py` | ~200 | Email statement fetcher (IMAP, attachment download) |
-| `expense_tracker/gui.py` | ~850 | Streamlit web interface (7 pages: Dashboard, Transactions, Categorize, Rules, Import, Tools, Manual) |
-| `expense_tracker/cli.py` | ~700 | argparse CLI with 13 subcommands |
-| `Dockerfile` | ~30 | Docker image definition (Python 3.12 slim, deps, GUI entrypoint) |
-| `docker-compose.yml` | ~40 | Orchestrates GUI + cron services with bind mounts |
-| `cron/daily-sync.sh` | ~80 | Automated daily fetch + ingest + report generation script |
-| `DEPLOYMENT.md` | ~540 | Docker & home server (NUC) deployment guide |
-| `install.sh` | ~200 | First-time setup (venv, deps, directories, starter configs, supports --branch) |
-| `run.sh` | ~20 | Everyday script — activates venv, launches GUI (or forwards CLI commands) |
-| `update.sh` | ~120 | Merge code from the upstream dev repo + re-run install if needed |
+| `expense_tracker/backup.py` | 132 | Backup utilities — zip creation, monthly checks, size formatting |
+| `expense_tracker/pdf_report.py` | 984 | Monthly PDF report using fpdf2 |
+| `expense_tracker/starter_rules.py` | 374 | Curated Portuguese starter rules (~200 rules) + import logic |
+| `expense_tracker/suggest.py` | 401 | Pattern detection: recurring, similar, frequent merchants |
+| `expense_tracker/email_fetch.py` | 312 | Email statement fetcher (IMAP, attachment download) |
+| `expense_tracker/advisor.py` | 729 | LLM advisor prompts and context file |
+| `expense_tracker/gui.py` | 1043 | Streamlit web interface (7 pages: Dashboard, Transactions, Categorize, Rules, Import, Tools, Manual) |
+| `expense_tracker/cli.py` | 1549 | argparse CLI with 15 subcommands |
+| `Dockerfile` | 29 | Docker image definition (Python 3.12 slim, deps, GUI entrypoint) |
+| `docker-compose.yml` | 38 | Orchestrates GUI + cron services with bind mounts |
+| `cron/daily-sync.sh` | 104 | Automated daily fetch + ingest + report generation script |
+| `scripts/env.sh` | 39 | Shared shell setup: project root and venv Python for the other scripts |
+| `install.sh` | 206 | First-time setup (venv, deps, directories, starter configs, supports --branch) |
+| `run.sh` | 17 | Everyday script — activates venv, launches GUI (or forwards CLI commands) |
+| `update.sh` | 123 | Merge code from the upstream dev repo + re-run install if needed |
+| `DEPLOYMENT.md` | 577 | Docker & home server (NUC) deployment guide |
+| `SECURITY.md` | 21 | Vulnerability reporting and what sensitive data the tool holds |
+| `.github/workflows/ci.yml` | 36 | CI: tests on Python 3.10/3.12, black, ruff |
+| `pyproject.toml` | 14 | black and ruff settings |
 | `requirements-dev.txt` | 2 | Test dependencies (pytest) on top of `requirements.txt` |
 | `pytest.ini` | 3 | pytest configuration |
-| `tests/conftest.py` | 100 | Shared fixtures and synthetic UTF-16 CSV builder |
-| `tests/test_parser.py` | 230 | Parser unit tests (39 tests) |
-| `tests/test_db.py` | 200 | Database unit tests (19 tests) |
-| `tests/test_rules.py` | 180 | Rules unit tests (17 tests) |
-| `tests/test_export.py` | 50 | Export unit tests (4 tests) |
-| `tests/test_backup.py` | 200 | Backup unit tests (16 tests) |
-| `tests/test_pdf_report.py` | 280 | PDF report unit tests (33 tests) |
-| `tests/test_integration.py` | 120 | End-to-end integration tests (4 tests) |
-| `tests/test_starter_rules.py` | ~180 | Starter rules tests (14 tests) |
-| `tests/test_suggest.py` | ~300 | Pattern detection tests (28 tests) |
-| `tests/test_pdf_parser.py` | ~350 | PDF parser unit + integration tests (34 tests) |
-| `tests/test_email_fetch.py` | ~280 | Email fetch tests (26 tests) |
-| `tests/test_gui.py` | ~60 | GUI module tests (6 tests) |
-| `tests/test_parsers.py` | ~350 | Multi-bank parser tests: registry, auto-detect, UTF-16 + UTF8 (29 tests) |
+| `tests/conftest.py` | 228 | Shared fixtures and synthetic UTF-16 CSV builder |
+
+Test files are listed with their counts under [Test structure](#test-structure).
 
 ---
 
@@ -467,6 +495,8 @@ The parser will automatically work with `ingest` (auto-detected or via `--bank n
 | Package | Version | Why |
 |---------|---------|-----|
 | `odfpy` | >=1.4.1 | ODS file creation and reading (OpenDocument Spreadsheets) |
+| `openpyxl` | >=3.1 | xlsx report generation |
+| `fpdf2` | >=2.7 | Monthly PDF report rendering |
 | `pdfplumber` | >=0.10 | PDF table extraction for bank statement parsing |
 | `streamlit` | >=1.30 | Web interface framework for the GUI |
 | `pandas` | >=2.0 | Data manipulation for the GUI (used by Streamlit) |
