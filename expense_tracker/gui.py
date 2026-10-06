@@ -950,7 +950,7 @@ elif page == "Tools":
     # ── Starter Rules ─────────────────────────────────────────────────────
     st.subheader("🇵🇹 Portuguese Starter Rules")
     st.caption(
-        "Import ~100 curated categorization rules for common Portuguese merchants "
+        "Import ~200 curated categorization rules for common Portuguese merchants "
         "and services (supermarkets, utilities, telecoms, fuel, transport, etc.)."
     )
 
