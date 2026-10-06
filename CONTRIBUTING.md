@@ -283,6 +283,7 @@ A Streamlit-based web interface that provides graphical access to the expense tr
 
 ```bash
 source .venv/bin/activate
+pip install -r requirements-dev.txt   # once
 python -m pytest tests/ -v
 ```
 
@@ -442,6 +443,7 @@ The parser will automatically work with `ingest` (auto-detected or via `--bank n
 | `install.sh` | ~200 | First-time setup (venv, deps, directories, starter configs, supports --branch) |
 | `run.sh` | ~20 | Everyday script — activates venv, launches GUI (or forwards CLI commands) |
 | `update.sh` | ~120 | Merge code from the upstream dev repo + re-run install if needed |
+| `requirements-dev.txt` | 2 | Test dependencies (pytest) on top of `requirements.txt` |
 | `pytest.ini` | 3 | pytest configuration |
 | `tests/conftest.py` | 100 | Shared fixtures and synthetic UTF-16 CSV builder |
 | `tests/test_parser.py` | 230 | Parser unit tests (39 tests) |
@@ -468,6 +470,6 @@ The parser will automatically work with `ingest` (auto-detected or via `--bank n
 | `pdfplumber` | >=0.10 | PDF table extraction for bank statement parsing |
 | `streamlit` | >=1.30 | Web interface framework for the GUI |
 | `pandas` | >=2.0 | Data manipulation for the GUI (used by Streamlit) |
-| `pytest` | >=7.0 | Test framework (dev dependency) |
+| `pytest` | >=7.0 | Test framework (dev dependency, in `requirements-dev.txt`) |
 
 Everything else is Python standard library: `sqlite3`, `csv`, `re`, `hashlib`, `pathlib`, `datetime`, `argparse`.

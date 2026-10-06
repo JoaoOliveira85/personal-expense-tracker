@@ -93,6 +93,7 @@ personal-expense-tracker/
 ├── docker-compose.yml      # Orchestrates GUI + cron services
 ├── DEPLOYMENT.md           # Docker & home server deployment guide
 ├── requirements.txt        # Python dependencies
+├── requirements-dev.txt    # Test dependencies (pytest)
 ├── pytest.ini              # Test configuration
 └── CONTRIBUTING.md         # Developer docs (architecture, decisions, extending)
 ```
@@ -790,6 +791,7 @@ For architecture details, design decisions, module reference, and how to extend 
 
 ```bash
 source .venv/bin/activate
+pip install -r requirements-dev.txt   # once
 python -m pytest tests/ -v
 ```
 
