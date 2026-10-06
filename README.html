@@ -162,60 +162,91 @@
 <body>
 
 <h1>Expense Tracker</h1>
-<p>Personal expense tracking for bank statements &mdash; simple, private, and yours to customize.</p>
+<p>Personal expense tracking for Portuguese bank statements &mdash; simple, private, and yours to customize. Everything runs on your own computer; nothing is sent anywhere.</p>
 
 <!-- ================================================================== -->
 <!--  PART 1: GETTING STARTED (non-technical)                          -->
 <!-- ================================================================== -->
 
 <div class="quick-start">
-  <h2>Get Up and Running in 3 Steps</h2>
-  <p>No programming knowledge required. You just need the bank CSV files that you download from your bank.</p>
+  <h2>Get Up and Running in 4 Steps</h2>
+  <p>No programming knowledge required. You just need the statement files (CSV or PDF) that you download from your bank.</p>
 </div>
 
 <div class="step">
   <span class="step-number">1</span>
   <div class="step-content">
     <h3>Install (once)</h3>
-    <p>Double-click <strong>install.sh</strong> (or right-click &rarr; Open With &rarr; Terminal). This sets up everything automatically. You only need to do this once.</p>
+    <p>Open a Terminal in the project folder and run <code>./install.sh</code> (or right-click <strong>install.sh</strong> &rarr; Open With &rarr; Terminal). It sets up everything automatically. You only need to do this once.</p>
   </div>
 </div>
 
 <div class="step">
   <span class="step-number">2</span>
   <div class="step-content">
-    <h3>Add your bank statements</h3>
-    <p>Download your account movements from your bank as a CSV file and drop it into the <strong>raw/</strong> folder.</p>
+    <h3>Open the app</h3>
+    <p>Run <code>./run.sh</code>. The Expense Tracker opens in your browser at <code>http://localhost:8501</code>.</p>
   </div>
 </div>
 
 <div class="step">
   <span class="step-number">3</span>
   <div class="step-content">
-    <h3>Run &amp; open</h3>
-    <p>Double-click <strong>run.sh</strong>. It imports your data and creates (or updates) the <strong>expense-report.ods</strong> spreadsheet. Open it in LibreOffice Calc or upload it to Google Sheets.</p>
+    <h3>Add your bank statements</h3>
+    <p>On the <strong>Import</strong> page, upload the CSV or PDF statements you downloaded from your bank (or drop them into the <strong>raw/</strong> folder). If your bank emails you statements, the <strong>Tools</strong> page can fetch them for you.</p>
+  </div>
+</div>
+
+<div class="step">
+  <span class="step-number">4</span>
+  <div class="step-content">
+    <h3>Review and categorize</h3>
+    <p>See where your money went on the <strong>Dashboard</strong>, sort out uncategorized merchants on the <strong>Categorize</strong> page, and download the spreadsheet or monthly PDF reports from the <strong>Tools</strong> page.</p>
   </div>
 </div>
 
 <div class="tip">
-  <strong>That's it!</strong> Every time you get a new bank statement, just drop the CSV into <code>raw/</code> and double-click <code>run.sh</code> again. Your previous data and any edits you've made are preserved.
+  <strong>Prefer the command line?</strong> Drop your statements into <code>raw/</code> and run <code>./run.sh auto</code>. It imports every new file and writes <code>expense-report.xlsx</code>. Your previous data and any edits you've made are preserved.
 </div>
 
 <hr>
 
 <!-- ================================================================== -->
-<!--  PART 2: USING THE SPREADSHEET                                    -->
+<!--  PART 2: USING THE APP AND THE REPORTS                            -->
 <!-- ================================================================== -->
 
-<h2 id="spreadsheet">Using the Spreadsheet</h2>
+<h2 id="app">The App</h2>
 
-<p>The <strong>expense-report.ods</strong> file is where you'll spend most of your time. Here's what you'll find inside:</p>
+<table>
+  <thead><tr><th>Page</th><th>What it does</th></tr></thead>
+  <tbody>
+    <tr><td><strong>Dashboard</strong></td><td>Spending charts, category breakdown, monthly trends</td></tr>
+    <tr><td><strong>Transactions</strong></td><td>Search and filter every transaction by date, category and amount</td></tr>
+    <tr><td><strong>Categorize</strong></td><td>Pick a category for all transactions from the same merchant at once, and optionally save it as a rule</td></tr>
+    <tr><td><strong>Rules</strong></td><td>View, add and remove categorization rules</td></tr>
+    <tr><td><strong>Import</strong></td><td>Upload CSV/PDF statements and import them</td></tr>
+    <tr><td><strong>Tools</strong></td><td>Email setup and fetch, sync and regenerate, download reports, backups, CSV export, starter rules</td></tr>
+    <tr><td><strong>Manual</strong></td><td>This documentation, the deployment guide and the developer guide, with search</td></tr>
+  </tbody>
+</table>
+
+<h2 id="spreadsheet">The Spreadsheet Reports</h2>
+
+<p>The tracker can write your data to a spreadsheet in two formats:</p>
+
+<table>
+  <thead><tr><th>Report</th><th>Opens in</th><th>Best for</th></tr></thead>
+  <tbody>
+    <tr><td><strong>expense-report.xlsx</strong> (default)</td><td>Excel, Numbers, Google Sheets, LibreOffice</td><td>Viewing. Rewritten from scratch every time, so don't edit it.</td></tr>
+    <tr><td><strong>expense-report.ods</strong> (<code>--format ods</code>)</td><td>LibreOffice, Google Sheets</td><td>Editing. Your category and note edits are saved back, and your own sheets are kept.</td></tr>
+  </tbody>
+</table>
 
 <h3>The Data sheet &mdash; your transaction list</h3>
 <p>This is the main sheet with all your transactions, one per row. The most important columns are:</p>
 
 <table>
-  <thead><tr><th>Column</th><th>What it shows</th><th>Can I edit it?</th></tr></thead>
+  <thead><tr><th>Column</th><th>What it shows</th><th>Can I edit it? (ODS only)</th></tr></thead>
   <tbody>
     <tr><td>Date</td><td>When the transaction happened</td><td>No (imported from bank)</td></tr>
     <tr><td>Description</td><td>Cleaned merchant/transaction name</td><td>No</td></tr>
@@ -228,27 +259,18 @@
 </table>
 
 <div class="tip">
-  <strong>Your edits are safe.</strong> When you manually change the Category, Subcategory, Notes, or Merchant Note columns and then run <code>run.sh</code> again, your edits are saved to the database first &mdash; they won't be lost.
+  <strong>Your edits are safe.</strong> When you change the Category, Subcategory, Notes, or Merchant Note columns in the ODS, they are saved to the database the next time the tracker runs &mdash; they won't be lost. Clearing a category hands that transaction back to the rules.
 </div>
 
-<h3>Categorizing your expenses</h3>
-
-<p>New transactions come in as &ldquo;uncategorized.&rdquo; You have two ways to fix that:</p>
-
-<ol>
-  <li><strong>Edit directly in the spreadsheet</strong> &mdash; Just type a category in the Category column on any row. Great for one-off expenses.</li>
-  <li><strong>Add a rule</strong> &mdash; If you want all transactions from a certain merchant to be automatically categorized in the future, add a rule (see <a href="#rules">Categorization Rules</a> below). This is the best approach for recurring expenses like groceries, subscriptions, etc.</li>
-</ol>
-
 <h3>All the sheets at a glance</h3>
-<p>The first time you run the tool, it generates several starter analysis sheets. You can customize, rename, or delete any of them (except Intro, Data, and Rules which are regenerated each time).</p>
+<p>Both reports contain the same sheets. In the ODS, the analysis sheets are generated on the first run only, so you can customize, rename, or delete them; Intro, Data, and Rules are regenerated each time.</p>
 
 <table>
   <thead><tr><th>Sheet</th><th>What it does</th></tr></thead>
   <tbody>
-    <tr><td><strong>Intro</strong></td><td>Quick overview and tips (regenerated each run)</td></tr>
-    <tr><td><strong>Data</strong></td><td>All your transactions &mdash; the heart of the spreadsheet (regenerated, but your edits are saved first)</td></tr>
-    <tr><td><strong>Rules</strong></td><td>Shows your current categorization rules (regenerated)</td></tr>
+    <tr><td><strong>Intro</strong></td><td>Quick overview and tips</td></tr>
+    <tr><td><strong>Data</strong></td><td>All your transactions &mdash; the heart of the spreadsheet</td></tr>
+    <tr><td><strong>Rules</strong></td><td>Your current categorization rules</td></tr>
     <tr><td><strong>Dashboard</strong></td><td>Summary: total income/expenses, top categories, top merchants, uncategorized preview</td></tr>
     <tr><td><strong>Monthly Summary</strong></td><td>Spending by month and category in a grid</td></tr>
     <tr><td><strong>Monthly Trend</strong></td><td>Income vs expenses over time, with running balance</td></tr>
@@ -259,12 +281,15 @@
   </tbody>
 </table>
 
-<h3>Monthly PDF report</h3>
-<p>For a quick one-page printed summary, generate a PDF: <code>python bank_ingest.py pdf</code> (see <a href="#pdf">Monthly PDF Report</a> below).</p>
-
 <div class="tip">
-  <strong>Add your own sheets!</strong> You can create as many custom sheets as you want with your own formulas and charts. The tool will never touch them.
+  <strong>Add your own sheets!</strong> In the ODS you can create as many custom sheets as you want with your own formulas and charts. The tool will never touch them. Refer to whole columns there (<code>Data.F:F</code>) so new rows are always included.
 </div>
+
+<h3>Refunds and savings</h3>
+<ul>
+  <li><strong>Refunds</strong> &mdash; Money coming <em>in</em> with a spending category (e.g. a pharmacy refund categorized as Health) is subtracted from that category's spending, not counted as income.</li>
+  <li><strong>Savings</strong> &mdash; Transactions categorized <code>Savings</code> count as neither spending nor income, so Net shows only what you earned and spent.</li>
+</ul>
 
 <hr>
 
@@ -272,13 +297,27 @@
 <!--  PART 3: FEATURES IN MORE DETAIL                                  -->
 <!-- ================================================================== -->
 
+<h2 id="categorizing">Categorizing Your Expenses</h2>
+
+<p>New transactions come in as &ldquo;uncategorized.&rdquo; You have three ways to fix that:</p>
+
+<ol>
+  <li><strong>The Categorize page</strong> &mdash; Pick a category for a merchant and every transaction from it is categorized. Tick the option to save it as a rule for future imports.</li>
+  <li><strong>Edit the ODS</strong> &mdash; Type a category in the Category column on any row. Great for one-off expenses.</li>
+  <li><strong>Add a rule</strong> &mdash; Categorize all transactions from a merchant automatically, now and in the future (see <a href="#rules">Categorization Rules</a>). Best for recurring expenses like groceries and subscriptions.</li>
+</ol>
+
+<div class="tip">
+  <strong>Start with the starter rules.</strong> The project ships with ~200 rules for common Portuguese merchants and services (supermarkets, utilities, telecoms, fuel, transport, health, and more). Import them from the Tools page or with <code>python bank_ingest.py rules import-starter</code>. Then run <code>python bank_ingest.py suggest</code> to find recurring and frequent merchants that still need a rule.
+</div>
+
 <h2 id="rules">Categorization Rules</h2>
 
-<p>Rules automatically categorize transactions based on text patterns. Instead of manually categorizing &ldquo;CONTINENTE&rdquo; every month, add a rule once and it's handled forever.</p>
+<p>Rules automatically categorize transactions based on text patterns. Instead of categorizing &ldquo;CONTINENTE&rdquo; every month, add a rule once and it's handled forever.</p>
 
-<h3>Adding rules the easy way</h3>
-<p>Open a Terminal in the project folder and type:</p>
-<pre><code>./run.sh                                                 # activate environment
+<h3>Adding rules</h3>
+<p>Use the Rules page, or type in a Terminal in the project folder:</p>
+<pre><code>source .venv/bin/activate                                # activate environment
 python bank_ingest.py rules add CONTINENTE Groceries     # simple rule
 python bank_ingest.py rules add FARMACIA Health --sub Pharmacy  # with subcategory</code></pre>
 
@@ -289,10 +328,11 @@ FARMACIA,description,Health,Pharmacy,card
 VODAFONE,description,Utilities,Phone,direct_debit</code></pre>
 
 <ul>
-  <li>Rules match by <strong>case-insensitive substring</strong> &mdash; &ldquo;CONTINENTE&rdquo; matches &ldquo;WWW.CONTINENTE.PT&rdquo;</li>
-  <li>Rules are applied <strong>in order</strong> &mdash; the first matching rule wins</li>
-  <li>Rules only affect <strong>uncategorized</strong> transactions &mdash; they won't override your manual edits</li>
-  <li>After adding new rules, run <code>./run.sh</code> to apply them</li>
+  <li>Matching is <strong>case-insensitive</strong> and a pattern must start at the beginning of a word: <code>PAO</code> matches &ldquo;PAO QUENTE&rdquo; and &ldquo;PAOZINHO&rdquo; but not &ldquo;JAPAO&rdquo;</li>
+  <li>End a pattern with a space (written quoted, e.g. <code>"BP "</code>) to also require it to end on a word boundary</li>
+  <li>When several rules match, the <strong>longest pattern wins</strong> (so <code>UBER EATS</code> beats <code>UBER</code>)</li>
+  <li>Rules <strong>never override your manual edits</strong>. Categories set by rules are re-checked on every run, so editing or deleting a rule fixes the transactions it had categorized</li>
+  <li>After adding new rules, regenerate the report (Tools page, or <code>./run.sh auto</code>) to apply them</li>
 </ul>
 
 <hr>
@@ -337,9 +377,9 @@ VODAFONE,description,Utilities,Phone,direct_debit</code></pre>
 <p>Merchant notes are annotations that apply to <strong>all transactions</strong> with the same merchant name. Unlike per-transaction notes, a merchant note is shared across every occurrence.</p>
 
 <ol>
-  <li>In the Data sheet, find the <strong>Merchant Note</strong> column (S)</li>
+  <li>In the ODS Data sheet, find the <strong>Merchant Note</strong> column (S)</li>
   <li>Type a note on any row (e.g. &ldquo;Weekly groceries&rdquo; next to a Continente transaction)</li>
-  <li>Run <code>./run.sh</code> &mdash; the note is saved</li>
+  <li>Run the tracker again &mdash; the note is saved to <code>data/description-notes.csv</code></li>
   <li>On the next run, <strong>every</strong> row with that merchant gets the same note</li>
 </ol>
 
@@ -365,16 +405,38 @@ python bank_ingest.py cards add 5678 Bob</code></pre>
 
 <h2 id="pdf">Monthly PDF Report</h2>
 
-<p>Want a quick one-page summary of a month's spending? Generate a PDF:</p>
+<p>Want a quick one-page summary of a month's spending? Generate a PDF from the Tools page, or:</p>
 
 <pre><code>python bank_ingest.py pdf                      # previous month
-python bank_ingest.py pdf --month 2026-01      # specific month</code></pre>
+python bank_ingest.py pdf --month 2026-01      # specific month
+python bank_ingest.py pdf --all                # one PDF per month with data</code></pre>
 
-<p>The PDF shows at a glance: total income vs expenses, spending by category (with variation vs last month and vs average), your top merchants, any #tag totals, and essential spending highlights. It's designed to highlight where money went so you can dive deeper in the spreadsheet if something catches your eye.</p>
+<p>The PDF shows at a glance: total income vs expenses, spending by category (with variation vs last month and vs average), your top merchants, any #tag totals, essential spending, and how many transactions still need a category.</p>
 
 <div class="tip">
   <strong>Output:</strong> The PDF is saved to <code>reports/report-YYYY-MM.pdf</code>. Use <code>--out path/to/file.pdf</code> to save it somewhere else.
 </div>
+
+<hr>
+
+<h2 id="email">Fetching Statements from Email</h2>
+
+<p>If your bank emails you statements, the tracker can download them over IMAP and import them. Set it up once on the Tools page, or with:</p>
+
+<pre><code>python bank_ingest.py fetch --setup     # interactive setup
+python bank_ingest.py fetch             # download new statements and import them</code></pre>
+
+<p>You'll need your email server (e.g. <code>imap.gmail.com</code>), your address, an <strong>app password</strong> (never your main password), and part of your bank's sender address. The settings are saved to <code>data/email-config.json</code>, readable by your user only and never committed to Git.</p>
+
+<hr>
+
+<h2 id="advisor">Financial Advisor Prompts</h2>
+
+<p>The <code>advisor</code> command turns a month of spending into a prompt you can paste into an AI chat of your choice, and keeps a context file of your goals so each month's advice builds on the last. The tracker never contacts an AI service itself &mdash; you decide what to share.</p>
+
+<pre><code>python bank_ingest.py advisor           # write a prompt for last month
+python bank_ingest.py advisor ingest    # record the answer you saved
+python bank_ingest.py advisor status    # see which months still need an answer</code></pre>
 
 <hr>
 
@@ -383,12 +445,22 @@ python bank_ingest.py pdf --month 2026-01      # specific month</code></pre>
 <p>Your data is backed up automatically &mdash; no action needed:</p>
 
 <ul>
-  <li><strong>Monthly backups</strong> &mdash; Every time you run <code>./run.sh</code>, the system checks if last month has a backup. If not, it creates one automatically.</li>
-  <li><strong>Safety backups</strong> &mdash; Before any operation that could change your data (like regenerating all sheets), a timestamped backup is created.</li>
-  <li><strong>Manual backups</strong> &mdash; Run <code>python bank_ingest.py backup</code> at any time. Use <code>--out ~/Desktop</code> to save it somewhere specific.</li>
+  <li><strong>Monthly backups</strong> &mdash; Every time <code>./run.sh auto</code> runs, the system checks if last month has a backup. If not, it creates one automatically.</li>
+  <li><strong>Safety backups</strong> &mdash; Before any operation that could change your data (regenerating all ODS sheets, re-cleaning descriptions, resetting), a timestamped backup is created.</li>
+  <li><strong>Manual backups</strong> &mdash; Use the Tools page, or run <code>python bank_ingest.py backup</code> at any time. Use <code>--out ~/Desktop</code> to save it somewhere specific.</li>
 </ul>
 
-<p>Backups are zip files in the <code>backups/</code> folder, containing your database, config files, raw CSVs, and the spreadsheet.</p>
+<p>Backups are zip files in the <code>backups/</code> folder, containing your database, config files, raw statements, and the ODS report.</p>
+
+<hr>
+
+<h2 id="server">Running on a Home Server</h2>
+
+<p>The tracker can run in Docker on an always-on machine (a NUC, a Raspberry Pi, etc.): the app stays available on your local network, and a daily job fetches statements, imports them and regenerates the reports. See <a href="DEPLOYMENT.md">DEPLOYMENT.md</a> for the full guide.</p>
+
+<div class="warning">
+  <strong>The app has no login.</strong> Only make it reachable from a network you trust, and never expose it to the internet.
+</div>
 
 <hr>
 
@@ -397,7 +469,7 @@ python bank_ingest.py pdf --month 2026-01      # specific month</code></pre>
 <!-- ================================================================== -->
 
 <h2 id="technical" style="font-size: 1.5rem; border-bottom: 3px solid var(--accent);">Technical Reference</h2>
-<p style="color: var(--muted); margin-bottom: 1.5rem;">Everything below is for users comfortable with the command line. The basics above are all you need to get started.</p>
+<p style="color: var(--muted); margin-bottom: 1.5rem;">Everything below is for users comfortable with the command line. The basics above are all you need to get started. Every command and flag is described in <a href="README.md">README.md</a>.</p>
 
 <!-- Shell Scripts -->
 <h2 id="scripts">Shell Scripts</h2>
@@ -405,31 +477,26 @@ python bank_ingest.py pdf --month 2026-01      # specific month</code></pre>
 <div class="script-card">
   <h3>install.sh &mdash; First-Time Setup</h3>
   <p>Run this <strong>once</strong> when you first get the project (or on a new computer).</p>
-  <pre><code>./install.sh</code></pre>
+  <pre><code>./install.sh
+./install.sh --branch main      # check out a specific branch first</code></pre>
   <p>What it does:</p>
   <ol>
+    <li>Optionally checks out the given git branch</li>
     <li>Checks that Python 3.9+ is installed</li>
     <li>Creates a virtual environment (<code>.venv/</code>)</li>
-    <li>Installs Python dependencies (<code>odfpy</code>)</li>
-    <li>Creates the <code>raw/</code>, <code>data/</code>, and <code>backups/</code> directories</li>
+    <li>Installs the Python dependencies from <code>requirements.txt</code></li>
+    <li>Creates the <code>raw/</code>, <code>data/</code>, <code>data/advisor/</code>, <code>backups/</code>, and <code>reports/</code> directories</li>
     <li>Creates starter config files (<code>rules.csv</code>, <code>account-holders.csv</code>, etc.) in <code>data/</code> if they don't exist</li>
     <li>Makes the shell scripts executable</li>
   </ol>
 </div>
 
 <div class="script-card">
-  <h3>run.sh &mdash; Import Data &amp; Generate Report</h3>
-  <p>The <strong>everyday script</strong>. Double-click it or run it from Terminal.</p>
-  <pre><code>./run.sh</code></pre>
-  <p>What it does:</p>
-  <ol>
-    <li>Scans <code>raw/</code> for any new CSV files not yet imported</li>
-    <li>Auto-renames them (e.g. <code>EXPORT_0_1022026.csv</code> &rarr; <code>2026-01.csv</code>)</li>
-    <li>Imports new transactions into the SQLite database</li>
-    <li>Syncs any manual category edits from the ODS back into the database</li>
-    <li>Applies categorization rules from <code>data/rules.csv</code></li>
-    <li>Regenerates the <code>expense-report.ods</code> report</li>
-  </ol>
+  <h3>run.sh &mdash; Everyday Use</h3>
+  <pre><code>./run.sh                # open the app in your browser (default)
+./run.sh auto           # import new files + write the report, no app
+./run.sh &lt;command&gt;      # run any bank_ingest.py command</code></pre>
+  <p><code>./run.sh auto</code> scans <code>raw/</code> for new statements, auto-renames them (e.g. <code>EXPORT_0_1022026.csv</code> &rarr; <code>2026-01.csv</code>), imports them, syncs edits from an existing ODS back to the database, applies the rules, and writes <code>expense-report.xlsx</code> (add <code>--format ods</code> or <code>--format both</code> for the ODS).</p>
 </div>
 
 <div class="script-card">
@@ -438,117 +505,56 @@ python bank_ingest.py pdf --month 2026-01      # specific month</code></pre>
   <pre><code>./update.sh</code></pre>
   <p>What it does:</p>
   <ol>
-    <li>Fetches changes from the GitHub remote</li>
-    <li>If there are updates, pulls them safely (fast-forward only)</li>
+    <li>Finds the remote pointing at the development repo, or adds one named <code>upstream</code></li>
+    <li>Merges its <code>main</code> branch into your current branch, keeping any personal commits</li>
+    <li>Aborts cleanly on a merge conflict, leaving your copy unchanged</li>
     <li>Re-runs <code>install.sh</code> if dependencies changed</li>
-    <li>If already up to date, does nothing</li>
   </ol>
 </div>
 
 <hr>
 
-<!-- CLI Reference -->
-<h2 id="cli">Python CLI Reference</h2>
+<!-- All Commands -->
+<h2 id="commands">All CLI Commands at a Glance</h2>
 
-<p>The shell scripts use <code>bank_ingest.py</code> under the hood. You can also use it directly for more control. Always activate the virtual environment first: <code>source .venv/bin/activate</code></p>
+<p>Activate the virtual environment first (<code>source .venv/bin/activate</code>), or prefix commands with <code>./run.sh</code> instead of <code>python bank_ingest.py</code>. Add <code>-q</code> (quiet) or <code>-v</code> (verbose) to any command.</p>
 
-<p><strong>Global flags</strong> (work with any subcommand):</p>
 <table>
-  <thead><tr><th>Flag</th><th>Effect</th></tr></thead>
+  <thead><tr><th>Command</th><th>Description</th></tr></thead>
   <tbody>
-    <tr><td><code>-q</code> / <code>--quiet</code></td><td>Suppress all output except errors</td></tr>
-    <tr><td><code>-v</code> / <code>--verbose</code></td><td>Show detailed progress information</td></tr>
+    <tr><td><code>./run.sh</code></td><td>Open the app (default)</td></tr>
+    <tr><td><code>./run.sh auto</code></td><td>Import new files and write the report, no app</td></tr>
+    <tr><td><code>python bank_ingest.py</code></td><td>Auto-detect, import, and report (default)</td></tr>
+    <tr><td><code>python bank_ingest.py auto</code></td><td>Same as above</td></tr>
+    <tr><td><code>python bank_ingest.py ingest &lt;files&gt;</code></td><td>Import specific CSV or PDF files (auto-detects the format)</td></tr>
+    <tr><td><code>python bank_ingest.py report</code></td><td>Re-apply rules and regenerate the report</td></tr>
+    <tr><td><code>python bank_ingest.py export</code></td><td>Export to UTF-8 CSV</td></tr>
+    <tr><td><code>python bank_ingest.py cards</code></td><td>List card holders</td></tr>
+    <tr><td><code>python bank_ingest.py cards add &lt;last4&gt; &lt;name&gt;</code></td><td>Add a card holder</td></tr>
+    <tr><td><code>python bank_ingest.py cards remove &lt;last4&gt;</code></td><td>Remove a card holder</td></tr>
+    <tr><td><code>python bank_ingest.py rules</code></td><td>List categorization rules</td></tr>
+    <tr><td><code>python bank_ingest.py rules add &lt;pattern&gt; &lt;category&gt;</code></td><td>Add a rule</td></tr>
+    <tr><td><code>python bank_ingest.py rules remove &lt;pattern&gt;</code></td><td>Remove a rule</td></tr>
+    <tr><td><code>python bank_ingest.py rules import-starter</code></td><td>Import Portuguese starter rules (~200 rules)</td></tr>
+    <tr><td><code>python bank_ingest.py reclean</code></td><td>Re-clean all descriptions and regenerate report</td></tr>
+    <tr><td><code>python bank_ingest.py backup</code></td><td>Create a zip backup of all data</td></tr>
+    <tr><td><code>python bank_ingest.py pdf</code></td><td>Generate a monthly PDF summary report</td></tr>
+    <tr><td><code>python bank_ingest.py suggest</code></td><td>Analyze patterns and suggest categorization rules</td></tr>
+    <tr><td><code>python bank_ingest.py fetch</code></td><td>Download bank statements from email (IMAP)</td></tr>
+    <tr><td><code>python bank_ingest.py fetch --setup</code></td><td>Configure email settings interactively</td></tr>
+    <tr><td><code>python bank_ingest.py gui</code></td><td>Launch the app</td></tr>
+    <tr><td><code>python bank_ingest.py banks</code></td><td>List supported bank statement formats</td></tr>
+    <tr><td><code>python bank_ingest.py advisor</code></td><td>Write an AI advice prompt for last month</td></tr>
+    <tr><td><code>python bank_ingest.py reset</code></td><td>Back up, then delete all data</td></tr>
   </tbody>
 </table>
-
-<h3><code>auto</code> (default)</h3>
-<p>Scan for new files, import, and regenerate the report. This is what <code>run.sh</code> calls.</p>
-<pre><code>python bank_ingest.py              # same as 'auto'
-python bank_ingest.py auto
-python bank_ingest.py auto --raw path/to/csvs
-python bank_ingest.py auto --no-backup    # skip automatic monthly backup
-python bank_ingest.py auto --dry-run      # show what would happen, change nothing</code></pre>
-<p>The <code>auto</code> command automatically creates a monthly backup (e.g. <code>backups/backup-2026-01.zip</code>) for the previous month if one doesn't already exist. Use <code>--no-backup</code> to skip this. Use <code>--dry-run</code> to preview what would happen without making any changes.</p>
-
-<h3><code>ingest</code></h3>
-<p>Manually import specific CSV files.</p>
-<pre><code>python bank_ingest.py ingest raw/EXPORT_0_1022026.csv
-python bank_ingest.py ingest raw/*.csv
-python bank_ingest.py ingest --no-rename raw/some-file.csv
-python bank_ingest.py ingest --dry-run raw/EXPORT_0_1022026.csv</code></pre>
-<p>The <code>ingest</code> command auto-renames files based on the date range inside the CSV (e.g. <code>EXPORT_0_1022026.csv</code> &rarr; <code>2026-01.csv</code>). Use <code>--no-rename</code> to skip this.</p>
-
-<h3><code>report</code></h3>
-<p>Apply rules and regenerate the ODS report (without importing new data).</p>
-<pre><code>python bank_ingest.py report
-python bank_ingest.py report --fresh
-python bank_ingest.py report --no-sync
-python bank_ingest.py report --fresh --no-sync</code></pre>
-<table>
-  <thead><tr><th>Flag</th><th>Effect</th></tr></thead>
-  <tbody>
-    <tr><td><code>--fresh</code></td><td>Creates a backup, then deletes the existing ODS and regenerates <strong>all</strong> sheets (including Dashboard, Monthly Summary/Trend, Category/Subcategory Breakdown, and any custom sheets). Manual edits are still saved to the database first.</td></tr>
-    <tr><td><code>--no-sync</code></td><td>Skips reading manual edits from the ODS back into the database.</td></tr>
-  </tbody>
-</table>
-
-<h3><code>cards</code></h3>
-<p>Manage card-holder mappings (which debit card belongs to whom).</p>
-<pre><code>python bank_ingest.py cards                          # list all card holders
-python bank_ingest.py cards add 1234 Alice           # add a card
-python bank_ingest.py cards add 5678 Bob             # add another
-python bank_ingest.py cards remove 1234              # remove a card</code></pre>
-
-<h3><code>rules</code></h3>
-<p>Manage categorization rules from the command line.</p>
-<pre><code>python bank_ingest.py rules                                          # list all
-python bank_ingest.py rules add CONTINENTE Groceries                 # simple rule
-python bank_ingest.py rules add FARMACIA Health --sub Pharmacy --payment card
-python bank_ingest.py rules remove CONTINENTE                        # remove by pattern</code></pre>
-<table>
-  <thead><tr><th>Flag</th><th>Default</th><th>Description</th></tr></thead>
-  <tbody>
-    <tr><td><code>--field</code></td><td><code>description</code></td><td>Field to match: <code>description</code> (cleaned) or <code>description_raw</code></td></tr>
-    <tr><td><code>--sub</code></td><td><em>(empty)</em></td><td>Subcategory</td></tr>
-    <tr><td><code>--payment</code></td><td><em>(empty)</em></td><td>Payment type: <code>card</code>, <code>transfer</code>, <code>direct_debit</code>, <code>fee</code>, <code>tax</code></td></tr>
-  </tbody>
-</table>
-
-<h3><code>export</code></h3>
-<p>Export all transactions to a clean UTF-8 CSV file.</p>
-<pre><code>python bank_ingest.py export
-python bank_ingest.py export --out my-data.csv</code></pre>
-
-<h3><code>reclean</code></h3>
-<p>Recompute all cleaned descriptions from the raw bank text using the current cleaning patterns. Use this after editing <code>data/noise-words.txt</code> or <code>data/cleaning-patterns.csv</code>.</p>
-<pre><code>python bank_ingest.py reclean</code></pre>
-<p>What it does:</p>
-<ol>
-  <li>Creates a backup (in case the reclean changes something you didn't expect)</li>
-  <li>Re-runs the description cleaner on every transaction in the database</li>
-  <li>Updates only the rows where the cleaned description changed</li>
-  <li>Regenerates the ODS report</li>
-</ol>
-<p>All categories, notes, and other data are preserved.</p>
-
-<h3><code>backup</code></h3>
-<p>Create a zip archive of all your data.</p>
-<pre><code>python bank_ingest.py backup                   # save to backups/ (default)
-python bank_ingest.py backup --out ~/Desktop    # save to a custom location</code></pre>
-
-<h3><code>pdf</code></h3>
-<p>Generate a single-page monthly PDF summary &mdash; a bird's-eye view of spending.</p>
-<pre><code>python bank_ingest.py pdf                      # previous month (default)
-python bank_ingest.py pdf --month 2026-01      # specific month
-python bank_ingest.py pdf --out ~/Desktop/jan.pdf  # custom output path</code></pre>
-<p>Includes: income/expenses summary, spending by category (with variation vs previous month and vs average), top merchants, #tag totals, essential spending, uncategorized alert. Output defaults to <code>reports/report-YYYY-MM.pdf</code>.</p>
 
 <hr>
 
 <!-- Cleaning Patterns -->
 <h2 id="cleaning">Cleaning Patterns (advanced)</h2>
 
-<p>When bank descriptions are imported, the parser cleans them up by stripping prefixes, noise words, and reference codes. These patterns are loaded from two external files so you can tweak them without touching Python code.</p>
+<p>When bank descriptions are imported, the parser cleans them up by stripping prefixes, noise words, and reference codes. These patterns are loaded from two external files so you can tweak them without touching Python code. Run <code>python bank_ingest.py reclean</code> after editing them.</p>
 
 <h3><code>data/noise-words.txt</code> &mdash; Simple word list</h3>
 
@@ -574,7 +580,7 @@ LISBOA</code></pre>
   <thead><tr><th>Column</th><th>Description</th></tr></thead>
   <tbody>
     <tr><td><code>type</code></td><td><code>prefix</code> (stripped from the start) or <code>noise</code> (stripped anywhere)</td></tr>
-    <tr><td><code>pattern</code></td><td>A regular expression</td></tr>
+    <tr><td><code>pattern</code></td><td>A regular expression (case-insensitive)</td></tr>
     <tr><td><code>description</code></td><td>Human-readable explanation of what the pattern does</td></tr>
   </tbody>
 </table>
@@ -586,82 +592,21 @@ LISBOA</code></pre>
 <!-- Architecture -->
 <h2 id="architecture">Data Architecture</h2>
 
-<div class="diagram">Bank CSV (raw/)  &rarr;  Python parser  &rarr;  SQLite (data/ledger.sqlite)  &rarr;  ODS report
-                          &uarr;                     &uarr;                              |
-            data/account-holders.csv     data/rules.csv                            |
-                                                 &uarr;                              |
-                                                 &larr;&mdash; manual edits synced back &larr;&rsquo;</div>
+<div class="diagram">Bank CSV/PDF (raw/)  &rarr;  Auto-detect  &rarr;  Parser  &rarr;  SQLite (data/ledger.sqlite)  &rarr;  xlsx / ODS / PDF
+                                            &uarr;              &uarr;                              |
+                         data/account-holders.csv   data/rules.csv                         |
+                                                           &uarr;                              |
+                                                           &larr;&mdash; ODS edits synced back &larr;&rsquo;</div>
 
 <ul>
-  <li><strong>Raw CSVs</strong> (<code>raw/</code>) &mdash; Immutable bank exports, kept as-is for reference</li>
+  <li><strong>Raw files</strong> (<code>raw/</code>) &mdash; Immutable bank exports (CSV or PDF), kept as-is for reference</li>
   <li><strong>Account holders</strong> (<code>data/account-holders.csv</code>) &mdash; Maps card last-4 digits to owner names</li>
   <li><strong>Rules</strong> (<code>data/rules.csv</code>) &mdash; Defines how transactions get categorized</li>
-  <li><strong>SQLite database</strong> (<code>data/ledger.sqlite</code>) &mdash; The single source of truth for all transactions</li>
-  <li><strong>ODS report</strong> (<code>expense-report.ods</code>) &mdash; A generated spreadsheet for viewing and analysis</li>
+  <li><strong>SQLite database</strong> (<code>data/ledger.sqlite</code>) &mdash; The single source of truth for all transactions, deduplicated</li>
+  <li><strong>Reports</strong> &mdash; Generated views: <code>expense-report.xlsx</code>, the editable <code>expense-report.ods</code>, and monthly PDFs in <code>reports/</code></li>
 </ul>
 
-<hr>
-
-<!-- Project Structure -->
-<h2 id="structure">Project Structure</h2>
-
-<pre><code>personal-expense-tracker/
-&#9500;&#9472;&#9472; raw/                    # Drop bank CSVs here
-&#9500;&#9472;&#9472; data/
-&#9474;   &#9500;&#9472;&#9472; ledger.sqlite       # Source of truth
-&#9474;   &#9500;&#9472;&#9472; ledger.csv          # Optional CSV export
-&#9474;   &#9500;&#9472;&#9472; rules.csv           # Categorization rules (editable)
-&#9474;   &#9500;&#9472;&#9472; account-holders.csv # Card-to-owner mappings (editable)
-&#9474;   &#9500;&#9472;&#9472; noise-words.txt     # Words to strip from descriptions (editable)
-&#9474;   &#9500;&#9472;&#9472; cleaning-patterns.csv # Regex patterns for description cleaning
-&#9474;   &#9492;&#9472;&#9472; description-notes.csv # Merchant notes (editable, per-merchant)
-&#9500;&#9472;&#9472; reports/                # Monthly PDF summaries
-&#9500;&#9472;&#9472; expense-report.ods      # Generated report
-&#9500;&#9472;&#9472; bank_ingest.py          # Main entry point
-&#9500;&#9472;&#9472; expense_tracker/        # Python package
-&#9474;   &#9500;&#9472;&#9472; cli.py              # Command-line interface
-&#9474;   &#9500;&#9472;&#9472; parser.py           # UTF-16 CSV parser + auto-rename
-&#9474;   &#9500;&#9472;&#9472; db.py               # SQLite storage and queries
-&#9474;   &#9500;&#9472;&#9472; rules.py            # Rule &amp; card management + categorization
-&#9474;   &#9500;&#9472;&#9472; ods.py              # ODS report orchestration + sync-back
-&#9474;   &#9500;&#9472;&#9472; ods_sheets.py       # ODS sheet builders (styles, cells, all sheets)
-&#9474;   &#9500;&#9472;&#9472; export.py           # CSV export
-&#9474;   &#9500;&#9472;&#9472; backup.py           # Backup utilities (zip archives)
-&#9474;   &#9500;&#9472;&#9472; pdf_report.py       # Monthly PDF report generator
-&#9474;   &#9492;&#9472;&#9472; constants.py        # Shared configuration
-&#9500;&#9472;&#9472; backups/                # Backup archives (auto + manual)
-&#9500;&#9472;&#9472; tests/                  # Test suite (148 tests)
-&#9500;&#9472;&#9472; install.sh              # First-time setup
-&#9500;&#9472;&#9472; run.sh                  # Import + report (everyday use)
-&#9500;&#9472;&#9472; update.sh               # Pull latest from GitHub
-&#9500;&#9472;&#9472; requirements.txt        # Python dependencies
-&#9500;&#9472;&#9472; pytest.ini              # Test configuration
-&#9492;&#9472;&#9472; CONTRIBUTING.md         # Developer docs</code></pre>
-
-<hr>
-
-<!-- All Commands -->
-<h2 id="commands">All CLI Commands at a Glance</h2>
-
-<table>
-  <thead><tr><th>Command</th><th>Description</th></tr></thead>
-  <tbody>
-    <tr><td><code>python bank_ingest.py</code></td><td>Auto-detect, import, and report (default)</td></tr>
-    <tr><td><code>python bank_ingest.py auto</code></td><td>Same as above</td></tr>
-    <tr><td><code>python bank_ingest.py ingest &lt;files&gt;</code></td><td>Import specific CSV files</td></tr>
-    <tr><td><code>python bank_ingest.py report</code></td><td>Regenerate the ODS report</td></tr>
-    <tr><td><code>python bank_ingest.py export</code></td><td>Export to UTF-8 CSV</td></tr>
-    <tr><td><code>python bank_ingest.py cards</code></td><td>List card holders</td></tr>
-    <tr><td><code>python bank_ingest.py cards add &lt;last4&gt; &lt;name&gt;</code></td><td>Add a card holder</td></tr>
-    <tr><td><code>python bank_ingest.py cards remove &lt;last4&gt;</code></td><td>Remove a card holder</td></tr>
-    <tr><td><code>python bank_ingest.py rules</code></td><td>List categorization rules</td></tr>
-    <tr><td><code>python bank_ingest.py rules add &lt;pattern&gt; &lt;category&gt;</code></td><td>Add a rule</td></tr>
-    <tr><td><code>python bank_ingest.py rules remove &lt;pattern&gt;</code></td><td>Remove a rule</td></tr>
-    <tr><td><code>python bank_ingest.py reclean</code></td><td>Re-clean all descriptions and regenerate report</td></tr>
-    <tr><td><code>python bank_ingest.py backup</code></td><td>Create a zip backup of all data</td></tr>
-    <tr><td><code>python bank_ingest.py pdf</code></td><td>Generate a monthly PDF summary report</td></tr>
-  </tbody>
-</table>
+<p>The full project layout is in <a href="README.md">README.md</a>; module details are in <a href="CONTRIBUTING.md">CONTRIBUTING.md</a>.</p>
 
 <hr>
 
@@ -671,7 +616,8 @@ LISBOA</code></pre>
 <ul>
   <li><strong>Python 3.9+</strong></li>
   <li><strong>macOS or Linux</strong> (the shell scripts use bash)</li>
-  <li><strong>LibreOffice</strong> or <strong>Google Sheets</strong> (to view the ODS report)</li>
+  <li><strong>Excel</strong>, <strong>Numbers</strong>, <strong>LibreOffice</strong> or <strong>Google Sheets</strong> to view the xlsx report (the ODS report needs LibreOffice or Google Sheets)</li>
+  <li><strong>Docker</strong> (optional, for running on a home server)</li>
 </ul>
 
 <hr>
@@ -683,9 +629,10 @@ LISBOA</code></pre>
 
 <h3>Running Tests</h3>
 <pre><code>source .venv/bin/activate
+pip install -r requirements-dev.txt   # once
 python -m pytest tests/ -v</code></pre>
 
-<p>148 tests covering the parser, database, rules engine, export, backup, PDF report, and end-to-end workflows. Runs in under a second using synthetic UTF-16 CSV fixtures (no real bank data needed).</p>
+<p>644 tests covering the CSV and PDF parsers, database, rules engine, starter rules, pattern detection, email fetch, ODS and xlsx reports, advisor, CLI, GUI, export, backup, PDF report, and end-to-end workflows. They use synthetic fixtures (no real bank data needed) and run on every push in CI, along with <code>black</code> and <code>ruff</code>.</p>
 
 <hr>
 
@@ -697,9 +644,9 @@ python -m pytest tests/ -v</code></pre>
 <table>
   <thead><tr><th>Ignored</th><th>Why</th></tr></thead>
   <tbody>
-    <tr><td><code>raw/</code></td><td>Raw bank statement CSVs &mdash; contain account numbers and transaction details</td></tr>
-    <tr><td><code>data/</code></td><td>SQLite database, config files, and CSV exports &mdash; contain all your transactions and personal data</td></tr>
-    <tr><td><code>expense-report.ods</code></td><td>The generated report &mdash; contains all your financial data</td></tr>
+    <tr><td><code>raw/</code></td><td>Raw bank statements &mdash; contain account numbers and transaction details</td></tr>
+    <tr><td><code>data/</code></td><td>SQLite database, rules, card mappings, merchant notes, advisor context, and your email login (<code>email-config.json</code>)</td></tr>
+    <tr><td><code>expense-report.xlsx</code>, <code>expense-report.ods</code></td><td>The generated reports &mdash; contain all your financial data</td></tr>
     <tr><td><code>reports/</code></td><td>Monthly PDF summaries &mdash; contain financial data</td></tr>
     <tr><td><code>backups/</code></td><td>Zip archives of all the above</td></tr>
   </tbody>
@@ -716,22 +663,27 @@ python -m pytest tests/ -v</code></pre>
 
 <div class="warning">
   <strong>"No new files to ingest"</strong><br>
-  All CSV files in <code>raw/</code> have already been imported. Drop a new one and run again.
+  All files in <code>raw/</code> have already been imported. Drop a new one and run again.
 </div>
 
 <div class="warning">
   <strong>"Could not find date range"</strong><br>
-  The CSV file doesn't have the expected UTF-16 header format. Use <code>ingest --no-rename</code> to import it with its original filename.
+  The file doesn't have a recognized bank header format. Use <code>ingest --no-rename</code> to import it with its original filename, or <code>--bank &lt;id&gt;</code> to choose the parser.
+</div>
+
+<div class="warning">
+  <strong>"No parser found for file"</strong><br>
+  The format couldn't be detected. Run <code>python bank_ingest.py banks</code> to see the supported formats, then use <code>ingest --bank &lt;id&gt;</code>.
 </div>
 
 <div class="warning">
   <strong>"File already exists with range..."</strong><br>
-  You're trying to import a CSV for a month that's already been imported with the same or wider date range. If you need to re-import, delete the existing file from <code>raw/</code> first.
+  You're trying to import a statement for a month that's already been imported with the same or wider date range. If you need to re-import, delete the existing file from <code>raw/</code> first.
 </div>
 
 <div class="warning">
   <strong>Formulas show #VALUE!</strong><br>
-  Make sure you're opening the file in LibreOffice Calc (not a text editor). If the issue persists, run <code>python bank_ingest.py report --fresh</code> to regenerate all sheets.
+  Make sure you're opening the file in a spreadsheet app (not a text editor). If an ODS keeps showing it, run <code>python bank_ingest.py report --format ods --fresh</code> to regenerate all sheets.
 </div>
 
 <div class="warning">
@@ -741,7 +693,7 @@ python -m pytest tests/ -v</code></pre>
 
 <hr>
 <p style="color: var(--muted); font-size: 0.85rem; text-align: center; margin-top: 2rem;">
-  Expense Tracker &mdash; Built for bank statements
+  Expense Tracker &mdash; a personal project built with AI coding agents (Claude Code). See <a href="README.md">README.md</a>.
 </p>
 
 </body>
