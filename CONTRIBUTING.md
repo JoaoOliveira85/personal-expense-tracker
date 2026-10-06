@@ -481,7 +481,7 @@ The parser will automatically work with `ingest` (auto-detected or via `--bank n
 | `DEPLOYMENT.md` | 577 | Docker & home server (NUC) deployment guide |
 | `SECURITY.md` | 21 | Vulnerability reporting and what sensitive data the tool holds |
 | `.github/workflows/ci.yml` | 36 | CI: tests on Python 3.10/3.12, black, ruff |
-| `pyproject.toml` | 14 | black and ruff settings |
+| `pyproject.toml` | 23 | Project metadata (version) + black and ruff settings |
 | `requirements-dev.txt` | 2 | Test dependencies (pytest) on top of `requirements.txt` |
 | `pytest.ini` | 3 | pytest configuration |
 | `tests/conftest.py` | 228 | Shared fixtures and synthetic UTF-16 CSV builder |

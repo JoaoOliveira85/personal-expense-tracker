@@ -1,3 +1,12 @@
+[project]
+name = "personal-expense-tracker"
+version = "1.0.0"
+description = "Local-first expense tracking pipeline for Portuguese bank statements"
+readme = "README.md"
+requires-python = ">=3.9"
+license = "MIT"
+authors = [{ name = "João Pedro Oliveira" }]
+
 [tool.black]
 line-length = 88
 target-version = ["py39"]

@@ -93,7 +93,7 @@ personal-expense-tracker/
 ├── DEPLOYMENT.md           # Docker & home server deployment guide
 ├── requirements.txt        # Python dependencies
 ├── requirements-dev.txt    # Test dependencies (pytest)
-├── pyproject.toml          # black and ruff settings
+├── pyproject.toml          # Project version + black and ruff settings
 ├── pytest.ini              # Test configuration
 ├── SECURITY.md             # How to report a vulnerability; what data the tool holds
 └── CONTRIBUTING.md         # Developer docs (architecture, decisions, extending)
