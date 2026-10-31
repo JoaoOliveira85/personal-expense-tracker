@@ -119,7 +119,7 @@ SQLite storage layer. Handles schema creation, migrations, ingestion, and querie
 Rule and card-holder management, plus the categorization engine.
 
 **Key functions:**
-- `add_rule()` / `remove_rule()` — CRUD for `data/rules.csv`. Creates the file with headers if it doesn't exist.
+- `add_rule()` / `remove_rule()` — CRUD for `data/rules.csv`. `add_rule()` creates the file with headers if it doesn't exist, and raises `DuplicateRuleError` (writing nothing) when a rule's pattern already equals the new one ignoring case, accents and surrounding spaces; `rules add` exits 1 with the error and the GUI shows it.
 - `short_pattern_warning(pattern)` — Returns a caution when a pattern is shorter than `SHORT_PATTERN_LENGTH` (4) characters and has no trailing space (it also matches longer words starting with it), else `None`. `rules add`, the GUI's Add-a-Rule form and merchant panel show it; the rule is added either way.
 - `add_card()` / `remove_card()` — CRUD for `data/account-holders.csv`. `add_card` raises `ValueError` on duplicates.
 - `load_rules(path)` — Reads rules CSV, pre-computes folded patterns for matching (`fold()`: accents removed, upper-cased). A header-only file is a valid, empty rule set; a file that is missing, unreadable, or has no `pattern` column raises `RulesFileError`. `cli.main()` reports it and exits 1, and `auto`/`report` load the rules before changing anything; the GUI shows it and stops the action. The report builders (`ods.py`, `xlsx.py`) and `import_starter_rules()` check `exists()` first, so for them no file means no rules.

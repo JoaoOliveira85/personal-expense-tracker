@@ -56,6 +56,7 @@ from .pdf_parser import extract_pdf_date_range
 from .pdf_report import DEFAULT_REPORTS, generate_monthly_pdf, previous_month_label
 from .rules import (
     SHORT_PATTERN_LENGTH,
+    DuplicateRuleError,
     RulesFileError,
     add_card,
     add_rule,
@@ -507,14 +508,18 @@ def cmd_rules(args):
             return
         pattern = args.extra[0]
         category = args.extra[1]
-        add_rule(
-            rules_path,
-            pattern,
-            match_field=args.field,
-            category=category,
-            subcategory=args.sub or "",
-            payment_type=args.payment or "",
-        )
+        try:
+            add_rule(
+                rules_path,
+                pattern,
+                match_field=args.field,
+                category=category,
+                subcategory=args.sub or "",
+                payment_type=args.payment or "",
+            )
+        except DuplicateRuleError as e:
+            print(f"Error: {e}. Nothing was changed.")
+            sys.exit(1)
         print(
             f"Added rule: {pattern} -> {category}"
             + (f" / {args.sub}" if args.sub else "")
