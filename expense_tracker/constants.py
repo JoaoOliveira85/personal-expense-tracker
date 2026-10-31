@@ -41,6 +41,11 @@ NON_SPENDING_CATEGORIES = ("Income", "Transfers")
 # investment account): deposits are not spending and withdrawals are not income.
 SAVINGS_CATEGORIES = ("Savings",)
 
+# For a transaction that was looked at and has no better category: an
+# ordinary spending category, always offered, so the row stops showing up as
+# uncategorized.
+MISCELLANEOUS = "Miscellaneous"
+
 # ---------------------------------------------------------------------------
 # Data sheet column definitions
 # ---------------------------------------------------------------------------

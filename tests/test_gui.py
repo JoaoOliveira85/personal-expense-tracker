@@ -687,3 +687,23 @@ class TestDuplicateRule:
         assert not at.exception
         assert any("Café" in e.value for e in at.error)
         assert project.rules.read_text(encoding="utf-8") == before
+
+
+class TestMiscellaneous:
+    """Miscellaneous is always offered, and a row in it is settled (#9)."""
+
+    def test_merchant_panel_offers_it_before_any_row_uses_it(self, project):
+        _insert_expense(project.db, "t1", "ODD SHOP")
+        at = _open_page("Categorize")
+
+        assert "Miscellaneous" in at.selectbox(key="cat_ODD SHOP").options
+
+    def test_row_in_it_is_not_uncategorized(self, project):
+        _insert_expense(project.db, "t1", "ODD SHOP", "Miscellaneous")
+
+        at = _open_page("Categorize")
+        assert [m.value for m in at.success] == ["All expenses are categorized!"]
+
+        at = _open_page("Dashboard")
+        assert not [w for w in at.warning if "uncategorized" in w.value]
+        assert "1 / 1 expenses categorized (100%)" in [c.value for c in at.caption]

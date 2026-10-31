@@ -42,6 +42,7 @@ from expense_tracker.constants import (
     DEFAULT_RAW,
     DEFAULT_REPORTS,
     DEFAULT_RULES,
+    MISCELLANEOUS,
     SAVINGS_CATEGORIES,
 )
 from expense_tracker.db import (
@@ -446,9 +447,11 @@ elif page == "Categorize":
         "Categorize by merchant — all transactions with the same description get the rule."
     )
 
-    # Get existing categories for the selectbox
+    # Existing categories for the selectbox, and Miscellaneous for a merchant
+    # with no better home
     existing_cats = sorted(
-        [c for c in df["category"].dropna().unique() if c], key=str.lower
+        {c for c in df["category"].dropna().unique() if c} | {MISCELLANEOUS},
+        key=str.lower,
     )
 
     for _, row in merchant_groups.head(20).iterrows():
@@ -563,7 +566,10 @@ elif page == "Rules":
                 "Match field", ["description", "description_raw"]
             )
         with col2:
-            category = st.text_input("Category")
+            category = st.text_input(
+                "Category",
+                help=f"Use {MISCELLANEOUS} for transactions with no better category.",
+            )
             subcategory = st.text_input("Subcategory (optional)")
 
         submitted = st.form_submit_button("Add Rule")

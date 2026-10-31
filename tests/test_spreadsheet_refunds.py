@@ -163,3 +163,61 @@ class TestOdsRefunds:
     def test_dashboard_total_expenses_nets_refunds(self, ods_doc):
         cells = _ods_row(ods_doc, "Dashboard", "Total Expenses")
         assert cells[1].getAttribute("formula") == f"of:=SUMPRODUCT({ODS_SPEND})"
+
+
+# ---------------------------------------------------------------------------
+# Miscellaneous (issue #9): an ordinary, categorized spending category
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def misc_db(db):
+    """The FARMACIA payment deliberately filed under Miscellaneous."""
+    conn = sqlite3.connect(str(db))
+    conn.execute(
+        "UPDATE transactions SET category = 'Miscellaneous', "
+        "category_source = 'manual' WHERE description_raw LIKE '%FARMACIA%'"
+    )
+    conn.commit()
+    conn.close()
+    return db
+
+
+class TestMiscellaneous:
+    def test_xlsx_lists_it_and_counts_it_as_categorized(
+        self, misc_db, rules_csv, tmp_path
+    ):
+        from expense_tracker.constants import COL_CATEGORY, DATA_COLUMNS
+
+        status = DATA_COLUMNS.index("status")
+        path = tmp_path / "report.xlsx"
+        generate_xlsx(misc_db, rules_csv, path, tmp_path / "notes.csv")
+        wb = load_workbook(path)
+
+        ws = wb["Category Breakdown"]
+        assert ws.cell(row=_row_by_label(ws, "Miscellaneous"), column=2).value == (
+            '=SUMIFS(Data!F:F,Data!H:H,"Miscellaneous",Data!G:G,"out")'
+            '-SUMIFS(Data!F:F,Data!H:H,"Miscellaneous",Data!G:G,"in")'
+        )
+        rows = [
+            (r[COL_CATEGORY].value, r[status].value)
+            for r in wb["Data"].iter_rows(min_row=2)
+        ]
+        assert ("Miscellaneous", "categorized") in rows
+
+    def test_ods_lists_it_and_leaves_it_out_of_uncategorized(
+        self, misc_db, rules_csv, tmp_path
+    ):
+        path = tmp_path / "report.ods"
+        generate_ods(misc_db, rules_csv, path, tmp_path / "notes.csv")
+        doc = load_ods(str(path))
+
+        assert _ods_row(doc, "Category Breakdown", "Miscellaneous")
+        dashboard = next(
+            s
+            for s in doc.spreadsheet.getElementsByType(Table)
+            if s.getAttribute("name") == "Dashboard"
+        )
+        texts = [str(p) for p in dashboard.getElementsByType(P)]
+        preview = texts[texts.index("Uncategorized Preview (up to 15)") :]
+        assert "All transactions are categorized!" in preview
