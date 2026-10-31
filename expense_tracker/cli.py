@@ -35,6 +35,7 @@ from .constants import (
     DEFAULT_ODS,
     DEFAULT_RAW,
     DEFAULT_RULES,
+    MISCELLANEOUS,
 )
 from .db import (
     IngestError,
@@ -505,6 +506,10 @@ def cmd_rules(args):
             )
             print("  Example: rules add CONTINENTE Groceries")
             print("  Example: rules add FARMACIA Health --sub Pharmacy --payment card")
+            print(
+                f"  Use the category {MISCELLANEOUS} for merchants with no "
+                "better category."
+            )
             return
         pattern = args.extra[0]
         category = args.extra[1]
@@ -1248,7 +1253,10 @@ def main() -> None:
     ap_rules.add_argument(
         "extra",
         nargs="*",
-        help="Additional arguments (e.g. pattern and category for 'add')",
+        help=(
+            "Additional arguments (e.g. pattern and category for 'add'; "
+            f"category {MISCELLANEOUS} for merchants with no better category)"
+        ),
     )
     ap_rules.add_argument(
         "--rules",

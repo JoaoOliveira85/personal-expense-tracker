@@ -49,6 +49,7 @@ Centralizes all default paths and column definitions. Every other module imports
 - `DEFAULT_*` paths — all configurable file locations
 - `DATA_COLUMNS` / `DATA_HEADERS` — column order for the Data sheet and CSV export (these two lists must stay in sync)
 - `COL_*` — zero-based column indices for ODS sync-back (must match `DATA_COLUMNS` order)
+- `NON_SPENDING_CATEGORIES` / `SAVINGS_CATEGORIES` — categories with special money semantics (see `db.py`); `MISCELLANEOUS` — the built-in "no better category" choice, offered wherever a category is picked but otherwise an ordinary spending category
 
 **If you add a new column:** Update `DATA_COLUMNS`, `DATA_HEADERS`, and add a `COL_*` constant if it needs sync-back. Also update `_build_data_sheet()` in `ods.py` (column styles) and `fetch_all_transactions()` in `db.py` (SELECT query).
 

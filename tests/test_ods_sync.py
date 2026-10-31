@@ -138,6 +138,26 @@ class TestSyncMarksProvenance:
         assert _source(db, tid) is None
 
 
+class TestMiscellaneousIsSettled:
+    """Set by hand, Miscellaneous is a manual category: rule runs and
+    re-imports keep it (issue #9)."""
+
+    def test_survives_rules_and_reimport(self, report, rules_csv, utf16_csv, cards_csv):
+        from expense_tracker.db import ingest
+
+        db, ods, notes, tid = report
+        _set_ods_category(ods, tid, "Miscellaneous")
+        sync_from_ods(db, ods, notes)
+
+        ingest(db, [utf16_csv], cards_path=cards_csv)
+        conn = sqlite3.connect(str(db))
+        categorize_transactions(conn, load_rules(rules_csv))  # CONTINENTE rule
+        conn.close()
+
+        assert _category(db, tid) == "Miscellaneous"
+        assert _source(db, tid) == "manual"
+
+
 class TestEmptyPlaceholderOds:
     """DEPLOYMENT.md has users `touch expense-report.ods` for the bind mount."""
 

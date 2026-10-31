@@ -211,6 +211,20 @@ class TestComputeStats:
         cat_names = [c[0] for c in stats["by_category"]]
         assert "Uncategorized" in cat_names
 
+    def test_miscellaneous_is_its_own_category_not_uncategorized(self):
+        """Issue #9: a row deliberately left in Miscellaneous is settled."""
+        txns = [
+            _tx(desc="ODD SHOP", amount=25, direction="out", category="Miscellaneous"),
+            _tx(amount=30, direction="out", category="Groceries"),
+        ]
+        stats = _compute_stats(txns)
+        assert stats["uncategorized_count"] == 0
+        assert stats["total_expenses"] == 55
+        assert [c[:2] for c in stats["by_category"]] == [
+            ("Groceries", 30),
+            ("Miscellaneous", 25),
+        ]
+
     def test_top_merchants(self):
         txns = [
             _tx(desc="MERCHANT A", amount=500, direction="out"),

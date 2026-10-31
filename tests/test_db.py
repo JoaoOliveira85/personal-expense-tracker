@@ -461,6 +461,21 @@ class TestFetchAllTransactions:
         # All should be uncategorized initially
         assert all(t["status"] == "uncategorized" for t in txs)
 
+    def test_miscellaneous_is_categorized_spending(self, populated_db):
+        """Miscellaneous is an ordinary spending category (issue #9)."""
+        conn = sqlite3.connect(str(populated_db))
+        migrate_schema(conn)
+        conn.execute(
+            "UPDATE transactions SET category = 'Miscellaneous' "
+            "WHERE description_raw LIKE '%FARMACIA%'"
+        )
+        conn.commit()
+        txs = fetch_all_transactions(conn)
+        conn.close()
+        (misc,) = [t for t in txs if t["category"] == "Miscellaneous"]
+        assert misc["status"] == "categorized"
+        assert misc["spend"] == misc["amount_abs"]
+
     def test_spend_field(self, populated_db):
         conn = sqlite3.connect(str(populated_db))
         migrate_schema(conn)

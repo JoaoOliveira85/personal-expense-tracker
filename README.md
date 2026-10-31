@@ -576,6 +576,8 @@ The **Merchant Note** column (S) works differently: a note here applies to **all
 
 For recurring patterns, adding a rule is better. For one-off expenses, editing in the ODS is fine.
 
+**Miscellaneous.** When you have looked at a transaction and it has no better home (a one-off or odd purchase), set its category to `Miscellaneous`. It is offered wherever you pick a category. It is an ordinary spending category: it shows under its own name in totals and charts, the row stops counting as uncategorized, and, set by hand, rules never change it.
+
 ### Using #Tags
 
 You can add **#tags** anywhere in the **Notes** (R) or **Merchant Note** (S) columns to label transactions for tracking. Tags are just words starting with `#` — no special setup required.
