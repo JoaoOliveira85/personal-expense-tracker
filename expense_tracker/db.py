@@ -117,6 +117,37 @@ def migrate_schema(conn: sqlite3.Connection) -> None:
             notes          TEXT NOT NULL
         )
         """)
+
+    # One row per account per import that added transactions; coverage()
+    # reads it. A ledger from before the table gets one pseudo-import per
+    # statement file, spanning that file's earliest to latest transaction.
+    has_imports = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'imports'"
+    ).fetchone()
+    if not has_imports:
+        conn.execute("""
+            CREATE TABLE imports (
+                id            INTEGER PRIMARY KEY,
+                source_file   TEXT NOT NULL,
+                account       TEXT NOT NULL,
+                period_from   TEXT NOT NULL,
+                period_to     TEXT NOT NULL,
+                imported_at   TEXT NOT NULL,
+                rows_parsed   INTEGER NOT NULL,
+                rows_inserted INTEGER NOT NULL
+            )
+            """)
+        conn.execute("""
+            INSERT INTO imports (
+                source_file, account, period_from, period_to, imported_at,
+                rows_parsed, rows_inserted
+            )
+            SELECT source_file, account, MIN(date_posted), MAX(date_posted),
+                   MIN(imported_at), COUNT(*), COUNT(*)
+            FROM transactions
+            GROUP BY source_file, account
+            ORDER BY MIN(imported_at), source_file, account
+            """)
     conn.commit()
 
 
@@ -262,10 +293,12 @@ def _open_ledger(db_path: Path, dry_run: bool) -> sqlite3.Connection:
     return conn
 
 
-def _insert_rows(conn: sqlite3.Connection, rows: list[dict], imported_at: str) -> int:
-    """Insert one file's rows, skipping ids already stored; return how many
-    were new."""
-    inserted = 0
+def _insert_rows(
+    conn: sqlite3.Connection, rows: list[dict], imported_at: str
+) -> list[dict]:
+    """Insert one file's rows, skipping ids already stored; return the rows
+    that were new."""
+    inserted = []
     seen: Counter[str] = Counter()
     for r in rows:
         fields = _id_fields(r)
@@ -294,8 +327,43 @@ def _insert_rows(conn: sqlite3.Connection, rows: list[dict], imported_at: str) -
             r,
         )
         if cur.rowcount > 0:
-            inserted += 1
+            inserted.append(r)
     return inserted
+
+
+def _record_import(
+    conn: sqlite3.Connection,
+    rows: list[dict],
+    inserted: list[dict],
+    imported_at: str,
+) -> None:
+    """Add an ``imports`` row per account of a file that added transactions:
+    an import that adds nothing leaves the coverage as it was."""
+    by_account: dict[str, list[dict]] = {}
+    for r in rows:
+        by_account.setdefault(r["account"], []).append(r)
+    new_by_account = Counter(r["account"] for r in inserted)
+    for account, account_rows in by_account.items():
+        if not new_by_account[account]:
+            continue
+        dates = [r["date_posted"] for r in account_rows]
+        conn.execute(
+            """
+            INSERT INTO imports (
+                source_file, account, period_from, period_to, imported_at,
+                rows_parsed, rows_inserted
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                account_rows[0]["source_file"],
+                account,
+                min(dates),
+                max(dates),
+                imported_at,
+                len(account_rows),
+                new_by_account[account],
+            ),
+        )
 
 
 def ingest(
@@ -343,6 +411,7 @@ def ingest(
             try:
                 rows = _parse_file(p, cards_path, bank_id)
                 inserted = _insert_rows(conn, rows, now)
+                _record_import(conn, rows, inserted, now)
                 conn.commit()
             except Exception as e:
                 conn.rollback()
@@ -351,7 +420,7 @@ def ingest(
                 print(f"  Error: {p.name} was not imported: {_describe(e)}")
                 continue
             outcome.parsed = len(rows)
-            outcome.inserted = inserted
+            outcome.inserted = len(inserted)
             if rows:
                 dates = [r["date_posted"] for r in rows]
                 outcome.period_from, outcome.period_to = min(dates), max(dates)
@@ -456,6 +525,70 @@ def ingested_source_files(db_path: Path) -> set[str]:
         return {r[0] for r in rows}
     finally:
         conn.close()
+
+
+@dataclass
+class AccountCoverage:
+    """The months of one account that imported statements cover.
+
+    ``covered`` holds runs of consecutive months as ``(first, last)``
+    ``YYYY-MM`` pairs; ``missing`` the months between the first and the last
+    covered month that no import covers.
+    """
+
+    account: str
+    covered: list[tuple[str, str]]
+    missing: list[str]
+
+    def ranges(self) -> list[str]:
+        """``covered`` as text: ``2026-01 to 2026-03``, or ``2026-05`` alone."""
+        return [a if a == b else f"{a} to {b}" for a, b in self.covered]
+
+
+def _month_index(date: str) -> int:
+    """'YYYY-MM...' as a count of months, so that adjacent months differ by 1."""
+    return int(date[:4]) * 12 + int(date[5:7]) - 1
+
+
+def _month_label(index: int) -> str:
+    return f"{index // 12:04d}-{index % 12 + 1:02d}"
+
+
+def coverage(conn: sqlite3.Connection) -> list[AccountCoverage]:
+    """Per account (sorted), the months covered by imports and the gaps.
+
+    Each import covers every month from its ``period_from`` to its
+    ``period_to``; overlapping and adjacent runs are merged. Months are the
+    unit: a month an import covers only in part counts as covered.
+    """
+    rows = conn.execute("SELECT account, period_from, period_to FROM imports")
+    runs_by_account: dict[str, list[tuple[int, int]]] = {}
+    for account, period_from, period_to in rows:
+        runs_by_account.setdefault(account, []).append(
+            (_month_index(period_from), _month_index(period_to))
+        )
+
+    result = []
+    for account in sorted(runs_by_account):
+        merged: list[list[int]] = []
+        for first, last in sorted(runs_by_account[account]):
+            if merged and first <= merged[-1][1] + 1:
+                merged[-1][1] = max(merged[-1][1], last)
+            else:
+                merged.append([first, last])
+        missing = [
+            _month_label(m)
+            for (_, prev_last), (next_first, _) in zip(merged, merged[1:])
+            for m in range(prev_last + 1, next_first)
+        ]
+        result.append(
+            AccountCoverage(
+                account=account,
+                covered=[(_month_label(a), _month_label(b)) for a, b in merged],
+                missing=missing,
+            )
+        )
+    return result
 
 
 def reclean_descriptions(db_path: Path) -> int:

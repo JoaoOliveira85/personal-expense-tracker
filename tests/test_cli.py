@@ -759,3 +759,63 @@ class TestRulesFile:
         assert exit_info.value.code == 1
         assert "rules.csv" in capsys.readouterr().out
         assert not (workspace / "data" / "ledger.sqlite").exists()
+
+
+MARCH = [("05-03-2026", "05-03-2026", "COMPRA 1234 LIDL", "-20,00", "Compra", "1,00")]
+
+
+class TestCoverageCommand:
+    """`coverage` lists the months imported per account and the gaps."""
+
+    @pytest.fixture(autouse=True)
+    def _account(self, monkeypatch):
+        monkeypatch.setenv("EXPENSE_TRACKER_ACCOUNT_TYPE", "checkings_account")
+
+    def test_prints_ranges_and_missing_months(
+        self, workspace: Path, monkeypatch, capsys
+    ):
+        raw = workspace / "raw"
+        db = workspace / "data" / "ledger.sqlite"
+        jan = make_utf16_csv(raw / "2026-01.csv", FIRST_HALF)
+        mar = make_utf16_csv(
+            raw / "2026-03.csv", MARCH, date_from="01-03-2026", date_to="31-03-2026"
+        )
+        ingest(db, [jan, mar], cards_path=workspace / "none.csv")
+        capsys.readouterr()
+        monkeypatch.setattr("sys.argv", ["bank_ingest.py", "coverage", "--db", str(db)])
+
+        cli.main()
+
+        assert capsys.readouterr().out.splitlines() == [
+            "checkings_account",
+            "  Covered: 2026-01, 2026-03",
+            "  Missing: 2026-02",
+        ]
+
+    def test_contiguous_months_print_as_one_range(self, workspace: Path, capsys):
+        raw = workspace / "raw"
+        db = workspace / "data" / "ledger.sqlite"
+        statement = make_utf16_csv(
+            raw / "q1.csv",
+            FIRST_HALF + MARCH,
+            date_from="01-01-2026",
+            date_to="31-03-2026",
+        )
+        ingest(db, [statement], cards_path=workspace / "none.csv")
+        capsys.readouterr()
+
+        cli.cmd_coverage(argparse.Namespace(db=db))
+
+        assert capsys.readouterr().out.splitlines() == [
+            "checkings_account",
+            "  Covered: 2026-01 to 2026-03",
+            "  Missing: none",
+        ]
+
+    def test_no_ledger_is_reported_and_not_created(self, workspace: Path, capsys):
+        db = workspace / "data" / "ledger.sqlite"
+
+        cli.cmd_coverage(argparse.Namespace(db=db))
+
+        assert "No statements imported yet." in capsys.readouterr().out
+        assert not db.exists()

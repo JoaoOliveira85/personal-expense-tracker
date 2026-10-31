@@ -7,7 +7,9 @@ import sqlite3
 import pytest
 
 from expense_tracker.db import (
+    AccountCoverage,
     IngestError,
+    coverage,
     ensure_schema,
     fetch_all_transactions,
     ingest,
@@ -600,6 +602,170 @@ class TestIngestWarnings:
 # ---------------------------------------------------------------------------
 # ingested_source_files
 # ---------------------------------------------------------------------------
+
+
+UTF8_HEADER = "Data Mov.;Data Valor;Descrição;Débito;Crédito;Saldo Contabilístico\n"
+
+
+def _utf8_statement(path, *dates: str):
+    """A UTF-8 statement with one purchase per dd-mm-YYYY date."""
+    lines = [f"{d};{d};COMPRA LOJA {i};1,00;;\n" for i, d in enumerate(dates)]
+    path.write_text(UTF8_HEADER + "".join(lines), encoding="utf-8")
+    return path
+
+
+def _imports(db_path) -> list[tuple]:
+    conn = sqlite3.connect(str(db_path))
+    try:
+        return conn.execute(
+            "SELECT source_file, account, period_from, period_to, "
+            "rows_parsed, rows_inserted FROM imports ORDER BY id"
+        ).fetchall()
+    finally:
+        conn.close()
+
+
+class TestImportsTable:
+    """Each import that adds rows is recorded with the period it covers."""
+
+    @pytest.fixture(autouse=True)
+    def _account(self, monkeypatch):
+        monkeypatch.setenv("EXPENSE_TRACKER_ACCOUNT_TYPE", "checkings_account")
+
+    def test_import_is_recorded(self, test_db, tmp_path):
+        jan = _utf8_statement(tmp_path / "jan.csv", "20-01-2026", "05-01-2026")
+
+        ingest(test_db, [jan], cards_path=tmp_path / "none.csv")
+
+        assert _imports(test_db) == [
+            ("jan.csv", "checkings_account", "2026-01-05", "2026-01-20", 2, 2)
+        ]
+
+    def test_reimport_that_adds_nothing_records_nothing(self, test_db, tmp_path):
+        jan = _utf8_statement(tmp_path / "jan.csv", "05-01-2026")
+        ingest(test_db, [jan], cards_path=tmp_path / "none.csv")
+
+        ingest(test_db, [jan], cards_path=tmp_path / "none.csv")
+
+        assert len(_imports(test_db)) == 1
+
+    def test_failed_import_records_nothing(self, test_db, tmp_path):
+        bad = tmp_path / "junk.csv"
+        bad.write_text("not a bank statement\n", encoding="utf-8")
+
+        with pytest.raises(IngestError):
+            ingest(test_db, [bad], cards_path=tmp_path / "none.csv")
+
+        assert _imports(test_db) == []
+
+    def test_dry_run_records_nothing(self, test_db, tmp_path):
+        jan = _utf8_statement(tmp_path / "jan.csv", "05-01-2026")
+
+        ingest(test_db, [jan], cards_path=tmp_path / "none.csv", dry_run=True)
+
+        assert _imports(test_db) == []
+
+    def test_old_ledger_is_seeded_from_its_transactions(
+        self, tmp_path, utf16_csv, cards_csv, noise_words, cleaning_patterns
+    ):
+        reset_cleaning_cache()
+        _get_cleaning_patterns(noise_words, cleaning_patterns)
+        db_path = tmp_path / "old.sqlite"
+        ingest(db_path, [utf16_csv], cards_path=cards_csv)
+        jan = _utf8_statement(tmp_path / "feb.csv", "03-02-2026", "17-02-2026")
+        ingest(db_path, [jan], cards_path=cards_csv)
+        conn = sqlite3.connect(str(db_path))
+        conn.execute("DROP TABLE imports")  # a ledger from before the table
+        conn.commit()
+
+        migrate_schema(conn)
+        migrate_schema(conn)  # seeds only when it creates the table
+        conn.close()
+        reset_cleaning_cache()
+
+        assert sorted(_imports(db_path)) == [
+            (utf16_csv.name, "checkings_account", "2026-01-10", "2026-01-15", 5, 5),
+            ("feb.csv", "checkings_account", "2026-02-03", "2026-02-17", 2, 2),
+        ]
+
+
+class TestCoverage:
+    """Months covered by imported statements, and the gaps between them."""
+
+    @pytest.fixture(autouse=True)
+    def _account(self, monkeypatch):
+        monkeypatch.setenv("EXPENSE_TRACKER_ACCOUNT_TYPE", "checkings_account")
+
+    def _coverage(self, db_path) -> list[AccountCoverage]:
+        conn = sqlite3.connect(str(db_path))
+        try:
+            return coverage(conn)
+        finally:
+            conn.close()
+
+    def _ingest(self, db_path, tmp_path, name, *dates):
+        path = _utf8_statement(tmp_path / name, *dates)
+        ingest(db_path, [path], cards_path=tmp_path / "none.csv")
+
+    def test_missing_month_between_two_statements(self, test_db, tmp_path):
+        self._ingest(test_db, tmp_path, "jan.csv", "02-01-2026", "30-01-2026")
+        self._ingest(test_db, tmp_path, "mar.csv", "03-03-2026", "28-03-2026")
+
+        assert self._coverage(test_db) == [
+            AccountCoverage(
+                account="checkings_account",
+                covered=[("2026-01", "2026-01"), ("2026-03", "2026-03")],
+                missing=["2026-02"],
+            )
+        ]
+
+    def test_adding_the_missing_month_closes_the_gap(self, test_db, tmp_path):
+        self._ingest(test_db, tmp_path, "jan.csv", "02-01-2026")
+        self._ingest(test_db, tmp_path, "mar.csv", "03-03-2026")
+        self._ingest(test_db, tmp_path, "feb.csv", "10-02-2026")
+
+        assert self._coverage(test_db) == [
+            AccountCoverage(
+                account="checkings_account",
+                covered=[("2026-01", "2026-03")],
+                missing=[],
+            )
+        ]
+
+    def test_statement_spanning_months_and_overlaps_merge(self, test_db, tmp_path):
+        self._ingest(test_db, tmp_path, "a.csv", "20-11-2025", "10-01-2026")
+        self._ingest(test_db, tmp_path, "b.csv", "05-12-2025", "15-12-2025")
+        self._ingest(test_db, tmp_path, "c.csv", "01-04-2026")
+
+        assert self._coverage(test_db) == [
+            AccountCoverage(
+                account="checkings_account",
+                covered=[("2025-11", "2026-01"), ("2026-04", "2026-04")],
+                missing=["2026-02", "2026-03"],
+            )
+        ]
+
+    def test_accounts_are_listed_separately(self, test_db, tmp_path, monkeypatch):
+        self._ingest(test_db, tmp_path, "jan.csv", "02-01-2026")
+        self._ingest(test_db, tmp_path, "mar.csv", "03-03-2026")
+        monkeypatch.setenv("EXPENSE_TRACKER_ACCOUNT_TYPE", "savings_account")
+        self._ingest(test_db, tmp_path, "s-feb.csv", "10-02-2026")
+
+        assert self._coverage(test_db) == [
+            AccountCoverage(
+                account="checkings_account",
+                covered=[("2026-01", "2026-01"), ("2026-03", "2026-03")],
+                missing=["2026-02"],
+            ),
+            AccountCoverage(
+                account="savings_account",
+                covered=[("2026-02", "2026-02")],
+                missing=[],
+            ),
+        ]
+
+    def test_empty_ledger_has_no_coverage(self, test_db):
+        assert self._coverage(test_db) == []
 
 
 class TestIngestedSourceFiles:

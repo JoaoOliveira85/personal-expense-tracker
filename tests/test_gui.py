@@ -855,3 +855,45 @@ class TestSyncReportsUnknownCategories:
         assert not at.exception
         assert any("Grocerys" in w.value for w in at.warning)
         assert _category(project.db, "t1") == "Groceries"
+
+
+class TestImportCoverage:
+    """The Import page shows the months imported per account (issue #11)."""
+
+    def test_table_lists_covered_and_missing_months(
+        self, project, tmp_path, monkeypatch
+    ):
+        from expense_tracker.db import ingest
+
+        from .conftest import make_utf16_csv
+
+        monkeypatch.setenv("EXPENSE_TRACKER_ACCOUNT_TYPE", "checkings_account")
+        jan = make_utf16_csv(
+            tmp_path / "jan.csv",
+            [("10-01-2026", "10-01-2026", "COMPRA LOJA", "-1,00", "Compra", "9,00")],
+        )
+        mar = make_utf16_csv(
+            tmp_path / "mar.csv",
+            [("10-03-2026", "10-03-2026", "COMPRA LOJA", "-1,00", "Compra", "8,00")],
+            date_from="01-03-2026",
+            date_to="31-03-2026",
+        )
+        ingest(project.db, [jan, mar])
+
+        at = _open_page("Import")
+
+        table = next(
+            d.value for d in at.dataframe if "Missing months" in d.value.columns
+        )
+        assert table.to_dict("records") == [
+            {
+                "Account": "checkings_account",
+                "Months covered": "2026-01, 2026-03",
+                "Missing months": "2026-02",
+            }
+        ]
+
+    def test_empty_ledger_says_so(self, project):
+        at = _open_page("Import")
+
+        assert "No statements imported yet." in [c.value for c in at.caption]

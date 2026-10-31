@@ -224,7 +224,7 @@
     <tr><td><strong>Transactions</strong></td><td>Search and filter every transaction by date, category and amount</td></tr>
     <tr><td><strong>Categorize</strong></td><td>Pick a category for all transactions from the same merchant at once, and optionally save it as a rule</td></tr>
     <tr><td><strong>Rules</strong></td><td>View, add and remove categorization rules, and manage the category list</td></tr>
-    <tr><td><strong>Import</strong></td><td>Upload CSV/PDF statements and import them</td></tr>
+    <tr><td><strong>Import</strong></td><td>Upload CSV/PDF statements and import them; the Statement Coverage table shows which months of each account are imported and which are missing</td></tr>
     <tr><td><strong>Tools</strong></td><td>Email setup and fetch, sync and regenerate, download reports, backups, CSV export, starter rules</td></tr>
     <tr><td><strong>Manual</strong></td><td>This documentation, the deployment guide and the developer guide, with search</td></tr>
   </tbody>
@@ -552,6 +552,7 @@ python bank_ingest.py advisor status    # see which months still need an answer<
     <tr><td><code>python bank_ingest.py fetch --setup</code></td><td>Configure email settings interactively</td></tr>
     <tr><td><code>python bank_ingest.py gui</code></td><td>Launch the app</td></tr>
     <tr><td><code>python bank_ingest.py banks</code></td><td>List supported bank statement formats</td></tr>
+    <tr><td><code>python bank_ingest.py coverage</code></td><td>Show the months imported per account and the months missing between them (a month covered only in part is not flagged)</td></tr>
     <tr><td><code>python bank_ingest.py advisor</code></td><td>Write an AI advice prompt for last month</td></tr>
     <tr><td><code>python bank_ingest.py reset</code></td><td>Back up, then delete all data</td></tr>
   </tbody>
