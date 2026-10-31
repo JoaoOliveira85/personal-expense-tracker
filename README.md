@@ -49,6 +49,7 @@ personal-expense-tracker/
 │   ├── advisor/            # Advisor prompts, responses and context.json
 │   ├── email-config.json   # Email fetch settings (gitignored, created via --setup)
 │   ├── rules.csv           # Categorization rules (editable)
+│   ├── categories.csv      # The category list (created on first use)
 │   ├── account-holders.csv # Card-to-owner mappings (editable)
 │   ├── noise-words.txt     # Words to strip from descriptions (editable)
 │   ├── cleaning-patterns.csv # Regex patterns for description cleaning
@@ -263,6 +264,7 @@ Manage categorization rules from the command line.
 python bank_ingest.py rules                                          # list all rules
 python bank_ingest.py rules add CONTINENTE Groceries                 # add a simple rule
 python bank_ingest.py rules add FARMACIA Health --sub Pharmacy --payment card  # with subcategory
+python bank_ingest.py categories add Housing                         # a new category first
 python bank_ingest.py rules add "TRF P/ Renda" Housing --sub Rent --field description_raw
 python bank_ingest.py rules remove CONTINENTE                        # remove a rule by pattern
 python bank_ingest.py rules import-starter                           # import Portuguese starter rules
@@ -285,7 +287,19 @@ Rules are appended to your existing `data/rules.csv`. Any patterns that already 
 | `--sub` | *(empty)* | Subcategory |
 | `--payment` | *(empty)* | Payment type: `card`, `transfer`, `direct_debit`, `fee`, `tax` |
 
-Rules are appended to the end of `data/rules.csv`. See the [Categorization Rules](#categorization-rules-datarulescsv) section below.
+Rules are appended to the end of `data/rules.csv`. The category must be in the [category list](#categories): another case is accepted and saved in the list's spelling (`groceries` becomes `Groceries`), and any other name is an error, so a typo can't start a new category. Starter rules add their categories to the list. See the [Categorization Rules](#categorization-rules-datarulescsv) section below.
+
+### `categories`
+
+The list of categories that rules and edits may use, kept in `data/categories.csv` (one name per line, next to `rules.csv`).
+
+```bash
+python bank_ingest.py categories                 # list them
+python bank_ingest.py categories add Housing     # add one
+python bank_ingest.py categories remove Housing  # remove one that nothing uses
+```
+
+The first time the list is needed it is created from every category already used in `data/rules.csv` and the database, plus the built-in `Income`, `Transfers`, `Savings`, `Ignored` and `Miscellaneous`, so an existing setup keeps working. Names are unique ignoring case and surrounding spaces. Built-in categories, and a category that a rule or a transaction uses, cannot be removed.
 
 ### `export`
 
@@ -418,8 +432,8 @@ The GUI opens in your browser and provides seven pages:
 |------|-------------|
 | **Dashboard** | Overview with spending charts, category breakdown, monthly trends |
 | **Transactions** | Filterable/searchable transaction table with date range, category, and amount filters |
-| **Categorize** | Bulk categorization by merchant — select a category for all transactions from the same merchant, optionally create a rule |
-| **Rules** | View, add, and remove categorization rules |
+| **Categorize** | Bulk categorization by merchant — select a category for all transactions from the same merchant, optionally create a rule. Categories are picked from the [category list](#categories); **Add category...** adds a new one on the spot |
+| **Rules** | View, add, and remove categorization rules, and manage the category list |
 | **Import** | Upload CSV/PDF files directly through the browser and ingest them |
 | **Tools** | Email configuration, fetch from email, sync ODS, download reports (ODS & PDF), create backups, export CSV, import starter rules |
 | **Manual** | Full project documentation (User Guide, Deployment Guide, Developer Guide) with section search |
@@ -544,7 +558,7 @@ Open this file in **LibreOffice Calc** or upload it to **Google Sheets**.
 | Sheet | Regenerated? | Description |
 |-------|-------------|-------------|
 | **Intro** | Yes, always | Overview of the file and what each sheet does |
-| **Data** | Yes, always | All transactions — one row per transaction. You can manually edit the **Category**, **Subcategory**, **Notes**, and **Merchant Note** columns; edits are saved back on the next run. |
+| **Data** | Yes, always | All transactions — one row per transaction. You can manually edit the **Category**, **Subcategory**, **Notes**, and **Merchant Note** columns; edits are saved back on the next run. The Category column offers the [category list](#categories) as a drop-down. |
 | **Rules** | Yes, always | A read-only view of the current categorization rules |
 | **Dashboard** | First run only | Key summary figures: total income/expenses, net balance, average monthly spend, uncategorized count, top categories, top 10 merchants, and uncategorized preview. |
 | **Monthly Summary** | First run only | Spending by month and category in a grid with formulas. |
@@ -570,7 +584,7 @@ These rules apply to every report (ODS, xlsx, PDF, GUI dashboard, advisor). Beca
 If a transaction isn't caught by the rules (shows as "uncategorized"), you can:
 
 1. **Add a rule** — edit `data/rules.csv` (or use `python bank_ingest.py rules add ...`) to catch similar transactions automatically in the future
-2. **Edit directly in the ODS** — change the Category/Subcategory columns in the Data sheet. The next time you run `./run.sh`, those edits are synced back to the database.
+2. **Edit directly in the ODS** — change the Category/Subcategory columns in the Data sheet. The next time you run `./run.sh`, those edits are synced back to the database. A Category must be in the [category list](#categories) (the cell offers it as a drop-down); an edit naming any other category is skipped and reported, and the row's other edits are still saved.
 
 You can also use the **Notes** column (R) to add personal annotations to any transaction (e.g. "birthday dinner", "reimbursed by insurance"). Notes are synced back to the database just like categories.
 
@@ -637,7 +651,7 @@ TRF P/ Renda,description,Housing,Rent,transfer
 |--------|----------|-------------|
 | `pattern` | Yes | Text to search for (ignores case and accents) |
 | `match_field` | Yes | Which field to search: `description` (cleaned) or `description_raw` (original) |
-| `category` | Yes | Main category (e.g. Groceries, Health, Transport) |
+| `category` | Yes | Main category (e.g. Groceries, Health, Transport), from the [category list](#categories) |
 | `subcategory` | No | Optional sub-category (e.g. Pharmacy, Rent, Fast Food) |
 | `payment_type` | No | Optional override: `card`, `transfer`, `direct_debit`, `fee`, `tax` |
 
@@ -805,6 +819,9 @@ For the full guide — including adding to an existing docker-compose, systemd s
 | `python bank_ingest.py rules add <pattern> <category>` | Add a rule |
 | `python bank_ingest.py rules remove <pattern>` | Remove a rule |
 | `python bank_ingest.py rules import-starter` | Import Portuguese starter rules (~200 rules) |
+| `python bank_ingest.py categories` | List categories |
+| `python bank_ingest.py categories add <name>` | Add a category |
+| `python bank_ingest.py categories remove <name>` | Remove a category nothing uses |
 | `python bank_ingest.py reclean` | Re-clean all descriptions and regenerate report |
 | `python bank_ingest.py backup` | Create a zip backup of all data |
 | `python bank_ingest.py pdf` | Generate a monthly PDF summary report |

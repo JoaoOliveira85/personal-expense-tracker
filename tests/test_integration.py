@@ -20,7 +20,7 @@ from expense_tracker.rules import (
     categorize_transactions,
     load_rules,
 )
-from tests.conftest import make_utf16_csv
+from tests.conftest import allow_categories, make_utf16_csv
 
 
 class TestFullWorkflow:
@@ -155,6 +155,7 @@ class TestFullWorkflow:
     def test_add_rule_and_categorize(self, populated_db, tmp_path):
         """Adding a rule via the API and running categorize should work."""
         rules_path = tmp_path / "new_rules.csv"
+        allow_categories(rules_path, "Insurance")
         add_rule(rules_path, "EXEMPLO", "description", "Insurance", "Health Insurance")
 
         rules = load_rules(rules_path)

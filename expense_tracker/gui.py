@@ -35,6 +35,7 @@ import pandas as pd
 import streamlit as st
 
 from expense_tracker.constants import (
+    BUILTIN_CATEGORIES,
     DEFAULT_BACKUPS,
     DEFAULT_DB,
     DEFAULT_DESC_NOTES,
@@ -62,11 +63,16 @@ from expense_tracker.email_fetch import (
 from expense_tracker.ods import generate_ods, sync_from_ods
 from expense_tracker.rules import (
     SHORT_PATTERN_LENGTH,
+    CategoryError,
     DuplicateRuleError,
     RulesFileError,
+    add_category,
     add_rule,
+    categories_file,
     categorize_transactions,
+    load_categories,
     load_rules,
+    remove_category,
     remove_rule,
     short_pattern_warning,
 )
@@ -121,17 +127,74 @@ def _add_rule(
 ) -> bool:
     """add_rule(), keeping its short-pattern warning for after the rerun.
 
-    A rule it refuses (a duplicate, or an unreadable rules file) is shown as
-    an error and False is returned: nothing was written.
+    A rule it refuses (a duplicate, a category not in the list, or an
+    unreadable rules file) is shown as an error and False is returned:
+    nothing was written.
     """
     try:
         add_rule(DEFAULT_RULES, pattern, match_field, category, subcategory)
-    except (DuplicateRuleError, RulesFileError) as e:
+    except (DuplicateRuleError, CategoryError, RulesFileError) as e:
         st.error(f"{e}. The rule was not added.")
         return False
     if warning := short_pattern_warning(pattern):
         st.session_state["rule_warning"] = warning
     return True
+
+
+# The select-box entry that asks for a new category name
+ADD_CATEGORY = "Add category..."
+
+
+def _categories() -> list[str]:
+    """The category list, seeded from the rules and the ledger on first use."""
+    path = categories_file(DEFAULT_RULES)
+    try:
+        return load_categories(path, DEFAULT_RULES, DEFAULT_DB)
+    except RulesFileError:
+        # Already shown where the rules are used; seed from the rest
+        return load_categories(path, db_path=DEFAULT_DB)
+
+
+def _category_select(
+    key: str,
+    categories: list[str],
+    none_option: str | None = None,
+    label: str = "Category",
+    **kwargs,
+) -> str | None:
+    """A select box over the category list, ending in ADD_CATEGORY.
+
+    Returns the choice (ADD_CATEGORY included), or None for `none_option`
+    or nothing chosen yet.
+    """
+    options = ([none_option] if none_option else []) + categories + [ADD_CATEGORY]
+    choice = st.selectbox(
+        label,
+        options,
+        key=key,
+        index=0 if none_option else None,
+        placeholder="Choose a category",
+        **kwargs,
+    )
+    return None if choice == none_option else choice
+
+
+def _chosen_category(choice: str, new_name_key: str) -> str | None:
+    """The category to use for `choice`: for ADD_CATEGORY, the name typed in
+    the `new_name_key` input, added to the list first. On a refusal the
+    error is shown and None returned."""
+    if choice != ADD_CATEGORY:
+        return choice
+    try:
+        return add_category(
+            categories_file(DEFAULT_RULES),
+            st.session_state.get(new_name_key, ""),
+            DEFAULT_RULES,
+            DEFAULT_DB,
+        )
+    except (CategoryError, RulesFileError) as e:
+        st.error(f"{e}. The rule was not added.")
+        return None
 
 
 def _load_rules() -> list[dict]:
@@ -178,7 +241,8 @@ def _save_upload(raw_dir: Path, name: str, data: bytes) -> Path:
 
 
 class _ParserWarnings(logging.Handler):
-    """Collects what the parsers report with logger.warning()."""
+    """Collects what the package (parsers, ODS sync) reports with
+    logger.warning()."""
 
     def __init__(self) -> None:
         super().__init__(level=logging.WARNING)
@@ -208,6 +272,27 @@ def _ingest_files(paths: list[Path]) -> dict:
     return {"files": len(paths), "error": error, "warnings": collected.messages}
 
 
+def _sync_ods() -> tuple[int, list[str]]:
+    """sync_from_ods() against the category list: the number of rows it
+    updated, and the edits it skipped (categories not in the list)."""
+    categories = _categories()
+    collected = _ParserWarnings()
+    package_logger = logging.getLogger("expense_tracker")
+    package_logger.addHandler(collected)
+    try:
+        synced = sync_from_ods(
+            DEFAULT_DB, DEFAULT_ODS, DEFAULT_DESC_NOTES, categories=categories
+        )
+    finally:
+        package_logger.removeHandler(collected)
+    return synced, collected.messages
+
+
+def _show_sync_warnings(messages: list[str]) -> None:
+    for message in messages:
+        st.warning(message)
+
+
 def _show_import_result(result: dict) -> None:
     """Render the outcome of _ingest_files() once the report is regenerated."""
     if result["error"]:
@@ -221,6 +306,7 @@ def _show_import_result(result: dict) -> None:
             st.text(message)
     if not result["error"] and not result["warnings"]:
         st.success(f"Imported {result['files']} file(s) and regenerated report.")
+    _show_sync_warnings(result.get("sync_warnings", []))
 
 
 # ---------------------------------------------------------------------------
@@ -448,13 +534,9 @@ elif page == "Categorize":
         "Categorize by merchant — all transactions with the same description get the rule."
     )
 
-    # Existing categories for the selectbox, Miscellaneous for a merchant
-    # with no better home, and Ignored for one to leave out of every figure
-    existing_cats = sorted(
-        {c for c in df["category"].dropna().unique() if c}
-        | {MISCELLANEOUS, *IGNORED_CATEGORIES},
-        key=str.lower,
-    )
+    # The category list (with Miscellaneous for a merchant with no better
+    # home, and Ignored for one to leave out of every figure)
+    categories = _categories()
 
     for _, row in merchant_groups.head(20).iterrows():
         merchant = row["description_clean"]
@@ -468,32 +550,20 @@ elif page == "Categorize":
             col3.write(f"{total:.2f} €")
 
             with col4:
-                category_options = ["-- Select --"] + existing_cats + ["+ New category"]
-                selected = st.selectbox(
-                    "Category",
-                    category_options,
-                    key=f"cat_{merchant}",
+                selected = _category_select(
+                    f"cat_{merchant}",
+                    categories,
+                    none_option="-- Select --",
                     label_visibility="collapsed",
                 )
-
-                if selected == "+ New category":
-                    new_cat = st.text_input("New category name", key=f"new_{merchant}")
-                    if (
-                        new_cat
-                        and st.button("Add Rule", key=f"btn_{merchant}")
-                        and _add_rule(merchant, "description", new_cat)
-                    ):
-                        rules = _load_rules()
-                        conn = _get_connection(db_path)
-                        categorize_transactions(conn, rules)
-                        conn.close()
-                        _load_transactions.clear()
-                        st.rerun()
-
-                elif selected != "-- Select --":
-                    if st.button("Add Rule", key=f"btn_{merchant}") and _add_rule(
-                        merchant, "description", selected
-                    ):
+                ready = selected is not None
+                if selected == ADD_CATEGORY:
+                    ready = bool(
+                        st.text_input("New category name", key=f"new_{merchant}")
+                    )
+                if ready and st.button("Add Rule", key=f"btn_{merchant}"):
+                    category = _chosen_category(selected, f"new_{merchant}")
+                    if category and _add_rule(merchant, "description", category):
                         rules = _load_rules()
                         conn = _get_connection(db_path)
                         categorize_transactions(conn, rules)
@@ -558,33 +628,38 @@ elif page == "Rules":
 
     st.divider()
 
-    # Add rule form
+    # Add rule form (not an st.form: choosing "Add category..." must show
+    # the name input at once)
     st.subheader("Add a Rule")
-    with st.form("add_rule"):
-        col1, col2 = st.columns(2)
-        with col1:
-            pattern = st.text_input("Pattern (text to match)")
-            match_field = st.selectbox(
-                "Match field", ["description", "description_raw"]
-            )
-        with col2:
-            category = st.text_input(
-                "Category",
-                help=(
-                    f"Use {MISCELLANEOUS} for transactions with no better "
-                    f"category, and {IGNORED_CATEGORIES[0]} for ones to leave out "
-                    "of every total (e.g. transfers between your own accounts)."
-                ),
-            )
-            subcategory = st.text_input("Subcategory (optional)")
+    categories = _categories()
+    col1, col2 = st.columns(2)
+    with col1:
+        pattern = st.text_input("Pattern (text to match)", key="rule_pattern")
+        match_field = st.selectbox(
+            "Match field", ["description", "description_raw"], key="rule_field"
+        )
+    with col2:
+        category = _category_select(
+            "rule_category",
+            categories,
+            help=(
+                f"Use {MISCELLANEOUS} for transactions with no better "
+                f"category, and {IGNORED_CATEGORIES[0]} for ones to leave out "
+                "of every total (e.g. transfers between your own accounts)."
+            ),
+        )
+        if category == ADD_CATEGORY:
+            st.text_input("New category name", key="rule_category_new")
+        subcategory = st.text_input("Subcategory (optional)", key="rule_subcategory")
 
-        submitted = st.form_submit_button("Add Rule")
-        if submitted and pattern and category:
-            if _add_rule(pattern, match_field, category, subcategory):
-                st.success(f"Added rule: {pattern} -> {category}")
-                st.rerun()
-        elif submitted:
+    if st.button("Add Rule"):
+        if not pattern or not category:
             st.error("Pattern and category are required.")
+        elif (chosen := _chosen_category(category, "rule_category_new")) and (
+            _add_rule(pattern, match_field, chosen, subcategory)
+        ):
+            st.success(f"Added rule: {pattern} -> {chosen}")
+            st.rerun()
 
     st.divider()
 
@@ -597,6 +672,47 @@ elif page == "Rules":
             remove_rule(DEFAULT_RULES, to_remove)
             st.success(f"Removed rule: {to_remove}")
             st.rerun()
+
+    st.divider()
+
+    # The category list
+    st.subheader("Categories")
+    st.caption(
+        "Rules, the merchant panel and spreadsheet edits pick from this list. "
+        "Built-in categories, and categories a rule or transaction uses, "
+        "cannot be removed."
+    )
+    if message := st.session_state.pop("category_message", None):
+        st.success(message)
+    st.write(", ".join(categories))
+    cat_col1, cat_col2 = st.columns(2)
+    with cat_col1:
+        new_name = st.text_input("Category name", key="category_add_name")
+        if st.button("Add Category"):
+            try:
+                added = add_category(
+                    categories_file(DEFAULT_RULES), new_name, DEFAULT_RULES, DEFAULT_DB
+                )
+            except (CategoryError, RulesFileError) as e:
+                st.error(str(e))
+            else:
+                st.session_state["category_message"] = f"Added category: {added}"
+                st.rerun()
+    with cat_col2:
+        removable = [c for c in categories if c not in BUILTIN_CATEGORIES]
+        to_drop = st.selectbox(
+            "Category to remove", ["-- Select --"] + removable, key="category_remove"
+        )
+        if to_drop != "-- Select --" and st.button("Remove Category"):
+            try:
+                removed = remove_category(
+                    categories_file(DEFAULT_RULES), to_drop, DEFAULT_RULES, DEFAULT_DB
+                )
+            except (CategoryError, RulesFileError) as e:
+                st.error(str(e))
+            else:
+                st.session_state["category_message"] = f"Removed category: {removed}"
+                st.rerun()
 
 
 # ---------------------------------------------------------------------------
@@ -636,7 +752,7 @@ elif page == "Import":
             with st.spinner("Importing..."):
                 import_result = _ingest_files(saved_files)
                 # Save unsynced ODS edits before the report is regenerated
-                sync_from_ods(DEFAULT_DB, DEFAULT_ODS, DEFAULT_DESC_NOTES)
+                import_result["sync_warnings"] = _sync_ods()[1]
                 conn = _get_connection(db_path)
                 categorize_transactions(conn, rules)
                 conn.close()
@@ -794,9 +910,7 @@ elif page == "Tools":
                             with st.spinner("Ingesting downloaded files..."):
                                 import_result = _ingest_files(downloaded)
                                 # Save unsynced ODS edits before regenerating
-                                sync_from_ods(
-                                    DEFAULT_DB, DEFAULT_ODS, DEFAULT_DESC_NOTES
-                                )
+                                import_result["sync_warnings"] = _sync_ods()[1]
                                 conn = _get_connection(db_path)
                                 categorize_transactions(conn, rules)
                                 conn.close()
@@ -830,7 +944,7 @@ elif page == "Tools":
             rules = _load_rules()
             with st.spinner("Syncing and regenerating..."):
                 # Sync manual edits from ODS
-                synced = sync_from_ods(DEFAULT_DB, DEFAULT_ODS, DEFAULT_DESC_NOTES)
+                synced, skipped = _sync_ods()
 
                 # Apply rules
                 conn = _get_connection(db_path)
@@ -848,6 +962,7 @@ elif page == "Tools":
                 msgs.append(f"categorized {updated} transaction(s)")
             msgs.append("report regenerated")
             st.success("Done! " + ", ".join(msgs) + ".")
+            _show_sync_warnings(skipped)
 
     with sync_col2:
         if st.button("Re-apply All Rules"):

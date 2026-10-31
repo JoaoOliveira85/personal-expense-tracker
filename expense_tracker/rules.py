@@ -8,6 +8,8 @@ import sqlite3
 import unicodedata
 from pathlib import Path
 
+from .constants import BUILTIN_CATEGORIES, CATEGORIES_FILE_NAME
+
 
 def fold(text: str) -> str:
     """Text as rules compare it: accents removed, then upper-cased.
@@ -41,12 +43,17 @@ def add_rule(
     category: str,
     subcategory: str = "",
     payment_type: str = "",
-) -> None:
-    """Append a new rule to the rules CSV file.
+) -> str:
+    """Append a new rule to the rules CSV file; return its category.
+
+    The category must be in the category list next to the rules file
+    (see load_categories); another case or surrounding spaces are accepted
+    and stored in the list's spelling, which is returned.
 
     Raises DuplicateRuleError, and writes nothing, when a rule's pattern
     already equals `pattern` ignoring case, accents and surrounding spaces
     (the comparison remove_rule() uses): such a rule is the same rule.
+    Raises CategoryError, and writes no rule, for a category not in the list.
     """
     is_new = not rules_path.exists() or rules_path.stat().st_size == 0
     if not is_new:
@@ -58,11 +65,14 @@ def add_rule(
                     f"A rule for '{existing}' already exists; '{pattern.strip()}' "
                     "is the same pattern (case and accents are ignored)"
                 )
+    categories = load_categories(categories_file(rules_path), rules_path)
+    category = resolve_category(categories, category)
     with rules_path.open("a", encoding="utf-8", newline="") as f:
         writer = csv.writer(f)
         if is_new:
             writer.writerow(RULES_HEADER)
         writer.writerow([pattern, match_field, category, subcategory, payment_type])
+    return category
 
 
 def short_pattern_warning(pattern: str) -> str | None:
@@ -107,6 +117,158 @@ def remove_rule(rules_path: Path, pattern: str) -> bool:
         writer.writeheader()
         writer.writerows(new_rows)
     return True
+
+
+# ---------------------------------------------------------------------------
+# The category list
+# ---------------------------------------------------------------------------
+
+
+class CategoryError(ValueError):
+    """A category cannot be added, removed or used as given."""
+
+
+def categories_file(rules_path: Path) -> Path:
+    """Where the category list of a rules file is kept: next to it."""
+    return rules_path.with_name(CATEGORIES_FILE_NAME)
+
+
+def _category_key(name: str) -> str:
+    """Category names are the same ignoring case and surrounding spaces."""
+    return name.strip().casefold()
+
+
+def find_category(categories: list[str], name: str) -> str | None:
+    """The list's spelling of `name`, or None when it is not in the list."""
+    key = _category_key(name)
+    return next((c for c in categories if _category_key(c) == key), None)
+
+
+def resolve_category(categories: list[str], name: str) -> str:
+    """The list's spelling of `name`; CategoryError when it is not in it."""
+    found = find_category(categories, name) if name.strip() else None
+    if found is None:
+        raise CategoryError(
+            f"Category '{name.strip()}' is not in the category list; add it first"
+        )
+    return found
+
+
+def _unique(names) -> list[str]:
+    """Stripped, non-empty names, the first spelling of each kept."""
+    seen: dict[str, str] = {}
+    for name in names:
+        name = (name or "").strip()
+        if name and _category_key(name) not in seen:
+            seen[_category_key(name)] = name
+    return list(seen.values())
+
+
+def _rule_categories(rules_path: Path | None) -> list[str]:
+    if rules_path is None or not rules_path.exists() or not rules_path.stat().st_size:
+        return []
+    return [row.get("category") or "" for row in _read_rule_rows(rules_path)]
+
+
+def _ledger_categories(db_path: Path | None) -> list[str]:
+    if db_path is None or not db_path.exists():
+        return []
+    conn = sqlite3.connect(str(db_path))
+    try:
+        rows = conn.execute(
+            "SELECT category FROM transactions WHERE COALESCE(category, '') <> '' "
+            "ORDER BY rowid"
+        ).fetchall()
+    except sqlite3.OperationalError:  # no transactions table yet
+        rows = []
+    finally:
+        conn.close()
+    return [r[0] for r in rows]
+
+
+def save_categories(categories_path: Path, categories: list[str]) -> None:
+    """Write the list, one name per line, sorted ignoring case."""
+    categories_path.parent.mkdir(parents=True, exist_ok=True)
+    with categories_path.open("w", encoding="utf-8", newline="") as f:
+        writer = csv.writer(f)
+        for name in sorted(categories, key=str.casefold):
+            writer.writerow([name])
+
+
+def _read_categories(categories_path: Path) -> list[str]:
+    with categories_path.open("r", encoding="utf-8", newline="") as f:
+        return _unique(row[0] for row in csv.reader(f) if row)
+
+
+def load_categories(
+    categories_path: Path,
+    rules_path: Path | None = None,
+    db_path: Path | None = None,
+) -> list[str]:
+    """The category list, sorted ignoring case.
+
+    The list is stored one name per line. When the file does not exist yet
+    it is created, seeded with BUILTIN_CATEGORIES and every category used by
+    the rules file and the ledger, so existing data keeps working. The
+    built-in categories are always part of the list.
+    """
+    if categories_path.exists():
+        stored = _read_categories(categories_path)
+    else:
+        stored = _unique(
+            [*BUILTIN_CATEGORIES]
+            + _rule_categories(rules_path)
+            + _ledger_categories(db_path)
+        )
+        save_categories(categories_path, stored)
+    return sorted(_unique([*stored, *BUILTIN_CATEGORIES]), key=str.casefold)
+
+
+def add_category(
+    categories_path: Path,
+    name: str,
+    rules_path: Path | None = None,
+    db_path: Path | None = None,
+) -> str:
+    """Add `name` to the list and return it as stored (stripped).
+
+    Raises CategoryError for an empty name or one already in the list
+    ignoring case and surrounding spaces.
+    """
+    categories = load_categories(categories_path, rules_path, db_path)
+    name = name.strip()
+    if not name:
+        raise CategoryError("A category needs a name")
+    if existing := find_category(categories, name):
+        raise CategoryError(f"Category '{existing}' is already in the list")
+    save_categories(categories_path, [*categories, name])
+    return name
+
+
+def remove_category(
+    categories_path: Path,
+    name: str,
+    rules_path: Path | None = None,
+    db_path: Path | None = None,
+) -> str:
+    """Remove `name` from the list and return its stored spelling.
+
+    Raises CategoryError, and changes nothing, for a name not in the list, a
+    built-in category, or one that a rule or a transaction uses.
+    """
+    categories = load_categories(categories_path, rules_path, db_path)
+    stored = resolve_category(categories, name)
+    if find_category(list(BUILTIN_CATEGORIES), stored):
+        raise CategoryError(f"Category '{stored}' is built in and cannot be removed")
+    key = _category_key(stored)
+    rules = sum(_category_key(c) == key for c in _rule_categories(rules_path))
+    if rules:
+        raise CategoryError(f"Category '{stored}' is used by {rules} rule(s)")
+    used = sum(_category_key(c) == key for c in _ledger_categories(db_path))
+    if used:
+        raise CategoryError(f"Category '{stored}' is used by {used} transaction(s)")
+    save_categories(categories_path, [c for c in categories if c != stored])
+    return stored
 
 
 # ---------------------------------------------------------------------------

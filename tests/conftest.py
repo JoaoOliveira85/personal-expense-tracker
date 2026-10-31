@@ -226,3 +226,11 @@ def add_transaction(
         return tid
     finally:
         conn.close()
+
+
+def allow_categories(rules_path: Path, *names: str) -> None:
+    """Put categories in the list next to `rules_path`, so rules may use them."""
+    from expense_tracker.rules import add_category, categories_file
+
+    for name in names:
+        add_category(categories_file(rules_path), name, rules_path)

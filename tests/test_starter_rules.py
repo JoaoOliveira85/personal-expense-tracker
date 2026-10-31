@@ -17,6 +17,8 @@ from expense_tracker.starter_rules import (
     import_starter_rules,
 )
 
+from .conftest import allow_categories
+
 # ---------------------------------------------------------------------------
 # Starter rules data integrity
 # ---------------------------------------------------------------------------
@@ -86,6 +88,7 @@ class TestImportStarterRules:
 
     def test_import_skips_existing_patterns(self, tmp_path):
         rules_path = tmp_path / "rules.csv"
+        allow_categories(rules_path, "MyGroceries")
         # Pre-add a rule that matches a starter pattern
         add_rule(rules_path, "CONTINENTE", "description", "MyGroceries")
         added, skipped, _ = import_starter_rules(rules_path)
@@ -99,12 +102,14 @@ class TestImportStarterRules:
 
     def test_import_case_insensitive_skip(self, tmp_path):
         rules_path = tmp_path / "rules.csv"
+        allow_categories(rules_path, "MyGroceries")
         add_rule(rules_path, "continente", "description", "MyGroceries")
         added, skipped, _ = import_starter_rules(rules_path)
         assert skipped >= 1
 
     def test_import_accent_insensitive_skip(self, tmp_path):
         rules_path = tmp_path / "rules.csv"
+        allow_categories(rules_path, "MyGroceries")
         add_rule(rules_path, "Minipreço", "description", "MyGroceries")
         import_starter_rules(rules_path)
         rules = load_rules(rules_path)
@@ -121,6 +126,37 @@ class TestImportStarterRules:
         assert import_starter_rules(rules_path, dry_run=True)[2] == expected
         assert import_starter_rules(rules_path)[2] == expected
         assert import_starter_rules(rules_path)[2] == 0  # nothing added
+
+    def test_import_adds_the_pack_categories_to_the_list(self, tmp_path):
+        """The imported rules' categories become choosable (issue #5)."""
+        from expense_tracker.rules import categories_file, load_categories
+
+        rules_path = tmp_path / "rules.csv"
+        import_starter_rules(rules_path)
+
+        categories = load_categories(categories_file(rules_path))
+        assert {r["category"] for r in get_starter_rules()} <= set(categories)
+
+    def test_import_uses_the_list_spelling_of_a_category(self, tmp_path):
+        from expense_tracker.rules import categories_file, load_categories
+
+        rules_path = tmp_path / "rules.csv"
+        allow_categories(rules_path, "groceries")
+        import_starter_rules(rules_path)
+
+        assert "Groceries" not in load_categories(categories_file(rules_path))
+        assert {
+            r["category"]
+            for r in load_rules(rules_path)
+            if fold(r["category"]) == "GROCERIES"
+        } == {"groceries"}
+
+    def test_dry_run_leaves_the_list_alone(self, tmp_path):
+        from expense_tracker.rules import categories_file
+
+        rules_path = tmp_path / "rules.csv"
+        import_starter_rules(rules_path, dry_run=True)
+        assert not categories_file(rules_path).exists()
 
     def test_import_idempotent(self, tmp_path):
         rules_path = tmp_path / "rules.csv"
@@ -139,6 +175,7 @@ class TestImportStarterRules:
 
     def test_dry_run_with_existing(self, tmp_path):
         rules_path = tmp_path / "rules.csv"
+        allow_categories(rules_path, "MyGroceries")
         add_rule(rules_path, "CONTINENTE", "description", "MyGroceries")
         original_content = rules_path.read_text(encoding="utf-8")
         added, skipped, _ = import_starter_rules(rules_path, dry_run=True)
@@ -148,6 +185,7 @@ class TestImportStarterRules:
 
     def test_preserves_existing_rules_order(self, tmp_path):
         rules_path = tmp_path / "rules.csv"
+        allow_categories(rules_path, "Custom", "Other")
         add_rule(rules_path, "MY_CUSTOM", "description", "Custom")
         add_rule(rules_path, "ANOTHER", "description_raw", "Other")
         import_starter_rules(rules_path)

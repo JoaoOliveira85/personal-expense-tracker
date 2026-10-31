@@ -21,6 +21,8 @@ from expense_tracker.suggest import (
     format_suggestions,
 )
 
+from .conftest import allow_categories
+
 # ---------------------------------------------------------------------------
 # Helper to populate a test DB with transactions
 # ---------------------------------------------------------------------------
@@ -410,6 +412,7 @@ class TestFormatSuggestions:
 class TestAcceptSuggestion:
     def test_creates_rule(self, tmp_path):
         rules_path = tmp_path / "rules.csv"
+        allow_categories(rules_path, "Subscriptions")
         accept_suggestion(rules_path, "NETFLIX", "Subscriptions", "Streaming")
         rules = load_rules(rules_path)
         assert len(rules) == 1

@@ -11,7 +11,16 @@ from __future__ import annotations
 import csv
 from pathlib import Path
 
-from .rules import RULES_HEADER, fold, load_rules, short_pattern_warning
+from .rules import (
+    RULES_HEADER,
+    categories_file,
+    find_category,
+    fold,
+    load_categories,
+    load_rules,
+    save_categories,
+    short_pattern_warning,
+)
 
 # ---------------------------------------------------------------------------
 # Curated Portuguese merchant/service patterns
@@ -339,6 +348,10 @@ def import_starter_rules(
     Import starter rules into the user's rules.csv, skipping any
     whose pattern already exists (ignoring case and accents).
 
+    The categories of the added rules join the category list (see
+    rules.load_categories); one already in it in another case keeps the
+    list's spelling, in the list and in the added rules.
+
     Returns (added, skipped, short) counts, where short is how many of the
     added patterns trigger short_pattern_warning().
     """
@@ -358,6 +371,16 @@ def import_starter_rules(
 
     if dry_run or not to_add:
         return len(to_add), skipped, short
+
+    categories_path = categories_file(rules_path)
+    categories = load_categories(categories_path, rules_path)
+    for rule in to_add:
+        listed = find_category(categories, rule["category"])
+        if listed is None:
+            categories.append(rule["category"])
+        else:
+            rule["category"] = listed
+    save_categories(categories_path, categories)
 
     # Append new rules to the CSV
     is_new = not rules_path.exists() or rules_path.stat().st_size == 0
