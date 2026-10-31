@@ -25,6 +25,10 @@ def fold(text: str) -> str:
 
 RULES_HEADER = ["pattern", "match_field", "category", "subcategory", "payment_type"]
 
+# A pattern shorter than this, without a trailing space, is broad: it also
+# matches every longer word that starts with it (see short_pattern_warning).
+SHORT_PATTERN_LENGTH = 4
+
 
 def add_rule(
     rules_path: Path,
@@ -41,6 +45,23 @@ def add_rule(
         if is_new:
             writer.writerow(RULES_HEADER)
         writer.writerow([pattern, match_field, category, subcategory, payment_type])
+
+
+def short_pattern_warning(pattern: str) -> str | None:
+    """A caution for a short pattern that does not end on a word boundary.
+
+    Such a pattern is still a valid rule; it just matches more than it seems
+    to ("EDP" also matches "EDPX..."). Returns None when there is nothing to
+    say.
+    """
+    word = pattern.strip()
+    if not word or len(word) >= SHORT_PATTERN_LENGTH or pattern != pattern.rstrip():
+        return None
+    return (
+        f"Pattern '{word}' is shorter than {SHORT_PATTERN_LENGTH} characters and "
+        f"can match inside longer words that start with it. To match only the "
+        f"whole word, end it with a space: '{word} '."
+    )
 
 
 def remove_rule(rules_path: Path, pattern: str) -> bool:

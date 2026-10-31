@@ -4,7 +4,13 @@ from __future__ import annotations
 
 import pytest
 
-from expense_tracker.rules import add_rule, fold, load_rules, match_rule
+from expense_tracker.rules import (
+    add_rule,
+    fold,
+    load_rules,
+    match_rule,
+    short_pattern_warning,
+)
 from expense_tracker.starter_rules import (
     STARTER_RULES,
     get_starter_rules,
@@ -71,7 +77,7 @@ class TestStarterRulesData:
 class TestImportStarterRules:
     def test_import_into_empty_file(self, tmp_path):
         rules_path = tmp_path / "rules.csv"
-        added, skipped = import_starter_rules(rules_path)
+        added, skipped, _ = import_starter_rules(rules_path)
         assert added == len(STARTER_RULES)
         assert skipped == 0
         # Verify the file is valid and loadable
@@ -82,7 +88,7 @@ class TestImportStarterRules:
         rules_path = tmp_path / "rules.csv"
         # Pre-add a rule that matches a starter pattern
         add_rule(rules_path, "CONTINENTE", "description", "MyGroceries")
-        added, skipped = import_starter_rules(rules_path)
+        added, skipped, _ = import_starter_rules(rules_path)
         assert skipped >= 1
         assert added == len(STARTER_RULES) - skipped
         # The original rule should still be there, not overwritten
@@ -94,7 +100,7 @@ class TestImportStarterRules:
     def test_import_case_insensitive_skip(self, tmp_path):
         rules_path = tmp_path / "rules.csv"
         add_rule(rules_path, "continente", "description", "MyGroceries")
-        added, skipped = import_starter_rules(rules_path)
+        added, skipped, _ = import_starter_rules(rules_path)
         assert skipped >= 1
 
     def test_import_accent_insensitive_skip(self, tmp_path):
@@ -106,18 +112,28 @@ class TestImportStarterRules:
             "MyGroceries"
         ]
 
+    def test_import_reports_short_patterns(self, tmp_path):
+        """The third count is how many added patterns would trigger
+        short_pattern_warning()."""
+        rules_path = tmp_path / "rules.csv"
+        expected = sum(short_pattern_warning(p) is not None for p, *_ in STARTER_RULES)
+        assert expected > 0
+        assert import_starter_rules(rules_path, dry_run=True)[2] == expected
+        assert import_starter_rules(rules_path)[2] == expected
+        assert import_starter_rules(rules_path)[2] == 0  # nothing added
+
     def test_import_idempotent(self, tmp_path):
         rules_path = tmp_path / "rules.csv"
-        added1, _ = import_starter_rules(rules_path)
+        added1, _, _ = import_starter_rules(rules_path)
         assert added1 == len(STARTER_RULES)
         # Import again — should add nothing
-        added2, skipped2 = import_starter_rules(rules_path)
+        added2, skipped2, _ = import_starter_rules(rules_path)
         assert added2 == 0
         assert skipped2 == len(STARTER_RULES)
 
     def test_dry_run_does_not_modify(self, tmp_path):
         rules_path = tmp_path / "rules.csv"
-        added, skipped = import_starter_rules(rules_path, dry_run=True)
+        added, skipped, _ = import_starter_rules(rules_path, dry_run=True)
         assert added == len(STARTER_RULES)
         assert not rules_path.exists()
 
@@ -125,7 +141,7 @@ class TestImportStarterRules:
         rules_path = tmp_path / "rules.csv"
         add_rule(rules_path, "CONTINENTE", "description", "MyGroceries")
         original_content = rules_path.read_text(encoding="utf-8")
-        added, skipped = import_starter_rules(rules_path, dry_run=True)
+        added, skipped, _ = import_starter_rules(rules_path, dry_run=True)
         assert added == len(STARTER_RULES) - skipped
         # File should be unchanged
         assert rules_path.read_text(encoding="utf-8") == original_content

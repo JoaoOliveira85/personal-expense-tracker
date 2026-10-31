@@ -18,6 +18,7 @@ from expense_tracker.rules import (
     match_rule,
     remove_card,
     remove_rule,
+    short_pattern_warning,
 )
 
 # ---------------------------------------------------------------------------
@@ -343,6 +344,22 @@ class TestMatchRuleDescriptionsSeparately:
     def test_matches_both_words_in_clean_alone(self, tmp_path):
         rules = _rules(tmp_path, "LISBOA PINGO,description,Groceries,,")
         assert _category(rules, "COMPRA 1234", "LISBOA PINGO DOCE") == "Groceries"
+
+
+class TestShortPatternWarning:
+    """A short pattern without a trailing space matches longer words too."""
+
+    @pytest.mark.parametrize("pattern", ["EDP", "MEO", "AB", "H&M"])
+    def test_short_unanchored_pattern_warns(self, pattern):
+        message = short_pattern_warning(pattern)
+        assert message is not None
+        assert f"'{pattern}'" in message
+        assert "longer words" in message
+        assert f"'{pattern} '" in message  # how to restrict it
+
+    @pytest.mark.parametrize("pattern", ["EDP ", "BP ", "CAFE", "UBER EATS"])
+    def test_anchored_or_long_pattern_does_not_warn(self, pattern):
+        assert short_pattern_warning(pattern) is None
 
 
 class TestMatchRuleSpecificity:

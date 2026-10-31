@@ -534,3 +534,67 @@ class TestUnsyncedSpreadsheetEdits:
         assert "Imported 1 file(s) and regenerated report." not in [
             m.value for m in at.success
         ]
+
+
+def _insert_expense(db: Path, tid: str, description: str, category=None) -> None:
+    conn = sqlite3.connect(str(db))
+    try:
+        ensure_schema(conn)
+        migrate_schema(conn)
+        conn.execute(
+            """
+            INSERT INTO transactions (
+                transaction_id, date_posted, date_value, month, day_of_week,
+                description_raw, description_clean,
+                amount_signed, amount_abs, direction, tx_type, balance,
+                currency, account, source_file, imported_at, category
+            ) VALUES (?, '2026-01-10', '2026-01-10', '2026-01', 'Sat', ?, ?,
+                      -10, 10, 'out', '', 0, 'EUR', 'checkings_account', 't.csv',
+                      '2026-01-15T10:00:00', ?)
+            """,
+            (tid, description, description, category),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _patterns(rules: Path) -> list[str]:
+    from expense_tracker.rules import load_rules
+
+    return [r["pattern"] for r in load_rules(rules)]
+
+
+class TestShortPatternWarning:
+    """Adding a short pattern from the GUI works, and says it is broad."""
+
+    def _add_on_rules_page(self, pattern: str):
+        at = _open_page("Rules")
+        next(t for t in at.text_input if t.label.startswith("Pattern")).input(pattern)
+        next(t for t in at.text_input if t.label == "Category").input("Utilities")
+        return next(b for b in at.button if b.label == "Add Rule").click().run()
+
+    def test_rules_form_warns_and_adds(self, project):
+        at = self._add_on_rules_page("EDP")
+
+        assert not at.exception
+        assert "EDP" in _patterns(project.rules)
+        assert any("'EDP'" in w.value for w in at.warning)
+
+    def test_rules_form_does_not_warn_for_long_pattern(self, project):
+        at = self._add_on_rules_page("EDPX")
+
+        assert not at.exception
+        assert "EDPX" in _patterns(project.rules)
+        assert not at.warning
+
+    def test_merchant_panel_warns_and_adds(self, project):
+        _insert_expense(project.db, "t1", "EDP")
+        _insert_expense(project.db, "t2", "VODAFONE", "Utilities")
+        at = _open_page("Categorize")
+        at.selectbox(key="cat_EDP").set_value("Utilities").run()
+        at = next(b for b in at.button if b.label == "Add Rule").click().run()
+
+        assert not at.exception
+        assert "EDP" in _patterns(project.rules)
+        assert any("'EDP'" in w.value for w in at.warning)

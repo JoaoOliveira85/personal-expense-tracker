@@ -11,7 +11,7 @@ from __future__ import annotations
 import csv
 from pathlib import Path
 
-from .rules import RULES_HEADER, fold, load_rules
+from .rules import RULES_HEADER, fold, load_rules, short_pattern_warning
 
 # ---------------------------------------------------------------------------
 # Curated Portuguese merchant/service patterns
@@ -332,12 +332,15 @@ def get_starter_rules() -> list[dict]:
     ]
 
 
-def import_starter_rules(rules_path: Path, *, dry_run: bool = False) -> tuple[int, int]:
+def import_starter_rules(
+    rules_path: Path, *, dry_run: bool = False
+) -> tuple[int, int, int]:
     """
     Import starter rules into the user's rules.csv, skipping any
     whose pattern already exists (ignoring case and accents).
 
-    Returns (added, skipped) counts.
+    Returns (added, skipped, short) counts, where short is how many of the
+    added patterns trigger short_pattern_warning().
     """
     # Load existing rules to detect duplicates (strip to match CSV round-trip)
     existing = load_rules(rules_path) if rules_path.exists() else []
@@ -351,8 +354,10 @@ def import_starter_rules(rules_path: Path, *, dry_run: bool = False) -> tuple[in
         else:
             to_add.append(rule)
 
+    short = sum(short_pattern_warning(r["pattern"]) is not None for r in to_add)
+
     if dry_run or not to_add:
-        return len(to_add), skipped
+        return len(to_add), skipped, short
 
     # Append new rules to the CSV
     is_new = not rules_path.exists() or rules_path.stat().st_size == 0
@@ -371,4 +376,4 @@ def import_starter_rules(rules_path: Path, *, dry_run: bool = False) -> tuple[in
                 ]
             )
 
-    return len(to_add), skipped
+    return len(to_add), skipped, short
