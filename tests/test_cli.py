@@ -416,6 +416,104 @@ class TestIngestUnknownBank:
         assert exit_info.value.code == 1
 
 
+def _file_lines(out: str) -> list[str]:
+    """The per-file count lines of an import, without the file name."""
+    return [
+        line.split(": ", 1)[1]
+        for line in out.splitlines()
+        if " parsed, " in line and " already present" in line
+    ]
+
+
+class TestDryRun:
+    """--dry-run parses like a real import and changes nothing."""
+
+    def test_ingest_dry_run_prints_the_counts_of_the_real_run(
+        self, workspace: Path, capsys
+    ):
+        raw = workspace / "raw"
+        statement = make_utf16_csv(raw / "MOVS.csv", FIRST_HALF + SECOND_HALF)
+        args = _ingest_args(workspace, [statement])
+        args.dry_run = True
+
+        cli.cmd_ingest(args)
+
+        dry_out = capsys.readouterr().out
+        assert [p.name for p in raw.iterdir()] == ["MOVS.csv"]
+        assert not args.db.exists()
+        assert "MOVS.csv: 4 parsed, 4 new, 0 already present" in dry_out
+
+        args.dry_run = False
+        cli.cmd_ingest(args)
+
+        assert _file_lines(dry_out) == _file_lines(capsys.readouterr().out)
+
+    def test_auto_dry_run_changes_neither_the_ledger_nor_raw(
+        self, workspace: Path, capsys
+    ):
+        args = _auto_args(workspace)
+        partial = make_utf16_csv(
+            args.raw / "2026-01.csv", FIRST_HALF, date_to="15-01-2026"
+        )
+        ingest(args.db, [partial], cards_path=workspace / "none.csv")
+        make_utf16_csv(args.raw / "EXPORT_0_1022026.csv", FIRST_HALF + SECOND_HALF)
+        before = args.db.read_bytes()
+        capsys.readouterr()
+
+        args.dry_run = True
+        cli.cmd_auto(args)
+
+        dry_out = capsys.readouterr().out
+        assert args.db.read_bytes() == before
+        assert sorted(p.name for p in args.raw.iterdir()) == [
+            "2026-01.csv",
+            "EXPORT_0_1022026.csv",
+        ]
+        assert not args.out.exists()
+        assert "EXPORT_0_1022026.csv: 4 parsed, 2 new, 2 already present" in dry_out
+
+        args.dry_run = False
+        cli.cmd_auto(args)
+
+        assert _dates(args.db) == [
+            "2026-01-10",
+            "2026-01-15",
+            "2026-01-20",
+            "2026-01-28",
+        ]
+
+    def test_ingest_dry_run_fails_like_the_real_run(self, workspace: Path, capsys):
+        junk = workspace / "raw" / "junk.csv"
+        junk.write_text("not a bank statement\n", encoding="utf-8")
+        args = _ingest_args(workspace, [junk])
+        args.no_rename = True
+
+        results = []
+        for dry in (True, False):
+            args.dry_run = dry
+            with pytest.raises(SystemExit) as exit_info:
+                cli.cmd_ingest(args)
+            out = capsys.readouterr().out
+            results.append(
+                (exit_info.value.code, [x for x in out.splitlines() if "Error" in x])
+            )
+
+        assert results[0] == results[1]
+        assert results[0][0] == 1
+
+    def test_auto_dry_run_fails_on_a_bad_file(self, workspace: Path, capsys):
+        args = _auto_args(workspace)
+        args.dry_run = True
+        (args.raw / "junk.csv").write_text("not a bank statement\n", encoding="utf-8")
+
+        with pytest.raises(SystemExit) as exit_info:
+            cli.cmd_auto(args)
+
+        assert exit_info.value.code == 1
+        assert "junk.csv was not imported" in capsys.readouterr().out
+        assert not args.db.exists()
+
+
 class TestGuiBindsToLocalhost:
     """`gui` prints a localhost URL, so the server must listen there only."""
 

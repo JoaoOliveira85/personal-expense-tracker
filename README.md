@@ -202,7 +202,7 @@ The report is written as `expense-report.xlsx` unless you pass `--format ods` (w
 
 The `auto` command automatically creates a monthly backup (e.g. `backups/backup-2026-01.zip`) for the previous month if one doesn't already exist. Use `--no-backup` to skip this.
 
-Use `--dry-run` to preview what would happen without making any changes.
+Use `--dry-run` to preview an import without making any changes: the new files are parsed exactly as a real run would parse them, and each is listed with its transaction count, how many are new and how many are already imported, and its first and last date. A file that would fail is reported with the same error (and the command exits 1). Nothing is renamed, written or backed up.
 
 ### `ingest`
 
@@ -221,9 +221,15 @@ python bank_ingest.py ingest --dry-run raw/EXPORT_0_1022026.csv  # preview only
 |------|---------|-------------|
 | `--bank` | *(auto-detect)* | Bank format to use: `utf16`, `utf8`, etc. Run `banks` to see all options. |
 | `--no-rename` | — | Skip auto-renaming files based on date range |
-| `--dry-run` | — | Preview what would happen, change nothing |
+| `--dry-run` | — | Parse the files and show per file how many transactions are new or already imported; rename and write nothing |
 
 The `ingest` command auto-renames files based on the date range inside the CSV or PDF (e.g. `EXPORT_0_1022026.csv` → `2026-01.csv`). Use `--no-rename` to skip this. Only UTF-16 CSV statements are renamed: a CSV from another bank keeps its name. When a CSV with a wider date range takes the name of an existing `YYYY-MM.csv`, the file it replaces is kept beside it as `YYYY-MM.csv.replaced`.
+
+Every import lists each file with the same counts, for example:
+
+```
+  2026-01.csv: 42 parsed, 40 new, 2 already present, 2026-01-02 to 2026-01-31
+```
 
 Importing a file again adds only the transactions that are not in the database yet, so re-importing a statement, or a wider one that overlaps it, is safe. Two identical transactions in one statement (same day, description and amount, on a statement that prints no balance, e.g. two coffees) are both kept. Imports made before this was fixed kept only the first of each such pair: run `ingest` on those statements again to add the missing ones.
 

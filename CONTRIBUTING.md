@@ -109,7 +109,7 @@ SQLite storage layer. Handles schema creation, migrations, ingestion, and querie
 - `tx_id(row, occurrence=1)` — Generates a 16-character hex hash (SHA-1) for deduplication. The hash key includes account, dates, description, amount, and balance. `ingest()` passes each row's occurrence: its 1-based position among the rows of the same file that share those six fields (identical purchases on a statement without a balance column). Only occurrences above 1 are added to the key, so the first keeps the id it always had.
 - `ensure_schema(conn)` — Creates the `transactions` table if it doesn't exist.
 - `migrate_schema(conn)` — Adds columns that may be missing from an older schema (for forward compatibility), and the `ods_baseline` table used by ODS sync-back.
-- `ingest(db_path, paths, cards_path, bank_id)` — Parses files using the multi-bank parser framework (auto-detection or explicit `bank_id`) and inserts rows with `INSERT OR IGNORE` for deduplication. PDFs go to the PDF parser; a file that is neither `.csv` nor `.pdf` goes to the legacy UTF-16 parser when no `bank_id` is given. Each file is imported in its own transaction: a file that fails is reported and skipped, and `IngestError` is raised once the others are in.
+- `ingest(db_path, paths, cards_path, bank_id)` — Parses files using the multi-bank parser framework (auto-detection or explicit `bank_id`) and inserts rows with `INSERT OR IGNORE` for deduplication. PDFs go to the PDF parser; a file that is neither `.csv` nor `.pdf` goes to the legacy UTF-16 parser when no `bank_id` is given. Each file is imported in its own transaction: a file that fails is reported and skipped, and `IngestError` is raised once the others are in (its `result` holds the run's outcome). Returns an `IngestResult`: one `FileImport` per file, in order (`parsed`, `inserted`, `already_present`, `period_from`/`period_to` = earliest/latest `date_posted`, `error`), with run-wide totals and the parser `warnings` count; `FileImport.summary()` is the per-file line printed in the summary. With `dry_run=True` the same run happens against an in-memory copy of the ledger (`sqlite3` `backup()` from a read-only connection), so the counts are exact and the file, schema migrations included, is untouched; a missing ledger is not created.
 - `reclean_descriptions(db_path)` — Re-runs `clean_description()` on all rows and updates only those that changed.
 - `fetch_all_transactions(conn)` — Returns all transactions as a list of dicts, sorted by date descending. Adds a computed `status` field.
 
@@ -298,7 +298,7 @@ A Streamlit-based web interface that provides graphical access to the expense tr
 
 **Automatic backups:** The `auto` command creates a monthly backup for the previous month if one doesn't exist. The `report --fresh` and `reclean` commands create timestamped backups before destructive operations.
 
-**Output control:** Global `-q`/`--quiet` and `-v`/`--verbose` flags control verbosity. The `_info()` and `_detail()` helpers respect the verbosity level. Dry-run mode (`--dry-run` on `auto` and `ingest`) previews actions without making changes.
+**Output control:** Global `-q`/`--quiet` and `-v`/`--verbose` flags control verbosity. The `_info()` and `_detail()` helpers respect the verbosity level. Dry-run mode (`--dry-run` on `auto` and `ingest`) previews actions without making changes: it skips the rename step and calls `ingest(..., dry_run=True)`, so the per-file counts and errors are those of a real import.
 
 ---
 

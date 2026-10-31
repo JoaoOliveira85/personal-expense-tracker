@@ -6,6 +6,7 @@ import hashlib
 import logging
 import sqlite3
 from collections import Counter
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Iterable
@@ -143,14 +144,82 @@ def _parse_file(path: Path, cards_path: Path, bank_id: str | None = None) -> lis
     return parse_statement(path, cards_path=cards_path, bank_id=bank_id)
 
 
+@dataclass
+class FileImport:
+    """What importing one statement file did, or in a dry run would do.
+
+    ``period_from``/``period_to`` are the earliest and latest ``date_posted``
+    of the parsed rows (``None`` for a file with no rows). ``error`` is set
+    for a file that could not be imported; its counts are then 0.
+    """
+
+    path: Path
+    parsed: int = 0
+    inserted: int = 0
+    period_from: str | None = None
+    period_to: str | None = None
+    error: Exception | None = None
+
+    @property
+    def already_present(self) -> int:
+        """Parsed rows that were in the ledger already (INSERT OR IGNORE)."""
+        return self.parsed - self.inserted
+
+    def summary(self) -> str:
+        """The per-file line of the import summary (same in a dry run)."""
+        line = (
+            f"{self.path.name}: {self.parsed} parsed, {self.inserted} new, "
+            f"{self.already_present} already present"
+        )
+        if self.period_from:
+            line += f", {self.period_from} to {self.period_to}"
+        return line
+
+
+@dataclass
+class IngestResult:
+    """Per-file outcome of ingest(), in file order, plus run-wide counts."""
+
+    files: list[FileImport] = field(default_factory=list)
+    warnings: int = 0
+    dry_run: bool = False
+
+    @property
+    def imported(self) -> list[FileImport]:
+        return [f for f in self.files if f.error is None]
+
+    @property
+    def failures(self) -> list[tuple[Path, Exception]]:
+        return [(f.path, f.error) for f in self.files if f.error is not None]
+
+    @property
+    def parsed(self) -> int:
+        return sum(f.parsed for f in self.files)
+
+    @property
+    def inserted(self) -> int:
+        return sum(f.inserted for f in self.files)
+
+    @property
+    def already_present(self) -> int:
+        return sum(f.already_present for f in self.files)
+
+
 class IngestError(Exception):
     """Some statement files could not be imported; the others were.
 
-    ``failures`` lists each such file with the exception it raised.
+    ``failures`` lists each such file with the exception it raised;
+    ``result`` is the IngestResult of the whole run, when there is one.
     """
 
-    def __init__(self, failures: list[tuple[Path, Exception]], total: int) -> None:
+    def __init__(
+        self,
+        failures: list[tuple[Path, Exception]],
+        total: int,
+        result: IngestResult | None = None,
+    ) -> None:
         self.failures = failures
+        self.result = result
         details = "; ".join(f"{p.name}: {_describe(e)}" for p, e in failures)
         super().__init__(
             f"{len(failures)} of {total} file(s) could not be imported ({details})"
@@ -176,94 +245,136 @@ class _WarningTally(logging.Handler):
         print(f"  Warning: {record.getMessage()}")
 
 
+def _open_ledger(db_path: Path, dry_run: bool) -> sqlite3.Connection:
+    """The ledger to import into: the file itself, or for a dry run an
+    in-memory copy of it, so that nothing a run does (schema migrations
+    included) can reach the file, and a missing ledger is not created."""
+    if not dry_run:
+        db_path.parent.mkdir(parents=True, exist_ok=True)
+        return sqlite3.connect(str(db_path))
+    conn = sqlite3.connect(":memory:")
+    if db_path.exists():
+        source = sqlite3.connect(f"{db_path.resolve().as_uri()}?mode=ro", uri=True)
+        try:
+            source.backup(conn)
+        finally:
+            source.close()
+    return conn
+
+
+def _insert_rows(conn: sqlite3.Connection, rows: list[dict], imported_at: str) -> int:
+    """Insert one file's rows, skipping ids already stored; return how many
+    were new."""
+    inserted = 0
+    seen: Counter[str] = Counter()
+    for r in rows:
+        fields = _id_fields(r)
+        seen[fields] += 1
+        r["transaction_id"] = tx_id(r, seen[fields])
+        r["imported_at"] = imported_at
+
+        cur = conn.execute(
+            """
+            INSERT OR IGNORE INTO transactions (
+                transaction_id, date_posted, date_value, month, day_of_week,
+                description_raw, description_clean,
+                amount_signed, amount_abs, direction, tx_type, balance,
+                currency, account, card_last4, payment_type, who,
+                category, subcategory,
+                source_file, imported_at
+            ) VALUES (
+                :transaction_id, :date_posted, :date_value, :month, :day_of_week,
+                :description_raw, :description_clean,
+                :amount_signed, :amount_abs, :direction, :tx_type, :balance,
+                :currency, :account, :card_last4, :payment_type, :who,
+                NULL, NULL,
+                :source_file, :imported_at
+            )
+            """,
+            r,
+        )
+        if cur.rowcount > 0:
+            inserted += 1
+    return inserted
+
+
 def ingest(
     db_path: Path,
     file_paths: Iterable[Path],
     cards_path: Path | None = None,
     bank_id: str | None = None,
-) -> None:
+    dry_run: bool = False,
+) -> IngestResult:
     """Parse bank statement files (CSV or PDF) and insert into SQLite with deduplication.
 
     Supports auto-detection of the bank format. Use bank_id to override.
 
     Each file is imported in its own transaction. Files that cannot be
     imported are reported and skipped; once the others are in, IngestError
-    is raised for them.
+    is raised for them (its ``result`` holds the run's IngestResult).
+
+    With ``dry_run`` the same run happens against an in-memory copy of the
+    ledger: the counts and errors are those a real import would give, and
+    the ledger file is not touched.
     """
     from .constants import DEFAULT_CARDS
 
     if cards_path is None:
         cards_path = DEFAULT_CARDS
 
-    db_path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(db_path))
+    conn = _open_ledger(db_path, dry_run)
     # Parsers report rows they could not import with logger.warning()
     warnings = _WarningTally()
     package_logger = logging.getLogger(__package__)
     package_logger.addHandler(warnings)
+    result = IngestResult(dry_run=dry_run)
+    prefix = "[dry-run] " if dry_run else ""
     try:
         ensure_schema(conn)
         migrate_schema(conn)
         now = datetime.now().astimezone().isoformat(timespec="seconds")
 
-        total_parsed = 0
-        total_inserted = 0
-        failures: list[tuple[Path, Exception]] = []
         paths = list(file_paths)
         for p in paths:
+            outcome = FileImport(path=p)
+            result.files.append(outcome)
             # One transaction per file: a file that cannot be read must not
             # undo, or block, the import of the files around it.
             try:
                 rows = _parse_file(p, cards_path, bank_id)
-                inserted = 0
-                seen: Counter[str] = Counter()
-                for r in rows:
-                    fields = _id_fields(r)
-                    seen[fields] += 1
-                    r["transaction_id"] = tx_id(r, seen[fields])
-                    r["imported_at"] = now
-
-                    cur = conn.execute(
-                        """
-                        INSERT OR IGNORE INTO transactions (
-                            transaction_id, date_posted, date_value, month, day_of_week,
-                            description_raw, description_clean,
-                            amount_signed, amount_abs, direction, tx_type, balance,
-                            currency, account, card_last4, payment_type, who,
-                            category, subcategory,
-                            source_file, imported_at
-                        ) VALUES (
-                            :transaction_id, :date_posted, :date_value, :month, :day_of_week,
-                            :description_raw, :description_clean,
-                            :amount_signed, :amount_abs, :direction, :tx_type, :balance,
-                            :currency, :account, :card_last4, :payment_type, :who,
-                            NULL, NULL,
-                            :source_file, :imported_at
-                        )
-                        """,
-                        r,
-                    )
-                    if cur.rowcount > 0:
-                        inserted += 1
+                inserted = _insert_rows(conn, rows, now)
                 conn.commit()
             except Exception as e:
                 conn.rollback()
-                failures.append((p, e))
+                outcome.error = e
                 logger.debug("%s could not be imported", p, exc_info=True)
                 print(f"  Error: {p.name} was not imported: {_describe(e)}")
                 continue
-            total_parsed += len(rows)
-            total_inserted += inserted
+            outcome.parsed = len(rows)
+            outcome.inserted = inserted
+            if rows:
+                dates = [r["date_posted"] for r in rows]
+                outcome.period_from, outcome.period_to = min(dates), max(dates)
+            print(f"  {outcome.summary()}")
 
+        result.warnings = warnings.count
         print(
-            f"Parsed {total_parsed} transactions "
-            f"from {len(paths) - len(failures)} file(s)."
+            f"{prefix}Parsed {result.parsed} transactions "
+            f"from {len(result.imported)} file(s)."
         )
-        print(f"Inserted {total_inserted} new transactions into {db_path}.")
+        if dry_run:
+            print(
+                f"{prefix}Would insert {result.inserted} new transactions into "
+                f"{db_path} ({result.already_present} already present). "
+                "Nothing was written."
+            )
+        else:
+            print(f"Inserted {result.inserted} new transactions into {db_path}.")
         if warnings.count:
             print(f"{warnings.count} warning(s) while parsing: see the lines above.")
-        if failures:
-            raise IngestError(failures, len(paths))
+        if result.failures:
+            raise IngestError(result.failures, len(paths), result)
+        return result
     finally:
         package_logger.removeHandler(warnings)
         conn.close()
