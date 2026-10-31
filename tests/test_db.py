@@ -64,6 +64,31 @@ class TestTxId:
         assert len(result) == 16
         assert all(c in "0123456789abcdef" for c in result)
 
+    def test_first_occurrence_keeps_the_plain_id(self):
+        row = {
+            "account": "checkings_account",
+            "date_posted": "2026-01-15",
+            "date_value": "2026-01-15",
+            "description_raw": "TEST",
+            "amount_signed": -10.0,
+            "balance": 0.0,
+        }
+        assert tx_id(row, occurrence=1) == tx_id(row)
+        # The id every ledger already holds for this row
+        assert tx_id(row) == "e45ba8ee15386067"
+
+    def test_later_occurrences_get_their_own_id(self):
+        row = {
+            "account": "checkings_account",
+            "date_posted": "2026-01-15",
+            "date_value": "2026-01-15",
+            "description_raw": "TEST",
+            "amount_signed": -10.0,
+            "balance": 0.0,
+        }
+        ids = {tx_id(row), tx_id(row, occurrence=2), tx_id(row, occurrence=3)}
+        assert len(ids) == 3
+
 
 # ---------------------------------------------------------------------------
 # Schema
@@ -176,6 +201,82 @@ class TestIngest:
         count = conn.execute("SELECT COUNT(*) FROM transactions").fetchone()[0]
         conn.close()
         assert count == 0
+
+
+class TestIngestIdenticalRows:
+    """Identical purchases in one statement without a balance are kept apart."""
+
+    UTF8_HEADER = "Data Mov.;Data Valor;Descrição;Débito;Crédito;Saldo Contabilístico\n"
+    COFFEE = "15-01-2026;15-01-2026;COMPRA CAFE CENTRAL;1,20;;\n"
+    LUNCH = "15-01-2026;15-01-2026;COMPRA TASCA;9,50;;\n"
+
+    def _statement(self, path, *lines: str):
+        path.write_text(self.UTF8_HEADER + "".join(lines), encoding="utf-8")
+        return path
+
+    def _count(self, db_path) -> int:
+        conn = sqlite3.connect(str(db_path))
+        try:
+            return conn.execute("SELECT COUNT(*) FROM transactions").fetchone()[0]
+        finally:
+            conn.close()
+
+    def test_two_identical_rows_are_both_stored(self, test_db, tmp_path):
+        path = self._statement(tmp_path / "jan.csv", self.COFFEE, self.COFFEE)
+
+        ingest(test_db, [path], cards_path=tmp_path / "none.csv")
+
+        assert self._count(test_db) == 2
+
+    def test_same_file_twice_stores_each_row_once(self, test_db, tmp_path, capsys):
+        path = self._statement(tmp_path / "jan.csv", self.COFFEE, self.COFFEE)
+
+        ingest(test_db, [path], cards_path=tmp_path / "none.csv")
+        capsys.readouterr()
+        ingest(test_db, [path], cards_path=tmp_path / "none.csv")
+
+        assert self._count(test_db) == 2
+        assert "Inserted 0 new transactions" in capsys.readouterr().out
+
+    def test_wider_statement_adds_only_the_extra_occurrence(self, test_db, tmp_path):
+        first = self._statement(tmp_path / "a.csv", self.COFFEE, self.COFFEE)
+        wider = self._statement(
+            tmp_path / "b.csv", self.COFFEE, self.LUNCH, self.COFFEE, self.COFFEE
+        )
+
+        ingest(test_db, [first], cards_path=tmp_path / "none.csv")
+        ingest(test_db, [wider], cards_path=tmp_path / "none.csv")
+
+        conn = sqlite3.connect(str(test_db))
+        try:
+            rows = conn.execute(
+                "SELECT description_raw, source_file FROM transactions "
+                "ORDER BY rowid"
+            ).fetchall()
+        finally:
+            conn.close()
+        assert rows == [
+            ("COMPRA CAFE CENTRAL", "a.csv"),
+            ("COMPRA CAFE CENTRAL", "a.csv"),
+            ("COMPRA TASCA", "b.csv"),
+            ("COMPRA CAFE CENTRAL", "b.csv"),
+        ]
+
+    def test_unique_rows_keep_their_id(self, test_db, utf16_csv, cards_csv):
+        from expense_tracker.parser import parse_utf16_csv
+
+        expected = {tx_id(r) for r in parse_utf16_csv(utf16_csv, cards_csv)}
+
+        ingest(test_db, [utf16_csv], cards_path=cards_csv)
+
+        conn = sqlite3.connect(str(test_db))
+        try:
+            stored = {
+                r[0] for r in conn.execute("SELECT transaction_id FROM transactions")
+            }
+        finally:
+            conn.close()
+        assert stored == expected
 
 
 class TestIngestBadFile:

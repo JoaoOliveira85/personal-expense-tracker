@@ -690,6 +690,11 @@ python -m pytest tests/ -v</code></pre>
 </div>
 
 <div class="warning">
+  <strong>Two identical purchases on the same day show up once</strong><br>
+  Identical transactions in one statement (same day, description and amount, on a statement that prints no balance) are now both kept. Statements imported before this fix kept only the first of each pair: run <code>python bank_ingest.py ingest</code> on them again to add the missing ones. Everything else in them is already in and is not added twice.
+</div>
+
+<div class="warning">
   <strong>Formulas show #VALUE!</strong><br>
   Make sure you're opening the file in a spreadsheet app (not a text editor). If an ODS keeps showing it, run <code>python bank_ingest.py report --format ods --fresh</code> to regenerate all sheets.
 </div>
