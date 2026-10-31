@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from expense_tracker.rules import add_rule, load_rules, match_rule
+from expense_tracker.rules import add_rule, fold, load_rules, match_rule
 from expense_tracker.starter_rules import (
     STARTER_RULES,
     get_starter_rules,
@@ -39,7 +39,8 @@ class TestStarterRulesData:
             assert category.strip(), f"Rule {i} has empty category"
 
     def test_no_duplicate_patterns(self):
-        patterns = [p.upper() for p, *_ in STARTER_RULES]
+        """No two patterns are equal once case and accents are ignored."""
+        patterns = [fold(p) for p, *_ in STARTER_RULES]
         seen = set()
         for p in patterns:
             assert p not in seen, f"Duplicate pattern: {p}"
@@ -95,6 +96,15 @@ class TestImportStarterRules:
         add_rule(rules_path, "continente", "description", "MyGroceries")
         added, skipped = import_starter_rules(rules_path)
         assert skipped >= 1
+
+    def test_import_accent_insensitive_skip(self, tmp_path):
+        rules_path = tmp_path / "rules.csv"
+        add_rule(rules_path, "Minipreço", "description", "MyGroceries")
+        import_starter_rules(rules_path)
+        rules = load_rules(rules_path)
+        assert [r["category"] for r in rules if fold(r["pattern"]) == "MINIPRECO"] == [
+            "MyGroceries"
+        ]
 
     def test_import_idempotent(self, tmp_path):
         rules_path = tmp_path / "rules.csv"
@@ -152,6 +162,8 @@ class TestStarterRulesMatching:
             ("COMPRA 1234 BOLT FOOD LISBOA", "Eating Out"),
             ("COMPRA 1234 BP LISBOA", "Transport"),
             ("COMPRA 1234 SUSHI DO JAPAO LISBOA", None),
+            ("COMPRA 1234 MINIPREÇO LISBOA", "Groceries"),
+            ("COMPRA 1234 MINIPRECO LISBOA", "Groceries"),
         ],
     )
     def test_categorizes_real_world_descriptions(self, rules, description, expected):

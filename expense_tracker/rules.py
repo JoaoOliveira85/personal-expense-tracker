@@ -5,7 +5,19 @@ from __future__ import annotations
 import csv
 import re
 import sqlite3
+import unicodedata
 from pathlib import Path
+
+
+def fold(text: str) -> str:
+    """Text as rules compare it: accents removed, then upper-cased.
+
+    "Minipreço" and "MINIPRECO" fold to the same string. Only combining marks
+    are dropped; no other character is mapped.
+    """
+    decomposed = unicodedata.normalize("NFD", text)
+    return "".join(c for c in decomposed if unicodedata.category(c) != "Mn").upper()
+
 
 # ---------------------------------------------------------------------------
 # Rule management (add / remove)
@@ -32,7 +44,7 @@ def add_rule(
 
 
 def remove_rule(rules_path: Path, pattern: str) -> bool:
-    """Remove the first rule matching `pattern` (case-insensitive).
+    """Remove the first rule matching `pattern` (ignoring case and accents).
     Returns True if a rule was removed."""
     if not rules_path.exists():
         return False
@@ -43,7 +55,7 @@ def remove_rule(rules_path: Path, pattern: str) -> bool:
     found = False
     new_rows = []
     for row in rows:
-        if not found and row.get("pattern", "").strip().upper() == pattern.upper():
+        if not found and fold(row.get("pattern", "").strip()) == fold(pattern):
             found = True
             continue
         new_rows.append(row)
@@ -118,9 +130,10 @@ def load_rules(rules_path: Path) -> list[dict]:
     Expected columns: pattern, match_field, category, subcategory, payment_type
     The longest matching pattern wins; file order breaks ties (see match_rule).
 
-    Patterns match case-insensitively at the start of a word, so "PAO" matches
-    "PAO QUENTE" and "PAOZINHO" but not "JAPAO". A trailing space in the
-    pattern ("BP ") also requires the match to end at a word boundary.
+    Patterns match ignoring case and accents (see fold), at the start of a
+    word, so "PAO" matches "PÃO QUENTE" and "PAOZINHO" but not "JAPAO". A
+    trailing space in the pattern ("BP ") also requires the match to end at a
+    word boundary.
     """
     if not rules_path.exists():
         print(
@@ -139,7 +152,7 @@ def load_rules(rules_path: Path) -> list[dict]:
             rules.append(
                 {
                     "pattern": pattern,
-                    "pattern_upper": pattern.upper(),
+                    "pattern_upper": fold(pattern),
                     "regex": _compile_pattern(
                         pattern, whole_word=raw_pattern != raw_pattern.rstrip()
                     ),
@@ -154,7 +167,7 @@ def load_rules(rules_path: Path) -> list[dict]:
 
 def _compile_pattern(pattern: str, whole_word: bool) -> re.Pattern[str]:
     """Anchor a literal pattern to word boundaries (see load_rules)."""
-    regex = re.escape(pattern.upper())
+    regex = re.escape(fold(pattern))
     # Only anchor on word characters: a pattern like ">PAGAMENTO" already
     # starts at a natural boundary and may follow a letter in bank text.
     if pattern[0].isalnum():
@@ -261,9 +274,9 @@ def _legacy_match(
 
 
 def _match_targets(desc_raw: str | None, desc_clean: str | None) -> tuple[str, str]:
-    """Uppercased text the legacy matcher searches: raw only, or raw + clean."""
-    raw = (desc_raw or "").upper()
-    return raw, raw + " " + (desc_clean or "").upper()
+    """Folded text the legacy matcher searches: raw only, or raw + clean."""
+    raw = fold(desc_raw or "")
+    return raw, raw + " " + fold(desc_clean or "")
 
 
 def match_rule(
@@ -278,8 +291,8 @@ def match_rule(
     The most specific (longest) matching pattern wins, so "UBER EATS" beats
     "UBER" regardless of where each sits in the file. Ties go to file order.
     """
-    raw = (desc_raw or "").upper()
-    clean = (desc_clean or "").upper()
+    raw = fold(desc_raw or "")
+    clean = fold(desc_clean or "")
 
     best = None
     for rule in rules:

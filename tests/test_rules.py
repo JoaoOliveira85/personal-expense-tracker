@@ -13,6 +13,7 @@ from expense_tracker.rules import (
     add_card,
     add_rule,
     categorize_transactions,
+    fold,
     load_rules,
     match_rule,
     remove_card,
@@ -51,6 +52,12 @@ class TestRuleCRUD:
 
     def test_remove_rule_case_insensitive(self, rules_csv):
         assert remove_rule(rules_csv, "continente") is True
+
+    def test_remove_rule_ignores_accents(self, tmp_path):
+        p = tmp_path / "rules.csv"
+        add_rule(p, "Café", "description", "Eating Out")
+        assert remove_rule(p, "CAFE") is True
+        assert load_rules(p) == []
 
     def test_remove_rule_missing_file(self, tmp_path):
         assert remove_rule(tmp_path / "missing.csv", "TEST") is False
@@ -293,6 +300,33 @@ class TestMatchRuleWordBoundary:
     def test_description_rule_checks_clean_description(self, tmp_path):
         rules = _rules(tmp_path, "CONTINENTE,description,Groceries,,")
         assert _category(rules, "COMPRA 1234 XYZ", "CONTINENTE") == "Groceries"
+
+
+class TestMatchRuleAccents:
+    """Pattern and descriptions are compared with accents removed."""
+
+    def test_fold_removes_accents_and_upper_cases(self):
+        assert fold("Minipreço Café") == "MINIPRECO CAFE"
+
+    def test_plain_pattern_matches_accented_description(self, tmp_path):
+        rules = _rules(tmp_path, "CAFE,description,Eating Out,,")
+        assert _category(rules, "COMPRA 1234 CAFÉ CENTRAL") == "Eating Out"
+
+    def test_accented_pattern_matches_plain_description(self, tmp_path):
+        rules = _rules(tmp_path, "Café,description,Eating Out,,")
+        assert _category(rules, "COMPRA 1234 CAFE CENTRAL") == "Eating Out"
+
+    def test_accented_pattern_matches_clean_description(self, tmp_path):
+        rules = _rules(tmp_path, "Café,description,Eating Out,,")
+        assert _category(rules, "COMPRA 1234", "Café Central") == "Eating Out"
+
+    def test_whole_word_pattern_does_not_match_longer_word(self, tmp_path):
+        rules = _rules(tmp_path, '"CAFE ",description,Eating Out,,')
+        assert _category(rules, "COMPRA 1234 CAFETERIA") is None
+
+    def test_whole_word_pattern_matches_accented_word(self, tmp_path):
+        rules = _rules(tmp_path, '"CAFE ",description,Eating Out,,')
+        assert _category(rules, "COMPRA 1234 CAFÉ") == "Eating Out"
 
 
 class TestMatchRuleDescriptionsSeparately:
