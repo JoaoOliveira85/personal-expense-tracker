@@ -55,6 +55,11 @@ NEUTRAL_CATEGORIES = SAVINGS_CATEGORIES + IGNORED_CATEGORIES
 # uncategorized.
 MISCELLANEOUS = "Miscellaneous"
 
+# Always in the category list (data/categories.csv, next to the rules file),
+# and never removed from it: the reports give these meaning.
+BUILTIN_CATEGORIES = NON_SPENDING_CATEGORIES + NEUTRAL_CATEGORIES + (MISCELLANEOUS,)
+CATEGORIES_FILE_NAME = "categories.csv"
+
 # ---------------------------------------------------------------------------
 # Data sheet column definitions
 # ---------------------------------------------------------------------------

@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import csv
 import io
+import logging
 import os
 import re
 import sqlite3
@@ -34,6 +35,7 @@ from .ods_sheets import (
     build_data_sheet,
     build_intro_sheet,
     build_rules_sheet,
+    set_category_validation,
     setup_styles,
     write_category_breakdown_sheet,
     write_dashboard_sheet,
@@ -46,7 +48,9 @@ from .ods_sheets import (
     write_subcategory_breakdown_sheet,
     write_tags_sheet,
 )
-from .rules import load_rules
+from .rules import categories_file, find_category, load_categories, load_rules
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Analysis sheets: keep their references to the Data sheet on the data
@@ -217,6 +221,8 @@ def sync_from_ods(
     db_path: Path,
     ods_path: Path,
     desc_notes_path: Path = DEFAULT_DESC_NOTES,
+    *,
+    categories: list[str] | None = None,
 ) -> int:
     """
     Read the Data sheet from an existing ODS file and sync:
@@ -226,6 +232,12 @@ def sync_from_ods(
     A cell only counts as an edit if it differs from the value the ODS held
     when it was last generated or synced, so a stale ODS never reverts newer
     changes in the DB (rules re-applied from the GUI, xlsx-only reports).
+
+    With `categories` (the category list, see rules.load_categories), an
+    edited Category cell must name one of them: another case is stored in
+    the list's spelling, and any other value is skipped (the row's other
+    edits still apply) and reported with logger.warning(). The CLI and the
+    GUI always pass the list.
 
     Returns the number of transactions updated in SQLite.
     """
@@ -330,6 +342,20 @@ def sync_from_ods(
                 if notes == shown[2]:
                     notes = existing_notes
 
+            if categories is not None and category and category != existing_cat:
+                listed = find_category(categories, category)
+                if listed is None:
+                    logger.warning(
+                        "Transaction %s: category '%s' is not in the category "
+                        "list, so the edit was skipped. Add the category first, "
+                        "or pick one from the list.",
+                        tx_id,
+                        category.strip(),
+                    )
+                    category = existing_cat
+                else:
+                    category = listed
+
             if (
                 category != existing_cat
                 or subcategory != existing_subcat
@@ -381,6 +407,7 @@ def generate_ods(
         conn.close()
 
     rules = load_rules(rules_path) if rules_path.exists() else []
+    categories = load_categories(categories_file(rules_path), rules_path, db_path)
 
     # Inject merchant notes into each transaction dict
     desc_notes = _load_description_notes(desc_notes_path)
@@ -392,8 +419,9 @@ def generate_ods(
     if is_first_run:
         doc = OpenDocumentSpreadsheet()
         setup_styles(doc)
+        validation = set_category_validation(doc, categories)
         write_intro_sheet(doc)
-        write_data_sheet(doc, transactions)
+        write_data_sheet(doc, transactions, validation)
         write_rules_sheet(doc, rules)
         write_dashboard_sheet(doc, transactions)
         write_monthly_summary_sheet(doc, transactions)
@@ -419,8 +447,9 @@ def generate_ods(
         existing_sheets = doc.spreadsheet.getElementsByType(Table)
         first_existing = existing_sheets[0] if existing_sheets else None
 
+        validation = set_category_validation(doc, categories)
         intro_sheet = build_intro_sheet(doc)
-        data_sheet = build_data_sheet(doc, transactions)
+        data_sheet = build_data_sheet(doc, transactions, validation)
         rules_sheet = build_rules_sheet(doc, rules)
 
         if first_existing:

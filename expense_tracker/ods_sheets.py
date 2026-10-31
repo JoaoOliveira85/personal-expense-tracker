@@ -212,8 +212,57 @@ def make_header_row(headers):
 # ---------------------------------------------------------------------------
 
 
-def build_data_sheet(doc, transactions):
-    """Build the Data sheet table element."""
+CATEGORY_VALIDATION = "CategoryList"
+
+
+def set_category_validation(doc, categories: list[str]) -> str:
+    """Define (or replace) the drop-down of the Data sheet's Category column.
+
+    The cell validation offers `categories` and refuses other values; an
+    empty cell is allowed (uncategorized). Validations the user defined for
+    other sheets are kept. Returns the validation's name.
+    """
+    from odf.table import ContentValidation, ContentValidations, ErrorMessage, Table
+    from odf.text import P
+
+    containers = doc.spreadsheet.getElementsByType(ContentValidations)
+    if containers:
+        container = containers[0]
+        for old in container.getElementsByType(ContentValidation):
+            if old.getAttribute("name") == CATEGORY_VALIDATION:
+                container.removeChild(old)
+    else:
+        container = ContentValidations()
+        tables = doc.spreadsheet.getElementsByType(Table)
+        if tables:
+            # The validations come before the sheets
+            doc.spreadsheet.insertBefore(container, tables[0])
+        else:
+            doc.spreadsheet.addElement(container)
+
+    validation = ContentValidation(
+        name=CATEGORY_VALIDATION,
+        condition="of:cell-content-is-in-list("
+        + ";".join(_lit(c) for c in categories)
+        + ")",
+        allowemptycell="true",
+        displaylist="unsorted",
+    )
+    message = ErrorMessage(display="true", messagetype="stop", title="Category")
+    message.addElement(
+        P(text="Pick a category from the list. Add new ones in the app first.")
+    )
+    validation.addElement(message)
+    container.addElement(validation)
+    return CATEGORY_VALIDATION
+
+
+def build_data_sheet(doc, transactions, category_validation: str | None = None):
+    """Build the Data sheet table element.
+
+    `category_validation` names the cell validation (see
+    set_category_validation) given to each Category cell.
+    """
     from odf.table import Table, TableColumn, TableRow
 
     table = Table(name="Data")
@@ -249,14 +298,17 @@ def build_data_sheet(doc, transactions):
         style = "categorized" if tx.get("category") else "uncategorized"
         for col in DATA_COLUMNS:
             val = tx.get(col, "") or ""
-            row.addElement(make_cell(val, style_name=style))
+            cell = make_cell(val, style_name=style)
+            if col == "category" and category_validation:
+                cell.setAttribute("contentvalidationname", category_validation)
+            row.addElement(cell)
         table.addElement(row)
 
     return table
 
 
-def write_data_sheet(doc, transactions):
-    doc.spreadsheet.addElement(build_data_sheet(doc, transactions))
+def write_data_sheet(doc, transactions, category_validation: str | None = None):
+    doc.spreadsheet.addElement(build_data_sheet(doc, transactions, category_validation))
 
 
 def build_rules_sheet(doc, rules):

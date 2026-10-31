@@ -13,6 +13,8 @@ import pytest
 
 from expense_tracker.db import ensure_schema, fetch_all_transactions, migrate_schema
 
+from .conftest import allow_categories
+
 # ---------------------------------------------------------------------------
 # We can't import gui.py directly (it runs Streamlit page config at import
 # time), so we test the underlying data functions it uses.
@@ -436,6 +438,7 @@ def edited_report(project, tmp_path, cards_csv):
     generate_ods(project.db, project.rules, project.ods, project.notes)
 
     _set_ods_category(project.ods, tid, "Household")
+    allow_categories(project.rules, "Household")
     return tid
 
 
@@ -571,7 +574,7 @@ class TestShortPatternWarning:
     def _add_on_rules_page(self, pattern: str):
         at = _open_page("Rules")
         next(t for t in at.text_input if t.label.startswith("Pattern")).input(pattern)
-        next(t for t in at.text_input if t.label == "Category").input("Utilities")
+        at.selectbox(key="rule_category").set_value("Utilities")
         return next(b for b in at.button if b.label == "Add Rule").click().run()
 
     def test_rules_form_warns_and_adds(self, project):
@@ -643,7 +646,8 @@ class TestMissingRulesFile:
         next(t for t in at.text_input if t.label.startswith("Pattern")).input(
             "CONTINENTE"
         )
-        next(t for t in at.text_input if t.label == "Category").input("Groceries")
+        at.selectbox(key="rule_category").set_value("Add category...").run()
+        at.text_input(key="rule_category_new").input("Groceries")
         at = next(b for b in at.button if b.label == "Add Rule").click().run()
 
         assert not at.exception
@@ -663,7 +667,7 @@ class TestDuplicateRule:
         before = project.rules.read_text(encoding="utf-8")
         at = _open_page("Rules")
         next(t for t in at.text_input if t.label.startswith("Pattern")).input("CAFE")
-        next(t for t in at.text_input if t.label == "Category").input("Groceries")
+        at.selectbox(key="rule_category").set_value("Eating Out")
         at = next(b for b in at.button if b.label == "Add Rule").click().run()
 
         assert not at.exception
@@ -735,3 +739,119 @@ class TestIgnored:
         at = _open_page("Categorize")
 
         assert "Ignored" in at.selectbox(key="cat_OWN ACCOUNT").options
+
+
+def _categories_of(project) -> list[str]:
+    from expense_tracker.rules import categories_file, load_categories
+
+    return load_categories(categories_file(project.rules))
+
+
+class TestCategoryChoice:
+    """Every GUI form picks a category from the list, which "Add
+    category..." extends (issue #5)."""
+
+    def test_rule_form_offers_the_seeded_list(self, project):
+        _insert_expense(project.db, "t1", "PET SHOP", "Pets")
+        at = _open_page("Rules")
+
+        options = at.selectbox(key="rule_category").options
+        assert options[-1] == "Add category..."
+        assert options[:-1] == _categories_of(project)
+        for name in ("Groceries", "Pets", "Miscellaneous", "Ignored", "Income"):
+            assert name in options
+
+    def test_rule_form_adds_a_new_category_and_the_rule(self, project):
+        at = _open_page("Rules")
+        next(t for t in at.text_input if t.label.startswith("Pattern")).input(
+            "PET SHOP"
+        )
+        at.selectbox(key="rule_category").set_value("Add category...").run()
+        at.text_input(key="rule_category_new").input(" Pets ")
+        at = next(b for b in at.button if b.label == "Add Rule").click().run()
+
+        assert not at.exception
+        assert "Pets" in _categories_of(project)
+        from expense_tracker.rules import load_rules
+
+        assert load_rules(project.rules)[-1]["category"] == "Pets"
+
+    def test_rule_form_refuses_a_new_name_already_in_the_list(self, project):
+        before = project.rules.read_text(encoding="utf-8")
+        at = _open_page("Rules")
+        next(t for t in at.text_input if t.label.startswith("Pattern")).input(
+            "PINGO DOCE"
+        )
+        at.selectbox(key="rule_category").set_value("Add category...").run()
+        at.text_input(key="rule_category_new").input("groceries")
+        at = next(b for b in at.button if b.label == "Add Rule").click().run()
+
+        assert not at.exception
+        assert any("Groceries" in e.value for e in at.error)
+        assert project.rules.read_text(encoding="utf-8") == before
+        assert "groceries" not in _categories_of(project)
+
+    def test_merchant_panel_adds_a_new_category(self, project):
+        _insert_expense(project.db, "t1", "PET SHOP")
+        at = _open_page("Categorize")
+        at.selectbox(key="cat_PET SHOP").set_value("Add category...").run()
+        at.text_input(key="new_PET SHOP").input("Pets").run()
+        at = next(b for b in at.button if b.label == "Add Rule").click().run()
+
+        assert not at.exception
+        assert "Pets" in _categories_of(project)
+        conn = sqlite3.connect(str(project.db))
+        assert conn.execute("SELECT category FROM transactions").fetchall() == [
+            ("Pets",)
+        ]
+        conn.close()
+
+    def test_merchant_panel_offers_the_list(self, project):
+        _insert_expense(project.db, "t1", "PET SHOP")
+        at = _open_page("Categorize")
+
+        options = at.selectbox(key="cat_PET SHOP").options
+        assert options == ["-- Select --", *_categories_of(project), "Add category..."]
+
+
+class TestCategoriesSection:
+    def test_lists_adds_and_removes(self, project):
+        at = _open_page("Rules")
+        at.text_input(key="category_add_name").input("Pets")
+        at = _click(at, "Add Category")
+        assert not at.exception
+        assert "Pets" in _categories_of(project)
+
+        at.selectbox(key="category_remove").set_value("Pets").run()
+        at = _click(at, "Remove Category")
+        assert not at.exception
+        assert "Pets" not in _categories_of(project)
+
+    def test_refuses_to_remove_a_category_in_use(self, project):
+        at = _open_page("Rules")
+        assert "Groceries" in at.selectbox(key="category_remove").options
+        assert "Income" not in at.selectbox(key="category_remove").options
+
+        at.selectbox(key="category_remove").set_value("Groceries").run()
+        at = _click(at, "Remove Category")
+
+        assert not at.exception
+        assert any("rule" in e.value for e in at.error)
+        assert "Groceries" in _categories_of(project)
+
+
+class TestSyncReportsUnknownCategories:
+    def test_sync_button_warns_and_skips(self, project, tmp_path):
+        from expense_tracker.ods import generate_ods
+
+        from .test_ods_sync import _category, _set_ods_category
+
+        _insert_expense(project.db, "t1", "CONTINENTE", "Groceries")
+        generate_ods(project.db, project.rules, project.ods, project.notes)
+        _set_ods_category(project.ods, "t1", "Grocerys")
+
+        at = _click(_open_page("Tools"), "Sync ODS & Regenerate Report")
+
+        assert not at.exception
+        assert any("Grocerys" in w.value for w in at.warning)
+        assert _category(project.db, "t1") == "Groceries"

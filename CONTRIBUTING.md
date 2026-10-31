@@ -121,6 +121,8 @@ Rule and card-holder management, plus the categorization engine.
 
 **Key functions:**
 - `add_rule()` / `remove_rule()` — CRUD for `data/rules.csv`. `add_rule()` creates the file with headers if it doesn't exist, and raises `DuplicateRuleError` (writing nothing) when a rule's pattern already equals the new one ignoring case, accents and surrounding spaces; `rules add` exits 1 with the error and the GUI shows it.
+- `add_rule()` requires its category to be in the category list (`CategoryError` otherwise, writing nothing) and returns it in the list's spelling.
+- The category list (`data/categories.csv`, one name per line; `categories_file(rules_path)` puts it next to the rules file): `load_categories(path, rules_path, db_path)` returns it sorted, creating it on first use from `BUILTIN_CATEGORIES` (constants: `Income`, `Transfers`, `Savings`, `Ignored`, `Miscellaneous`, always included) plus the categories the rules file and the ledger use. `add_category()` / `remove_category()` raise `CategoryError` for a name already listed (unique ignoring case and surrounding spaces), a built-in, or a category a rule or transaction uses. `find_category()` / `resolve_category()` give the list's spelling of a name. `import_starter_rules()` adds the pack's categories to the list.
 - `short_pattern_warning(pattern)` — Returns a caution when a pattern is shorter than `SHORT_PATTERN_LENGTH` (4) characters and has no trailing space (it also matches longer words starting with it), else `None`. `rules add`, the GUI's Add-a-Rule form and merchant panel show it; the rule is added either way.
 - `add_card()` / `remove_card()` — CRUD for `data/account-holders.csv`. `add_card` raises `ValueError` on duplicates.
 - `load_rules(path)` — Reads rules CSV, pre-computes folded patterns for matching (`fold()`: accents removed, upper-cased). A header-only file is a valid, empty rule set; a file that is missing, unreadable, or has no `pattern` column raises `RulesFileError`. `cli.main()` reports it and exits 1, and `auto`/`report` load the rules before changing anything; the GUI shows it and stops the action. The report builders (`ods.py`, `xlsx.py`) and `import_starter_rules()` check `exists()` first, so for them no file means no rules.
@@ -135,7 +137,7 @@ ODS report orchestration and sync-back. Uses `odfpy` to create/update OpenDocume
 
 **Key functions:**
 - `generate_ods(db_path, rules_path, ods_path, desc_notes_path)` — Main entry point. On first run, generates all sheets. On subsequent runs, replaces only Intro/Data/Rules and preserves everything else.
-- `sync_from_ods(db_path, ods_path, desc_notes_path)` — Reads manual edits from the ODS Data sheet back into the DB (category, subcategory, notes) and into `description-notes.csv` (merchant notes). A cell only counts as an edit if it differs from the `ods_baseline` value recorded when the ODS was last generated or synced, so a stale ODS never overwrites newer DB changes.
+- `sync_from_ods(db_path, ods_path, desc_notes_path, categories=None)` — Reads manual edits from the ODS Data sheet back into the DB (category, subcategory, notes) and into `description-notes.csv` (merchant notes). A cell only counts as an edit if it differs from the `ods_baseline` value recorded when the ODS was last generated or synced, so a stale ODS never overwrites newer DB changes. With `categories` (the CLI and GUI always pass the list), an edited category not in it is skipped and reported with `logger.warning()`; the GUI shows those warnings.
 
 ### `expense_tracker/ods_sheets.py`
 
@@ -146,6 +148,7 @@ All ODS sheet builders, styles, and cell helpers. Split from `ods.py` for mainta
 - `make_cell(value, style_name, value_type, formula)` — Creates a typed ODF cell element
 - `make_header_row(headers)` — Creates a styled header row
 - `build_data_sheet` / `build_rules_sheet` / `build_intro_sheet` — Return Table elements (used for insertion in update mode)
+- `set_category_validation(doc, categories)` — Defines (or replaces) the `CategoryList` cell validation that `build_data_sheet()` puts on every Category cell: a drop-down of the category list that refuses other values
 - `write_*_sheet(doc, ...)` — Each adds a sheet directly to the document (used in first-run mode)
 - Sheets: Intro, Data, Rules, Dashboard (with top merchants + uncategorized preview), Monthly Summary, Monthly Trend, Category Breakdown, Subcategory Breakdown, Tags, Recurring Merchants
 
@@ -277,7 +280,7 @@ A Streamlit-based web interface that provides graphical access to the expense tr
 - **Dashboard** — Overview charts: spending by category (pie), monthly trend (bar), key figures (total income/expenses/net, uncategorized count).
 - **Transactions** — Full transaction table with filters for date range, category, subcategory, payment type, and amount range. Supports search by description.
 - **Categorize** — Bulk categorization workflow: groups uncategorized transactions by merchant, lets you assign a category to all at once, and optionally creates a rule for future imports.
-- **Rules** — View all categorization rules in a table, add new rules, or remove existing ones.
+- **Rules** — View all categorization rules in a table, add new rules, or remove existing ones; the Categories section lists, adds and removes categories. Every category choice (here and on Categorize) is a select box over the category list ending in **Add category...**.
 - **Import** — File uploader for CSV/PDF files. Uploads are saved to `raw/` and ingested into the database.
 - **Tools** — Email configuration (setup/update IMAP settings), fetch from email, sync ODS back to DB, download ODS and PDF reports, create backups, export CSV, import Portuguese starter rules.
 - **Manual** — Renders all project documentation (README, DEPLOYMENT, CONTRIBUTING) in tabbed view with section search. Docs are always in sync with the source markdown files.
@@ -289,7 +292,7 @@ A Streamlit-based web interface that provides graphical access to the expense tr
 
 ### `expense_tracker/cli.py`
 
-`argparse`-based CLI with 15 subcommands (`auto`, `ingest`, `report`, `cards`, `rules`, `export`, `reclean`, `backup`, `reset`, `pdf`, `suggest`, `fetch`, `gui`, `banks`, `advisor`). Each subcommand has its own `cmd_*` function. The `auto` command is the default (used by `run.sh`) and orchestrates the full pipeline: discover → rename → ingest → sync → categorize → generate.
+`argparse`-based CLI with 16 subcommands (`auto`, `ingest`, `report`, `cards`, `rules`, `categories`, `export`, `reclean`, `backup`, `reset`, `pdf`, `suggest`, `fetch`, `gui`, `banks`, `advisor`). Each subcommand has its own `cmd_*` function. The `auto` command is the default (used by `run.sh`) and orchestrates the full pipeline: discover → rename → ingest → sync → categorize → generate.
 
 **Pre-flight checks:** `_check_setup()` verifies that `odfpy` is installed and the `data/` directory exists, providing friendly error messages that point to `install.sh`.
 
@@ -472,7 +475,7 @@ The parser will automatically work with `ingest` (auto-detected or via `--bank n
 | `expense_tracker/email_fetch.py` | 312 | Email statement fetcher (IMAP, attachment download) |
 | `expense_tracker/advisor.py` | 729 | LLM advisor prompts and context file |
 | `expense_tracker/gui.py` | 1043 | Streamlit web interface (7 pages: Dashboard, Transactions, Categorize, Rules, Import, Tools, Manual) |
-| `expense_tracker/cli.py` | 1549 | argparse CLI with 15 subcommands |
+| `expense_tracker/cli.py` | 1549 | argparse CLI with 16 subcommands |
 | `Dockerfile` | 29 | Docker image definition (Python 3.12 slim, deps, GUI entrypoint) |
 | `docker-compose.yml` | 38 | Orchestrates GUI + cron services with bind mounts |
 | `cron/daily-sync.sh` | 104 | Automated daily fetch + ingest + report generation script |

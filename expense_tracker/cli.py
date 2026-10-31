@@ -26,6 +26,7 @@ from .backup import (
     previous_month_backup_exists,
 )
 from .constants import (
+    CATEGORIES_FILE_NAME,
     DEFAULT_ADVISOR_DIR,
     DEFAULT_BACKUPS,
     DEFAULT_CARDS,
@@ -57,14 +58,20 @@ from .parsers import detect_parser, get_parser_by_id, get_registered_parsers
 from .pdf_parser import extract_pdf_date_range
 from .pdf_report import DEFAULT_REPORTS, generate_monthly_pdf, previous_month_label
 from .rules import (
+    BUILTIN_CATEGORIES,
     SHORT_PATTERN_LENGTH,
+    CategoryError,
     DuplicateRuleError,
     RulesFileError,
     add_card,
+    add_category,
     add_rule,
+    categories_file,
     categorize_transactions,
+    load_categories,
     load_rules,
     remove_card,
+    remove_category,
     remove_rule,
     short_pattern_warning,
 )
@@ -290,7 +297,9 @@ def cmd_auto(args):
     # Sync from ODS if it exists (for backward compatibility)
     ods_path = args.out.with_suffix(".ods") if args.out.suffix == ".xlsx" else args.out
     if ods_path.exists():
-        synced = sync_from_ods(args.db, ods_path, args.desc_notes)
+        synced = sync_from_ods(
+            args.db, ods_path, args.desc_notes, categories=_categories(args)
+        )
         if synced:
             _info(f"Synced {synced} manual edit(s) from {ods_path} back to database.")
 
@@ -387,7 +396,9 @@ def cmd_report(args):
 
     # Step 1: Sync back any manual edits from the existing ODS (if it exists)
     if not args.no_sync and ods_path.exists():
-        synced = sync_from_ods(args.db, ods_path, args.desc_notes)
+        synced = sync_from_ods(
+            args.db, ods_path, args.desc_notes, categories=_categories(args)
+        )
         if synced:
             _info(f"Synced {synced} manual edit(s) from {ods_path} back to database.")
     else:
@@ -475,6 +486,11 @@ def cmd_cards(args):
             print(f"Card {last4} not found.")
 
 
+def _categories(args) -> list[str]:
+    """The category list next to --rules, seeded from it and --db if new."""
+    return load_categories(categories_file(args.rules), args.rules, args.db)
+
+
 def cmd_rules(args):
     """Handle the 'rules' subcommand: list/add/remove categorization rules."""
     action = args.action or "list"
@@ -515,17 +531,17 @@ def cmd_rules(args):
             )
             return
         pattern = args.extra[0]
-        category = args.extra[1]
+        _categories(args)  # a new list is seeded from the ledger too
         try:
-            add_rule(
+            category = add_rule(
                 rules_path,
                 pattern,
                 match_field=args.field,
-                category=category,
+                category=args.extra[1],
                 subcategory=args.sub or "",
                 payment_type=args.payment or "",
             )
-        except DuplicateRuleError as e:
+        except (DuplicateRuleError, CategoryError) as e:
             print(f"Error: {e}. Nothing was changed.")
             sys.exit(1)
         print(
@@ -547,6 +563,8 @@ def cmd_rules(args):
 
     elif action == "import-starter":
         dry = args.extra and args.extra[0] == "--dry-run"
+        if not dry:
+            _categories(args)  # a new list is seeded from the ledger too
         added, skipped, short = import_starter_rules(rules_path, dry_run=dry)
         if dry:
             print(
@@ -561,6 +579,34 @@ def cmd_rules(args):
             print("All starter rules are already present. Nothing to import.")
         if short:
             print(f"  {_short_patterns_note(short)}")
+
+
+def cmd_categories(args):
+    """Handle the 'categories' subcommand: list/add/remove categories."""
+    action = args.action or "list"
+    path = categories_file(args.rules)
+    categories = _categories(args)
+
+    if action == "list":
+        print(f"Categories ({path}):\n")
+        for name in categories:
+            builtin = " (built in)" if name in BUILTIN_CATEGORIES else ""
+            print(f"  {name}{builtin}")
+        return
+
+    if not args.extra:
+        print(f"Usage: categories {action} <name>")
+        return
+    name = " ".join(args.extra)
+    try:
+        if action == "add":
+            print(f"Added category: {add_category(path, name)}")
+        else:
+            removed = remove_category(path, name, args.rules, args.db)
+            print(f"Removed category: {removed}")
+    except CategoryError as e:
+        print(f"Error: {e}. Nothing was changed.")
+        sys.exit(1)
 
 
 def _short_patterns_note(count: int) -> str:
@@ -588,7 +634,9 @@ def cmd_reclean(args):
     _info(f"Pre-reclean backup: {zp} ({format_size(zp.stat().st_size)})")
 
     # The report below is regenerated from the DB: save unsynced ODS edits first
-    synced = sync_from_ods(args.db, args.out, args.desc_notes)
+    synced = sync_from_ods(
+        args.db, args.out, args.desc_notes, categories=_categories(args)
+    )
     if synced:
         _info(f"Synced {synced} manual edit(s) from {args.out} back to database.")
 
@@ -1284,7 +1332,45 @@ def main() -> None:
         default="",
         help="Payment type override (for 'add'): card, transfer, direct_debit, fee, tax",
     )
+    ap_rules.add_argument(
+        "--db",
+        type=Path,
+        default=DEFAULT_DB,
+        help=f"SQLite database, to seed a new category list (default: {DEFAULT_DB})",
+    )
     ap_rules.set_defaults(func=cmd_rules)
+
+    # -- categories --
+    ap_categories = sub.add_parser(
+        "categories",
+        help="List, add, or remove the categories rules and edits may use",
+    )
+    ap_categories.add_argument(
+        "action",
+        nargs="?",
+        default="list",
+        choices=["list", "add", "remove"],
+        help="Action to perform (default: list)",
+    )
+    ap_categories.add_argument(
+        "extra", nargs="*", help="Category name (for 'add' and 'remove')"
+    )
+    ap_categories.add_argument(
+        "--rules",
+        type=Path,
+        default=DEFAULT_RULES,
+        help=(
+            f"Rules CSV; the list is kept next to it in {CATEGORIES_FILE_NAME} "
+            f"(default: {DEFAULT_RULES})"
+        ),
+    )
+    ap_categories.add_argument(
+        "--db",
+        type=Path,
+        default=DEFAULT_DB,
+        help=f"SQLite database (default: {DEFAULT_DB})",
+    )
+    ap_categories.set_defaults(func=cmd_categories)
 
     # -- export --
     ap_export = sub.add_parser("export", help="Export ledger to a clean UTF-8 CSV")

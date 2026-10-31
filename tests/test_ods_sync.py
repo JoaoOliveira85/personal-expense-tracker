@@ -158,6 +158,108 @@ class TestMiscellaneousIsSettled:
         assert _source(db, tid) == "manual"
 
 
+class TestSyncValidatesCategories:
+    """With the category list given, an edited Category cell must name a
+    category in it (issue #5)."""
+
+    CATEGORIES = ["Groceries", "Health", "Household", "Income", "Utilities"]
+
+    def test_unknown_category_is_skipped_and_reported(self, report, caplog):
+        db, ods, notes, tid = report
+        _set_ods_category(ods, tid, "Housewares")
+
+        with caplog.at_level("WARNING", logger="expense_tracker"):
+            assert sync_from_ods(db, ods, notes, categories=self.CATEGORIES) == 0
+
+        assert _category(db, tid) == "Groceries"
+        assert any(
+            "Housewares" in r.getMessage() and tid in r.getMessage()
+            for r in caplog.records
+        )
+
+    def test_other_case_is_normalised_to_the_list(self, report):
+        db, ods, notes, tid = report
+        _set_ods_category(ods, tid, " household ")
+
+        assert sync_from_ods(db, ods, notes, categories=self.CATEGORIES) == 1
+        assert _category(db, tid) == "Household"
+
+    def test_clearing_is_still_allowed(self, report):
+        db, ods, notes, tid = report
+        _set_ods_category(ods, tid, "")
+
+        assert sync_from_ods(db, ods, notes, categories=self.CATEGORIES) == 1
+        assert _source(db, tid) is None
+
+    def test_other_edits_of_the_row_still_apply(self, report):
+        from expense_tracker.constants import COL_NOTES
+
+        db, ods, notes, tid = report
+        _set_ods_category(ods, tid, "Housewares")
+        _set_ods_cell(ods, tid, COL_NOTES, "kept")
+
+        assert sync_from_ods(db, ods, notes, categories=self.CATEGORIES) == 1
+        assert _category(db, tid) == "Groceries"
+        conn = sqlite3.connect(str(db))
+        note = conn.execute(
+            "SELECT notes FROM transactions WHERE transaction_id = ?", (tid,)
+        ).fetchone()[0]
+        conn.close()
+        assert note == "kept"
+
+
+def _category_validation(ods_path: Path):
+    """The Data sheet's Category drop-down: (validation condition, names of
+    the validations its cells use)."""
+    from odf.table import ContentValidation
+
+    doc = load_ods(str(ods_path))
+    validations = {
+        v.getAttribute("name"): v.getAttribute("condition")
+        for v in doc.getElementsByType(ContentValidation)
+    }
+    sheet = next(
+        s
+        for s in doc.spreadsheet.getElementsByType(Table)
+        if s.getAttribute("name") == "Data"
+    )
+    used = {
+        _cells(row)[COL_CATEGORY].getAttribute("contentvalidationname")
+        for row in sheet.getElementsByType(TableRow)[1:]
+    }
+    return validations, used
+
+
+class TestCategoryDropDown:
+    """The generated Data sheet offers the category list on its Category
+    column (issue #5)."""
+
+    def test_category_cells_offer_the_list(self, report, rules_csv):
+        from expense_tracker.rules import categories_file, load_categories
+
+        _, ods, _, _ = report
+        validations, used = _category_validation(ods)
+
+        assert len(used) == 1
+        (name,) = used
+        expected = ";".join(
+            f'"{c}"' for c in load_categories(categories_file(rules_csv))
+        )
+        assert validations[name] == f"of:cell-content-is-in-list({expected})"
+
+    def test_update_replaces_the_list(self, report, rules_csv):
+        from expense_tracker.rules import add_category, categories_file
+
+        db, ods, notes, _ = report
+        add_category(categories_file(rules_csv), 'Say "cheese"')
+        generate_ods(db, rules_csv, ods, notes)
+
+        validations, used = _category_validation(ods)
+        (name,) = used
+        assert list(validations) == [name]
+        assert '"Say ""cheese"""' in validations[name]
+
+
 class TestEmptyPlaceholderOds:
     """DEPLOYMENT.md has users `touch expense-report.ods` for the bind mount."""
 

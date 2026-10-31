@@ -10,18 +10,25 @@ import pytest
 from expense_tracker.db import migrate_schema
 from expense_tracker.parser import _get_cleaning_patterns, reset_cleaning_cache
 from expense_tracker.rules import (
+    BUILTIN_CATEGORIES,
+    CategoryError,
     DuplicateRuleError,
     RulesFileError,
     add_card,
+    add_category,
     add_rule,
+    categories_file,
     categorize_transactions,
     fold,
+    load_categories,
     load_rules,
     match_rule,
     remove_card,
+    remove_category,
     remove_rule,
     short_pattern_warning,
 )
+from tests.conftest import allow_categories as _allow
 
 # ---------------------------------------------------------------------------
 # add_rule / remove_rule
@@ -31,6 +38,7 @@ from expense_tracker.rules import (
 class TestRuleCRUD:
     def test_add_rule_creates_file(self, tmp_path):
         p = tmp_path / "rules.csv"
+        _allow(p, "TestCat")
         add_rule(p, "TEST", "description", "TestCat", "TestSub", "card")
         assert p.exists()
         content = p.read_text(encoding="utf-8")
@@ -38,6 +46,7 @@ class TestRuleCRUD:
         assert "TestCat" in content
 
     def test_add_rule_appends(self, rules_csv):
+        _allow(rules_csv, "NewCat")
         add_rule(rules_csv, "NEWRULE", "description", "NewCat")
         rules = load_rules(rules_csv)
         patterns = [r["pattern"] for r in rules]
@@ -58,6 +67,7 @@ class TestRuleCRUD:
 
     def test_remove_rule_ignores_accents(self, tmp_path):
         p = tmp_path / "rules.csv"
+        _allow(p, "Eating Out")
         add_rule(p, "Café", "description", "Eating Out")
         assert remove_rule(p, "CAFE") is True
         assert load_rules(p) == []
@@ -70,6 +80,7 @@ class TestRuleCRUD:
         self, tmp_path, duplicate
     ):
         p = tmp_path / "rules.csv"
+        _allow(p, "Eating Out", "Groceries")
         add_rule(p, "Café", "description", "Eating Out")
         before = p.read_text(encoding="utf-8")
 
@@ -80,6 +91,7 @@ class TestRuleCRUD:
 
     def test_add_rule_accepts_a_different_pattern(self, tmp_path):
         p = tmp_path / "rules.csv"
+        _allow(p, "Eating Out")
         add_rule(p, "Café", "description", "Eating Out")
         add_rule(p, "CAFETERIA", "description", "Eating Out")
         assert [r["pattern"] for r in load_rules(p)] == ["Café", "CAFETERIA"]
@@ -87,10 +99,144 @@ class TestRuleCRUD:
     def test_add_rule_to_empty_file(self, tmp_path):
         p = tmp_path / "rules.csv"
         p.write_text("", encoding="utf-8")
+        _allow(p, "Cat")
         add_rule(p, "PATTERN", "description", "Cat")
         rules = load_rules(p)
         assert len(rules) == 1
         assert rules[0]["pattern"] == "PATTERN"
+
+
+# ---------------------------------------------------------------------------
+# The category list (issue #5)
+# ---------------------------------------------------------------------------
+
+
+def _ledger(tmp_path: Path, *categories: str | None) -> Path:
+    from tests.conftest import add_transaction
+
+    db = tmp_path / "ledger.sqlite"
+    for i, category in enumerate(categories):
+        add_transaction(db, f"2026-01-{i + 1:02d}", f"SHOP {i}", 10, "out", category)
+    return db
+
+
+class TestCategoryList:
+    def test_lives_next_to_the_rules_file(self, tmp_path):
+        assert categories_file(tmp_path / "rules.csv") == tmp_path / "categories.csv"
+
+    def test_builtins(self):
+        assert set(BUILTIN_CATEGORIES) == {
+            "Income",
+            "Transfers",
+            "Savings",
+            "Ignored",
+            "Miscellaneous",
+        }
+
+    def test_fresh_list_holds_the_builtins(self, tmp_path):
+        path = tmp_path / "categories.csv"
+        assert load_categories(path) == sorted(BUILTIN_CATEGORIES)
+        assert path.exists()
+
+    def test_seeded_from_rules_and_ledger(self, tmp_path, rules_csv):
+        db = _ledger(tmp_path, "Household", "groceries ", None, "")
+        path = categories_file(rules_csv)
+
+        categories = load_categories(path, rules_csv, db)
+
+        # rules_csv: Groceries, Health, Utilities, Income; the ledger's
+        # "groceries " is the same category as the rules' Groceries
+        assert categories == sorted(
+            set(BUILTIN_CATEGORIES) | {"Groceries", "Health", "Utilities", "Household"}
+        )
+        assert load_categories(path) == categories  # stored
+
+    def test_seed_skips_a_missing_ledger_without_creating_it(self, tmp_path):
+        db = tmp_path / "missing.sqlite"
+        load_categories(tmp_path / "categories.csv", tmp_path / "rules.csv", db)
+        assert not db.exists()
+
+    def test_stored_list_is_not_reseeded(self, tmp_path, rules_csv):
+        path = categories_file(rules_csv)
+        path.write_text("Pets\n", encoding="utf-8")
+        assert load_categories(path, rules_csv) == sorted(
+            set(BUILTIN_CATEGORIES) | {"Pets"}
+        )
+
+    def test_add_keeps_the_stored_spelling(self, tmp_path):
+        path = tmp_path / "categories.csv"
+        assert add_category(path, "  Eating Out ") == "Eating Out"
+        assert "Eating Out" in load_categories(path)
+
+    @pytest.mark.parametrize("name", ["eating out", " EATING OUT ", "Eating Out"])
+    def test_names_are_unique_ignoring_case_and_spaces(self, tmp_path, name):
+        path = tmp_path / "categories.csv"
+        add_category(path, "Eating Out")
+        before = path.read_text(encoding="utf-8")
+
+        with pytest.raises(CategoryError, match="Eating Out"):
+            add_category(path, name)
+        assert path.read_text(encoding="utf-8") == before
+
+    def test_empty_name_is_refused(self, tmp_path):
+        with pytest.raises(CategoryError):
+            add_category(tmp_path / "categories.csv", "  ")
+
+    def test_name_with_a_comma_round_trips(self, tmp_path):
+        path = tmp_path / "categories.csv"
+        add_category(path, "Books, music")
+        assert "Books, music" in load_categories(path)
+
+    def test_remove_unused(self, tmp_path, rules_csv):
+        path = categories_file(rules_csv)
+        add_category(path, "Pets")
+        assert remove_category(path, "pets", rules_csv) == "Pets"
+        assert "Pets" not in load_categories(path)
+
+    def test_remove_refuses_a_category_a_rule_uses(self, tmp_path, rules_csv):
+        path = categories_file(rules_csv)
+        load_categories(path, rules_csv)
+        with pytest.raises(CategoryError, match="rule"):
+            remove_category(path, "health", rules_csv)
+        assert "Health" in load_categories(path)
+
+    def test_remove_refuses_a_category_a_transaction_uses(self, tmp_path, rules_csv):
+        db = _ledger(tmp_path, "household")
+        path = categories_file(rules_csv)
+        add_category(path, "Household")
+        with pytest.raises(CategoryError, match="transaction"):
+            remove_category(path, "Household", rules_csv, db)
+        assert "Household" in load_categories(path)
+
+    @pytest.mark.parametrize("name", ["Income", "Ignored", "miscellaneous"])
+    def test_remove_refuses_a_builtin(self, tmp_path, name):
+        path = tmp_path / "categories.csv"
+        with pytest.raises(CategoryError, match="built in"):
+            remove_category(path, name)
+
+    def test_remove_refuses_an_unknown_name(self, tmp_path):
+        with pytest.raises(CategoryError, match="Nope"):
+            remove_category(tmp_path / "categories.csv", "Nope")
+
+
+class TestAddRuleCategory:
+    def test_unknown_category_is_refused(self, rules_csv):
+        before = rules_csv.read_text(encoding="utf-8")
+        with pytest.raises(CategoryError, match="Grocery"):
+            add_rule(rules_csv, "PINGO DOCE", "description", "Grocery")
+        assert rules_csv.read_text(encoding="utf-8") == before
+
+    def test_other_case_is_normalised_to_the_list(self, rules_csv):
+        assert (
+            add_rule(rules_csv, "PINGO DOCE", "description", " groceries ")
+            == "Groceries"
+        )
+        assert load_rules(rules_csv)[-1]["category"] == "Groceries"
+
+    def test_builtin_is_accepted_in_a_fresh_project(self, tmp_path):
+        p = tmp_path / "rules.csv"
+        add_rule(p, "OWN ACCOUNT", "description", "Ignored")
+        assert load_rules(p)[0]["category"] == "Ignored"
 
 
 # ---------------------------------------------------------------------------

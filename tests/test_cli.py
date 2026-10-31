@@ -12,7 +12,7 @@ from expense_tracker import cli
 from expense_tracker.db import ingest
 from expense_tracker.parser import reset_cleaning_cache
 
-from .conftest import make_utf16_csv
+from .conftest import allow_categories, make_utf16_csv
 
 FIRST_HALF = [
     (
@@ -185,6 +185,7 @@ class TestRecleanKeepsOdsEdits:
         ).fetchone()[0]
         conn.close()
 
+        allow_categories(args.rules, "Groceries")
         _set_ods_category(args.out, tid, "Groceries")  # edited, not yet synced
         cli.cmd_reclean(args)
 
@@ -434,11 +435,19 @@ class TestGuiBindsToLocalhost:
         assert "http://localhost:8765" in capsys.readouterr().out
 
 
-def _rules_add(rules: Path, pattern: str) -> argparse.Namespace:
+def _rules_add(
+    rules: Path, pattern: str, category: str = "Utilities"
+) -> argparse.Namespace:
+    """`rules add`, with Utilities in the category list next to `rules`."""
+    from expense_tracker.rules import categories_file
+
+    if not categories_file(rules).exists():
+        allow_categories(rules, "Utilities")
     return argparse.Namespace(
         action="add",
-        extra=[pattern, "Utilities"],
+        extra=[pattern, category],
         rules=rules,
+        db=rules.with_name("ledger.sqlite"),
         field="description",
         sub=None,
         payment=None,
@@ -471,7 +480,10 @@ class TestRulesAddShortPattern:
 
     def test_import_starter_reports_short_patterns(self, tmp_path: Path, capsys):
         args = argparse.Namespace(
-            action="import-starter", extra=[], rules=tmp_path / "rules.csv"
+            action="import-starter",
+            extra=[],
+            rules=tmp_path / "rules.csv",
+            db=tmp_path / "ledger.sqlite",
         )
         cli.cmd_rules(args)
 
@@ -497,6 +509,79 @@ class TestRulesAddDuplicate:
         assert "Café" in out
         assert "Added rule" not in out
         assert rules.read_text(encoding="utf-8") == before
+
+
+class TestRulesAddCategory:
+    """`rules add` takes a category from the list only (issue #5)."""
+
+    def test_unknown_category_is_an_error_and_not_written(self, tmp_path: Path, capsys):
+        rules = tmp_path / "rules.csv"
+        with pytest.raises(SystemExit) as exit_info:
+            cli.cmd_rules(_rules_add(rules, "PINGO DOCE", "Utilties"))
+
+        assert exit_info.value.code == 1
+        out = capsys.readouterr().out
+        assert out.startswith("Error:") and "Utilties" in out
+        assert not rules.exists()
+
+    def test_other_case_is_normalised(self, tmp_path: Path, capsys):
+        rules = tmp_path / "rules.csv"
+        cli.cmd_rules(_rules_add(rules, "EDPX", "utilities"))
+
+        assert "Added rule: EDPX -> Utilities" in capsys.readouterr().out
+        assert cli.load_rules(rules)[0]["category"] == "Utilities"
+
+    def test_list_is_seeded_from_the_ledger_first(self, tmp_path: Path, capsys):
+        from .conftest import add_transaction
+
+        rules = tmp_path / "rules.csv"
+        db = tmp_path / "ledger.sqlite"
+        add_transaction(db, "2026-01-02", "PET SHOP", 10, "out", "Pets")
+        args = _rules_add(rules, "PET SHOP", "pets")
+        (tmp_path / "categories.csv").unlink()
+
+        cli.cmd_rules(args)
+
+        assert cli.load_rules(rules)[0]["category"] == "Pets"
+
+
+def _categories_cmd(tmp_path: Path, action: str, *extra: str) -> argparse.Namespace:
+    return argparse.Namespace(
+        action=action,
+        extra=list(extra),
+        rules=tmp_path / "rules.csv",
+        db=tmp_path / "ledger.sqlite",
+    )
+
+
+class TestCategoriesCommand:
+    def test_list_shows_the_seeded_list(self, tmp_path: Path, capsys, rules_csv):
+        cli.cmd_categories(_categories_cmd(tmp_path, "list"))
+
+        out = capsys.readouterr().out
+        for name in ("Groceries", "Health", "Ignored", "Miscellaneous", "Savings"):
+            assert name in out
+
+    def test_add_then_remove(self, tmp_path: Path, capsys):
+        cli.cmd_categories(_categories_cmd(tmp_path, "add", "Pets"))
+        assert "Pets" in cli.load_categories(tmp_path / "categories.csv")
+
+        cli.cmd_categories(_categories_cmd(tmp_path, "remove", "pets"))
+        assert "Pets" not in cli.load_categories(tmp_path / "categories.csv")
+        out = capsys.readouterr().out
+        assert "Added category: Pets" in out and "Removed category: Pets" in out
+
+    @pytest.mark.parametrize(
+        "action, name", [("add", "groceries"), ("remove", "Groceries")]
+    )
+    def test_refusal_is_an_error(self, tmp_path: Path, capsys, rules_csv, action, name):
+        """Groceries exists, and a rule uses it."""
+        with pytest.raises(SystemExit) as exit_info:
+            cli.cmd_categories(_categories_cmd(tmp_path, action, name))
+
+        assert exit_info.value.code == 1
+        assert capsys.readouterr().out.startswith("Error:")
+        assert "Groceries" in cli.load_categories(tmp_path / "categories.csv")
 
 
 def _categories(db_path: Path) -> list[tuple]:

@@ -223,7 +223,7 @@
     <tr><td><strong>Dashboard</strong></td><td>Spending charts, category breakdown, monthly trends</td></tr>
     <tr><td><strong>Transactions</strong></td><td>Search and filter every transaction by date, category and amount</td></tr>
     <tr><td><strong>Categorize</strong></td><td>Pick a category for all transactions from the same merchant at once, and optionally save it as a rule</td></tr>
-    <tr><td><strong>Rules</strong></td><td>View, add and remove categorization rules</td></tr>
+    <tr><td><strong>Rules</strong></td><td>View, add and remove categorization rules, and manage the category list</td></tr>
     <tr><td><strong>Import</strong></td><td>Upload CSV/PDF statements and import them</td></tr>
     <tr><td><strong>Tools</strong></td><td>Email setup and fetch, sync and regenerate, download reports, backups, CSV export, starter rules</td></tr>
     <tr><td><strong>Manual</strong></td><td>This documentation, the deployment guide and the developer guide, with search</td></tr>
@@ -321,7 +321,10 @@
 <p>Use the Rules page, or type in a Terminal in the project folder:</p>
 <pre><code>source .venv/bin/activate                                # activate environment
 python bank_ingest.py rules add CONTINENTE Groceries     # simple rule
-python bank_ingest.py rules add FARMACIA Health --sub Pharmacy  # with subcategory</code></pre>
+python bank_ingest.py rules add FARMACIA Health --sub Pharmacy  # with subcategory
+python bank_ingest.py categories add Housing             # a new category</code></pre>
+
+<p>A rule's category must be in the category list (<code>data/categories.csv</code>), so a typo can't split your totals. The list starts with every category you already use plus <code>Income</code>, <code>Transfers</code>, <code>Savings</code>, <code>Ignored</code> and <code>Miscellaneous</code>. Pick from it on the Rules and Categorize pages, where <strong>Add category...</strong> adds a new one, or in the spreadsheet's Category drop-down; manage it in the Categories section of the Rules page or with <code>python bank_ingest.py categories</code>.</p>
 
 <p>Or edit the file <code>data/rules.csv</code> directly in any spreadsheet or text editor:</p>
 <pre><code>pattern,match_field,category,subcategory,payment_type
@@ -538,6 +541,9 @@ python bank_ingest.py advisor status    # see which months still need an answer<
     <tr><td><code>python bank_ingest.py rules add &lt;pattern&gt; &lt;category&gt;</code></td><td>Add a rule</td></tr>
     <tr><td><code>python bank_ingest.py rules remove &lt;pattern&gt;</code></td><td>Remove a rule</td></tr>
     <tr><td><code>python bank_ingest.py rules import-starter</code></td><td>Import Portuguese starter rules (~200 rules)</td></tr>
+    <tr><td><code>python bank_ingest.py categories</code></td><td>List categories</td></tr>
+    <tr><td><code>python bank_ingest.py categories add &lt;name&gt;</code></td><td>Add a category</td></tr>
+    <tr><td><code>python bank_ingest.py categories remove &lt;name&gt;</code></td><td>Remove a category nothing uses</td></tr>
     <tr><td><code>python bank_ingest.py reclean</code></td><td>Re-clean all descriptions and regenerate report</td></tr>
     <tr><td><code>python bank_ingest.py backup</code></td><td>Create a zip backup of all data</td></tr>
     <tr><td><code>python bank_ingest.py pdf</code></td><td>Generate a monthly PDF summary report</td></tr>
