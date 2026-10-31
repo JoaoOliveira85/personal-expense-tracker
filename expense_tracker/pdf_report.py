@@ -21,7 +21,7 @@ from .constants import (
     DEFAULT_DESC_NOTES,
     DEFAULT_REPORTS,
 )
-from .db import NOT_SAVINGS_SQL, REFUND_SQL, SPEND_SQL, is_refund, is_savings
+from .db import NOT_NEUTRAL_SQL, REFUND_SQL, SPEND_SQL, is_neutral, is_refund
 
 # ---------------------------------------------------------------------------
 # Data extraction helpers
@@ -73,7 +73,7 @@ def _fetch_historical_category_totals(
         SELECT month, category, SUM({SPEND_SQL}) as total
         FROM transactions
         WHERE category IS NOT NULL AND category != ''
-          AND (direction = 'out' OR {REFUND_SQL}) AND {NOT_SAVINGS_SQL}
+          AND (direction = 'out' OR {REFUND_SQL}) AND {NOT_NEUTRAL_SQL}
         GROUP BY month, category
         """,
     ).fetchall()
@@ -148,8 +148,8 @@ def _compute_stats(
         category = tx.get("category") or ""
         desc = tx.get("description_clean") or ""
 
-        if is_savings(tx):
-            # Money moved to or from savings is neither spending nor income
+        if is_neutral(tx):
+            # Savings and ignored transactions are neither spending nor income
             continue
         if is_refund(tx):
             # Refunds reduce their category's spending; they are not income

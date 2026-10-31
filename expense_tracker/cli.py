@@ -35,6 +35,7 @@ from .constants import (
     DEFAULT_ODS,
     DEFAULT_RAW,
     DEFAULT_RULES,
+    IGNORED_CATEGORIES,
     MISCELLANEOUS,
 )
 from .db import (
@@ -508,7 +509,9 @@ def cmd_rules(args):
             print("  Example: rules add FARMACIA Health --sub Pharmacy --payment card")
             print(
                 f"  Use the category {MISCELLANEOUS} for merchants with no "
-                "better category."
+                f"better category, and {IGNORED_CATEGORIES[0]} for transactions "
+                "to leave out of every total (e.g. transfers between your own "
+                "accounts)."
             )
             return
         pattern = args.extra[0]
@@ -1255,7 +1258,8 @@ def main() -> None:
         nargs="*",
         help=(
             "Additional arguments (e.g. pattern and category for 'add'; "
-            f"category {MISCELLANEOUS} for merchants with no better category)"
+            f"category {MISCELLANEOUS} for merchants with no better category, "
+            f"{IGNORED_CATEGORIES[0]} for transactions left out of every total)"
         ),
     )
     ap_rules.add_argument(

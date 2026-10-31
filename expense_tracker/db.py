@@ -9,7 +9,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Iterable
 
-from .constants import NON_SPENDING_CATEGORIES, SAVINGS_CATEGORIES
+from .constants import IGNORED_CATEGORIES, NEUTRAL_CATEGORIES, NON_SPENDING_CATEGORIES
 from .parser import parse_utf16_csv
 from .parsers import parse_statement
 
@@ -258,9 +258,14 @@ def ingest(
 # ---------------------------------------------------------------------------
 
 
-def is_savings(tx: dict) -> bool:
-    """Money moved to or from savings (see SAVINGS_CATEGORIES)."""
-    return (tx.get("category") or "") in SAVINGS_CATEGORIES
+def is_neutral(tx: dict) -> bool:
+    """Neither income nor spending: savings or ignored (NEUTRAL_CATEGORIES)."""
+    return (tx.get("category") or "") in NEUTRAL_CATEGORIES
+
+
+def is_ignored(tx: dict) -> bool:
+    """Left out of every figure (see IGNORED_CATEGORIES)."""
+    return (tx.get("category") or "") in IGNORED_CATEGORIES
 
 
 def is_refund(tx: dict) -> bool:
@@ -270,18 +275,18 @@ def is_refund(tx: dict) -> bool:
         tx.get("direction") == "in"
         and bool(category)
         and category not in NON_SPENDING_CATEGORIES
-        and not is_savings(tx)
+        and not is_neutral(tx)
     )
 
 
 def is_income(tx: dict) -> bool:
-    """Incoming money that is neither a refund nor a savings withdrawal."""
-    return tx.get("direction") == "in" and not is_refund(tx) and not is_savings(tx)
+    """Incoming money that is neither a refund nor neutral (see is_neutral)."""
+    return tx.get("direction") == "in" and not is_refund(tx) and not is_neutral(tx)
 
 
 def counts_as_spending(tx: dict) -> bool:
-    """Outgoing money other than savings deposits, or a refund."""
-    return (tx.get("direction") == "out" and not is_savings(tx)) or is_refund(tx)
+    """Outgoing money that is not neutral (see is_neutral), or a refund."""
+    return (tx.get("direction") == "out" and not is_neutral(tx)) or is_refund(tx)
 
 
 def spend_amount(tx: dict) -> float:
@@ -296,14 +301,14 @@ def _sql_list(values: tuple[str, ...]) -> str:
 
 
 # SQL counterparts of the helpers above, for aggregate queries.
-NOT_SAVINGS_SQL = f"COALESCE(category, '') NOT IN ({_sql_list(SAVINGS_CATEGORIES)})"
+NOT_NEUTRAL_SQL = f"COALESCE(category, '') NOT IN ({_sql_list(NEUTRAL_CATEGORIES)})"
 REFUND_SQL = (
     "(direction = 'in' AND COALESCE(category, '') <> '' AND category NOT IN "
-    f"({_sql_list(NON_SPENDING_CATEGORIES + SAVINGS_CATEGORIES)}))"
+    f"({_sql_list(NON_SPENDING_CATEGORIES + NEUTRAL_CATEGORIES)}))"
 )
-INCOME_SQL = f"(direction = 'in' AND NOT {REFUND_SQL} AND {NOT_SAVINGS_SQL})"
+INCOME_SQL = f"(direction = 'in' AND NOT {REFUND_SQL} AND {NOT_NEUTRAL_SQL})"
 SPEND_SQL = (
-    f"CASE WHEN direction = 'out' AND {NOT_SAVINGS_SQL} THEN amount_abs "
+    f"CASE WHEN direction = 'out' AND {NOT_NEUTRAL_SQL} THEN amount_abs "
     f"WHEN {REFUND_SQL} THEN -amount_abs ELSE 0 END"
 )
 

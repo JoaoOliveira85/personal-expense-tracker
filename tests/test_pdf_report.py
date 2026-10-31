@@ -175,6 +175,21 @@ class TestComputeStats:
         assert [c[0] for c in stats["by_category"]] == ["Groceries"]
         assert [m[0] for m in stats["top_merchants"]] == ["TEST MERCHANT"]
 
+    def test_ignored_is_neither_spending_nor_income(self):
+        """Issue #6: a transfer between own accounts filed under Ignored."""
+        txns = [
+            _tx(desc="OWN ACCOUNT", amount=900, direction="out", category="Ignored"),
+            _tx(desc="OWN ACCOUNT", amount=300, direction="in", category="Ignored"),
+            _tx(amount=40, direction="out", category="Groceries"),
+            _tx(amount=1000, direction="in", category="Income"),
+        ]
+        stats = _compute_stats(txns)
+        assert stats["total_expenses"] == 40
+        assert stats["total_income"] == 1000
+        assert [c[0] for c in stats["by_category"]] == ["Groceries"]
+        assert [m[0] for m in stats["top_merchants"]] == ["TEST MERCHANT"]
+        assert stats["uncategorized_count"] == 0
+
     def test_income_and_uncategorized_inflows_are_income(self):
         txns = [
             _tx(amount=1000, direction="in", category="Income"),
@@ -514,6 +529,15 @@ class TestHistoricalCategoryTotals:
         totals = _fetch_historical_category_totals(conn)
         conn.close()
         assert totals == {"2026-01": {"Health": 70}}
+
+    def test_leaves_out_ignored(self, test_db):
+        conn = sqlite3.connect(str(test_db))
+        _insert(conn, "1", "2026-01", "out", "Health", 100)
+        _insert(conn, "2", "2026-01", "out", "Ignored", 900)
+        _insert(conn, "3", "2026-01", "in", "Ignored", 300)
+        totals = _fetch_historical_category_totals(conn)
+        conn.close()
+        assert totals == {"2026-01": {"Health": 100}}
 
 
 def _pdf_text(path: Path) -> str:

@@ -41,6 +41,15 @@ NON_SPENDING_CATEGORIES = ("Income", "Transfers")
 # investment account): deposits are not spending and withdrawals are not income.
 SAVINGS_CATEGORIES = ("Savings",)
 
+# Transactions to leave out of every figure, e.g. transfers between your own
+# accounts or the payment of a card bill whose purchases are already counted:
+# neither income nor spending, in no total, chart or ranking (still listed in
+# the ledger).
+IGNORED_CATEGORIES = ("Ignored",)
+
+# Categories that are neither income nor spending, in either direction.
+NEUTRAL_CATEGORIES = SAVINGS_CATEGORIES + IGNORED_CATEGORIES
+
 # For a transaction that was looked at and has no better category: an
 # ordinary spending category, always offered, so the row stops showing up as
 # uncategorized.

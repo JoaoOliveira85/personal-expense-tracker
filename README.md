@@ -561,7 +561,9 @@ Open this file in **LibreOffice Calc** or upload it to **Google Sheets**.
 
 **Savings.** Transactions categorized `Savings` are money moved into or out of a savings product (e.g. a savings or investment account): deposits are **not** counted as spending and withdrawals are **not** counted as income, so Net reflects only what you earned and spent. Monthly Trend's running balance therefore won't match your bank balance in months with savings movements.
 
-Both rules apply to every report (ODS, xlsx, PDF, GUI dashboard, advisor). Because the analysis sheets above are only written on the first run, regenerate an existing ODS with `python bank_ingest.py report --format ods --fresh` to pick up the refund-aware formulas.
+**Ignored.** Transactions categorized `Ignored` are left out of every figure: they are neither income nor spending in either direction and appear in no total, chart or ranking (Top Merchants, Recurring Merchants, Tags), though they stay listed in the ledger (Data sheet, Transactions page). Use it for money that only moves between your own accounts, or for paying a credit-card bill whose purchases are already counted. To ignore such transactions as they arrive, add a rule with category `Ignored` (`python bank_ingest.py rules add <PATTERN> Ignored`, or **Add a Rule** in the GUI). `Transfers` is unchanged: incoming transfers still count as income and outgoing ones as spending.
+
+These rules apply to every report (ODS, xlsx, PDF, GUI dashboard, advisor). Because the analysis sheets above are only written on the first run, regenerate an existing ODS with `python bank_ingest.py report --format ods --fresh` to pick up the refund-aware formulas.
 
 ### Manual Categorization & Notes
 

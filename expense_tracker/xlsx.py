@@ -18,32 +18,39 @@ from .constants import (
     DATA_COLUMNS,
     DATA_HEADERS,
     DEFAULT_DESC_NOTES,
+    NEUTRAL_CATEGORIES,
     NON_SPENDING_CATEGORIES,
-    SAVINGS_CATEGORIES,
 )
-from .db import counts_as_spending, fetch_all_transactions, is_savings, migrate_schema
+from .db import (
+    counts_as_spending,
+    fetch_all_transactions,
+    is_ignored,
+    is_neutral,
+    migrate_schema,
+)
 from .ods_sheets import top_categories
 from .rules import load_rules
 
-# SUMIFS criteria excluding savings, and selecting refunds (see db.py)
-_NOT_SAVINGS = "".join(f',Data!H:H,"<>{c}"' for c in SAVINGS_CATEGORIES)
+# SUMIFS criteria excluding savings and ignored rows, and selecting refunds
+# (see db.py)
+_NOT_NEUTRAL = "".join(f',Data!H:H,"<>{c}"' for c in NEUTRAL_CATEGORIES)
 _REFUNDS = 'Data!G:G,"in",Data!H:H,"<>"' + "".join(
-    f',Data!H:H,"<>{c}"' for c in NON_SPENDING_CATEGORIES + SAVINGS_CATEGORIES
+    f',Data!H:H,"<>{c}"' for c in NON_SPENDING_CATEGORIES + NEUTRAL_CATEGORIES
 )
 
 
 def _spend(criteria: str = "") -> str:
     """SUMIFS spending net of refunds; `criteria` is e.g. 'Data!B:B,"2026-01",'."""
     return (
-        f'SUMIFS(Data!F:F,{criteria}Data!G:G,"out"{_NOT_SAVINGS})'
+        f'SUMIFS(Data!F:F,{criteria}Data!G:G,"out"{_NOT_NEUTRAL})'
         f"-SUMIFS(Data!F:F,{criteria}{_REFUNDS})"
     )
 
 
 def _income(criteria: str = "") -> str:
-    """SUMIFS incoming money that is neither a refund nor a savings withdrawal."""
+    """SUMIFS incoming money that is neither a refund nor savings or ignored."""
     return (
-        f'SUMIFS(Data!F:F,{criteria}Data!G:G,"in"{_NOT_SAVINGS})'
+        f'SUMIFS(Data!F:F,{criteria}Data!G:G,"in"{_NOT_NEUTRAL})'
         f"-SUMIFS(Data!F:F,{criteria}{_REFUNDS})"
     )
 
@@ -442,7 +449,7 @@ def _write_dashboard_sheet(ws, transactions: list[dict], styles: dict, n: int) -
     # Top Merchants
     merchant_totals: dict[str, float] = {}
     for tx in transactions:
-        if tx.get("direction") == "out" and not is_savings(tx):
+        if tx.get("direction") == "out" and not is_neutral(tx):
             desc = tx.get("description_clean") or ""
             if desc:
                 amt = float(tx.get("amount_abs") or 0)
@@ -737,7 +744,7 @@ def _write_tags_sheet(ws, transactions: list[dict], styles: dict) -> None:
     tag_counts: dict[str, int] = defaultdict(int)
 
     for tx in transactions:
-        if tx.get("direction") != "out":
+        if tx.get("direction") != "out" or is_ignored(tx):
             continue
 
         notes = (tx.get("notes") or "") + " " + (tx.get("merchant_note") or "")
@@ -799,7 +806,7 @@ def _write_recurring_sheet(ws, transactions: list[dict], styles: dict) -> None:
     merchant_counts: dict[str, int] = defaultdict(int)
 
     for tx in transactions:
-        if tx.get("direction") != "out":
+        if tx.get("direction") != "out" or is_ignored(tx):
             continue
 
         desc = tx.get("description_clean") or ""

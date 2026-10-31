@@ -12,10 +12,11 @@ from collections import defaultdict
 from .constants import (
     DATA_COLUMNS,
     DATA_HEADERS,
+    IGNORED_CATEGORIES,
+    NEUTRAL_CATEGORIES,
     NON_SPENDING_CATEGORIES,
-    SAVINGS_CATEGORIES,
 )
-from .db import counts_as_spending, is_savings, spend_amount
+from .db import counts_as_spending, is_ignored, is_neutral, spend_amount
 
 # ---------------------------------------------------------------------------
 # Styles
@@ -45,22 +46,22 @@ def _not_in(n: int, categories: tuple[str, ...]) -> str:
 def _refund(n: int) -> str:
     """1 for refund rows, 0 otherwise."""
     return f'([.Data.G2:.Data.G{n}]="in")*([.Data.H2:.Data.H{n}]<>"")' + _not_in(
-        n, NON_SPENDING_CATEGORIES + SAVINGS_CATEGORIES
+        n, NON_SPENDING_CATEGORIES + NEUTRAL_CATEGORIES
     )
 
 
 def _spend(n: int) -> str:
-    """+amount for outgoing non-savings rows, -amount for refunds, else 0."""
+    """+amount for outgoing non-neutral rows, -amount for refunds, else 0."""
     return (
-        f'(([.Data.G2:.Data.G{n}]="out"){_not_in(n, SAVINGS_CATEGORIES)}'
+        f'(([.Data.G2:.Data.G{n}]="out"){_not_in(n, NEUTRAL_CATEGORIES)}'
         f"-{_refund(n)})*[.Data.F2:.Data.F{n}]"
     )
 
 
 def _income(n: int) -> str:
-    """Amount of incoming rows that are neither refunds nor savings."""
+    """Amount of incoming rows that are neither refunds nor neutral."""
     return (
-        f'(([.Data.G2:.Data.G{n}]="in"){_not_in(n, SAVINGS_CATEGORIES)}'
+        f'(([.Data.G2:.Data.G{n}]="in"){_not_in(n, NEUTRAL_CATEGORIES)}'
         f"-{_refund(n)})*[.Data.F2:.Data.F{n}]"
     )
 
@@ -612,7 +613,7 @@ def write_dashboard_sheet(doc, transactions):
     # --- Top 10 Merchants (by total spend) ---
     merchant_totals: dict[str, float] = {}
     for tx in transactions:
-        if tx.get("direction") == "out" and not is_savings(tx):
+        if tx.get("direction") == "out" and not is_neutral(tx):
             desc = tx.get("description_clean") or tx.get("description_raw") or ""
             if desc:
                 amt = 0.0
@@ -1016,6 +1017,7 @@ def write_tags_sheet(doc, transactions):
                     f"+ISNUMBER(SEARCH([.A{row_num}];[.Data.S2:.Data.S{n}])))"
                     f">0)"
                     f'*([.Data.G2:.Data.G{n}]="out")'
+                    f"{_not_in(n, IGNORED_CATEGORIES)}"
                     f"*[.Data.F2:.Data.F{n}]))"
                 ),
             )
@@ -1031,6 +1033,7 @@ def write_tags_sheet(doc, transactions):
                     f'of:=IF(OR([.A{row_num}]="";[.C{row_num}]=0);"";'
                     f"[.C{row_num}]/"
                     f'SUMPRODUCT(([.Data.G2:.Data.G{n}]="out")'
+                    f"{_not_in(n, IGNORED_CATEGORIES)}"
                     f"*[.Data.F2:.Data.F{n}])*100)"
                 ),
             )
@@ -1092,7 +1095,7 @@ def write_recurring_sheet(doc, transactions):
         }
     )
     for tx in transactions:
-        if tx.get("direction") != "out":
+        if tx.get("direction") != "out" or is_ignored(tx):
             continue
         desc = tx.get("description_clean") or ""
         if not desc:

@@ -36,6 +36,32 @@ class TestRefundsInSummaries:
         assert summary["categories"][0]["total"] == 70
 
 
+class TestIgnoredInSummaries:
+    """Ignored transactions are neither income nor spending (#6)."""
+
+    @pytest.fixture
+    def conn(self, test_db):
+        conn = sqlite3.connect(str(test_db))
+        _insert(conn, "1", "2026-01", "out", "Health", 100)
+        _insert(conn, "2", "2026-01", "in", "Income", 2000)
+        _insert(conn, "3", "2026-01", "out", "Ignored", 900)
+        _insert(conn, "4", "2026-01", "in", "Ignored", 300)
+        yield conn
+        conn.close()
+
+    def test_monthly_summary_leaves_out_ignored(self, conn):
+        summary = _fetch_monthly_summary(conn, "2026-01")
+        assert summary["income"] == 2000
+        assert summary["expenses"] == 100
+        assert summary["categories"] == [{"name": "Health", "total": 100, "count": 1}]
+
+    def test_historical_summary_leaves_out_ignored(self, conn):
+        summary = _fetch_historical_summary(conn, "2026-02")
+        assert summary["total_income"] == 2000
+        assert summary["total_expenses"] == 100
+        assert [c["name"] for c in summary["categories"]] == ["Health"]
+
+
 class TestUncategorizedSpending:
     """A transaction without a category has NULL, or '' once its row was
     edited in the spreadsheet (a note added, a category cleared)."""
