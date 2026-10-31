@@ -645,6 +645,7 @@ TRF P/ Renda,description,Housing,Rent,transfer
 - Adding a pattern shorter than 4 characters without that trailing space (e.g. `EDP`) shows a warning, since it also matches every longer word starting with it; the rule is still added
 - Rules **never override manual edits** (categories you change in the ODS report). Categories set by rules are re-checked on every run, so editing or deleting a rule fixes the transactions it had categorized; a transaction no rule matches any more goes back to uncategorized
 - Clearing a category in the ODS hands that transaction back to the rules
+- A rules file with only its header line means "no rules": the next run returns every rule-set category to uncategorized. A missing or unreadable `data/rules.csv` is an error instead: the command stops before changing anything
 - After adding new rules, run `./run.sh` to apply them
 
 ---

@@ -10,6 +10,7 @@ import pytest
 from expense_tracker.db import migrate_schema
 from expense_tracker.parser import _get_cleaning_patterns, reset_cleaning_cache
 from expense_tracker.rules import (
+    RulesFileError,
     add_card,
     add_rule,
     categorize_transactions,
@@ -121,9 +122,25 @@ class TestLoadRules:
         assert r["category"] == "Groceries"
         assert "pattern_upper" in r
 
-    def test_missing_file_returns_empty(self, tmp_path):
-        rules = load_rules(tmp_path / "nonexistent.csv")
-        assert rules == []
+    def test_missing_file_is_an_error(self, tmp_path):
+        with pytest.raises(RulesFileError, match="not found"):
+            load_rules(tmp_path / "nonexistent.csv")
+
+    def test_header_only_file_is_an_empty_rule_set(self, tmp_path):
+        p = tmp_path / "rules.csv"
+        p.write_text("pattern,match_field,category,subcategory,payment_type\n")
+        assert load_rules(p) == []
+
+    @pytest.mark.parametrize(
+        "content",
+        [b"", b"name,category\nCONTINENTE,Groceries\n", b"pattern\n\xff\xfe\n"],
+        ids=["empty", "no-pattern-column", "not-utf8"],
+    )
+    def test_unreadable_file_is_an_error(self, tmp_path, content):
+        p = tmp_path / "rules.csv"
+        p.write_bytes(content)
+        with pytest.raises(RulesFileError, match="rules.csv"):
+            load_rules(p)
 
     def test_skips_empty_patterns(self, tmp_path):
         p = tmp_path / "rules.csv"
@@ -201,7 +218,32 @@ class TestCategorizeTransactions:
         conn.close()
         assert row[0] == "Manual"  # not overwritten
 
-    def test_empty_rules_returns_zero(self, populated_db):
+    def test_empty_rules_uncategorize_rule_rows(self, populated_db, rules_csv):
+        """With no rules left, nothing justifies a rule category any more;
+        manual categories stay."""
+        conn = sqlite3.connect(str(populated_db))
+        migrate_schema(conn)
+        categorize_transactions(conn, load_rules(rules_csv))
+        conn.execute(
+            "UPDATE transactions SET category = 'Household', category_source = 'manual' "
+            "WHERE description_raw LIKE '%FARMACIA%'"
+        )
+        rule_rows = conn.execute(
+            "SELECT COUNT(*) FROM transactions WHERE category_source = 'rule'"
+        ).fetchone()[0]
+
+        updated = categorize_transactions(conn, [])
+
+        rows = conn.execute(
+            "SELECT category, category_source FROM transactions "
+            "WHERE category IS NOT NULL"
+        ).fetchall()
+        conn.close()
+        assert rule_rows > 0
+        assert updated == rule_rows
+        assert rows == [("Household", "manual")]
+
+    def test_empty_rules_on_uncategorized_ledger_changes_nothing(self, populated_db):
         conn = sqlite3.connect(str(populated_db))
         migrate_schema(conn)
         updated = categorize_transactions(conn, [])

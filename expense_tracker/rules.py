@@ -144,6 +144,15 @@ def _load_cards_raw(cards_path: Path) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 
+class RulesFileError(Exception):
+    """The rules file is missing or cannot be read as rules.
+
+    Distinct from an empty rule set (a file with only the header), which is
+    valid and makes categorization return every rule-owned row to
+    uncategorized.
+    """
+
+
 def load_rules(rules_path: Path) -> list[dict]:
     """
     Load categorization rules from a CSV file.
@@ -155,35 +164,48 @@ def load_rules(rules_path: Path) -> list[dict]:
     word, so "PAO" matches "PÃO QUENTE" and "PAOZINHO" but not "JAPAO". A
     trailing space in the pattern ("BP ") also requires the match to end at a
     word boundary.
-    """
-    if not rules_path.exists():
-        print(
-            f"Warning: rules file not found at {rules_path}, skipping categorization."
-        )
-        return []
 
+    Raises RulesFileError when the file does not exist, cannot be read, or
+    has no "pattern" column: callers must not mistake it for an empty rule set.
+    """
     rules = []
-    with rules_path.open("r", encoding="utf-8") as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            raw_pattern = row.get("pattern", "")
-            pattern = raw_pattern.strip()
-            if not pattern:
-                continue
-            rules.append(
-                {
-                    "pattern": pattern,
-                    "pattern_upper": fold(pattern),
-                    "regex": _compile_pattern(
-                        pattern, whole_word=raw_pattern != raw_pattern.rstrip()
-                    ),
-                    "match_field": row.get("match_field", "description").strip(),
-                    "category": row.get("category", "").strip(),
-                    "subcategory": row.get("subcategory", "").strip(),
-                    "payment_type": row.get("payment_type", "").strip(),
-                }
-            )
+    for row in _read_rule_rows(rules_path):
+        raw_pattern = row.get("pattern", "")
+        pattern = raw_pattern.strip()
+        if not pattern:
+            continue
+        rules.append(
+            {
+                "pattern": pattern,
+                "pattern_upper": fold(pattern),
+                "regex": _compile_pattern(
+                    pattern, whole_word=raw_pattern != raw_pattern.rstrip()
+                ),
+                "match_field": row.get("match_field", "description").strip(),
+                "category": row.get("category", "").strip(),
+                "subcategory": row.get("subcategory", "").strip(),
+                "payment_type": row.get("payment_type", "").strip(),
+            }
+        )
     return rules
+
+
+def _read_rule_rows(rules_path: Path) -> list[dict]:
+    """The rows of the rules CSV, or RulesFileError (see load_rules)."""
+    if not rules_path.exists():
+        raise RulesFileError(f"Rules file not found: {rules_path}")
+    try:
+        with rules_path.open("r", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            rows = list(reader)
+            header = reader.fieldnames or []
+    except (OSError, UnicodeDecodeError, csv.Error) as e:
+        raise RulesFileError(f"Cannot read rules file {rules_path}: {e}") from e
+    if "pattern" not in header:
+        raise RulesFileError(
+            f"Rules file {rules_path} has no 'pattern' column in its header"
+        )
+    return rows
 
 
 def _compile_pattern(pattern: str, whole_word: bool) -> re.Pattern[str]:
@@ -204,14 +226,11 @@ def categorize_transactions(conn: sqlite3.Connection, rules: list[dict]) -> int:
 
     Rows categorized by a rule (category_source = 'rule') are re-evaluated, so
     editing or removing a rule corrects them; one that no rule matches any
-    more becomes uncategorized again. Manual categories are never touched.
+    more becomes uncategorized again, including every rule row when `rules`
+    is empty. Manual categories are never touched.
 
     Returns the number of transactions whose category or subcategory changed.
     """
-    if not rules:
-        # Also stops a missing rules file from wiping every rule category.
-        return 0
-
     _adopt_legacy_categories(conn, rules)
 
     rows = conn.execute("""

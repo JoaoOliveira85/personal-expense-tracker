@@ -56,6 +56,7 @@ from .pdf_parser import extract_pdf_date_range
 from .pdf_report import DEFAULT_REPORTS, generate_monthly_pdf, previous_month_label
 from .rules import (
     SHORT_PATTERN_LENGTH,
+    RulesFileError,
     add_card,
     add_rule,
     categorize_transactions,
@@ -224,6 +225,8 @@ def cmd_auto(args):
     _check_setup()
     _set_verbosity(args)
     dry = getattr(args, "dry_run", False)
+    # Before anything changes: an unreadable rules file stops the command
+    rules = load_rules(args.rules)
 
     # Auto-monthly backup: create one for the previous month if missing
     if not args.no_backup and not dry:
@@ -291,11 +294,9 @@ def cmd_auto(args):
     conn = sqlite3.connect(str(args.db))
     try:
         migrate_schema(conn)
-        rules = load_rules(args.rules)
-        if rules:
-            updated = categorize_transactions(conn, rules)
-            if updated:
-                _detail(f"Categorized {updated} transactions using {len(rules)} rules.")
+        updated = categorize_transactions(conn, rules)
+        if updated:
+            _detail(f"Categorized {updated} transactions using {len(rules)} rules.")
     finally:
         conn.close()
 
@@ -369,6 +370,8 @@ def cmd_report(args):
     """Handle the 'report' subcommand."""
     _check_setup()
     _set_verbosity(args)
+    # Before anything changes: an unreadable rules file stops the command
+    rules = load_rules(args.rules)
 
     output_format = getattr(args, "format", "xlsx")
 
@@ -391,10 +394,8 @@ def cmd_report(args):
     conn = sqlite3.connect(str(args.db))
     try:
         migrate_schema(conn)
-        rules = load_rules(args.rules)
-        if rules:
-            updated = categorize_transactions(conn, rules)
-            _detail(f"Categorized {updated} transactions using {len(rules)} rules.")
+        updated = categorize_transactions(conn, rules)
+        _detail(f"Categorized {updated} transactions using {len(rules)} rules.")
     finally:
         conn.close()
 
@@ -1561,4 +1562,8 @@ def main() -> None:
     if args.cmd is None:
         args = ap.parse_args(sys.argv[1:] + ["auto"])
 
-    args.func(args)
+    try:
+        args.func(args)
+    except RulesFileError as e:
+        print(f"Error: {e}. Nothing was changed.")
+        sys.exit(1)
