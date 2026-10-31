@@ -707,3 +707,31 @@ class TestMiscellaneous:
         at = _open_page("Dashboard")
         assert not [w for w in at.warning if "uncategorized" in w.value]
         assert "1 / 1 expenses categorized (100%)" in [c.value for c in at.caption]
+
+
+class TestIgnored:
+    """Ignored rows are in no total, and Ignored is offered for rules (#6)."""
+
+    def test_dashboard_totals_leave_it_out(self, project):
+        conn = sqlite3.connect(str(project.db))
+        ensure_schema(conn)
+        migrate_schema(conn)
+        TestDashboardTotals._insert(None, conn, "salary", "in", 2000.0, "Income")
+        TestDashboardTotals._insert(None, conn, "groceries", "out", 500.0, "Groceries")
+        TestDashboardTotals._insert(None, conn, "to_own", "out", 900.0, "Ignored")
+        TestDashboardTotals._insert(None, conn, "from_own", "in", 300.0, "Ignored")
+        conn.commit()
+        conn.close()
+
+        at = _open_page("Dashboard")
+
+        metrics = {m.label: m.value for m in at.metric}
+        assert metrics["Total Expenses"] == "500.00 €"
+        assert metrics["Total Income"] == "2,000.00 €"
+        assert metrics["Net"] == "1,500.00 €"
+
+    def test_merchant_panel_offers_it(self, project):
+        _insert_expense(project.db, "t1", "OWN ACCOUNT")
+        at = _open_page("Categorize")
+
+        assert "Ignored" in at.selectbox(key="cat_OWN ACCOUNT").options

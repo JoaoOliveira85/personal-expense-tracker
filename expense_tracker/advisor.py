@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from .constants import DEFAULT_ADVISOR_DIR, DEFAULT_DB
-from .db import INCOME_SQL, NOT_SAVINGS_SQL, REFUND_SQL, SPEND_SQL
+from .db import INCOME_SQL, NOT_NEUTRAL_SQL, REFUND_SQL, SPEND_SQL
 from .pdf_report import month_display_name, previous_month_label
 
 # ---------------------------------------------------------------------------
@@ -147,7 +147,7 @@ def _fetch_monthly_summary(
             SUM({SPEND_SQL}) as total,
             SUM(direction = 'out') as count
         FROM transactions
-        WHERE month = ? AND (direction = 'out' OR {REFUND_SQL}) AND {NOT_SAVINGS_SQL}
+        WHERE month = ? AND (direction = 'out' OR {REFUND_SQL}) AND {NOT_NEUTRAL_SQL}
         GROUP BY 1
         ORDER BY total DESC
     """,
@@ -162,7 +162,7 @@ def _fetch_monthly_summary(
             SUM(amount_abs) as total,
             COUNT(*) as count
         FROM transactions
-        WHERE month = ? AND direction = 'out' AND {NOT_SAVINGS_SQL}
+        WHERE month = ? AND direction = 'out' AND {NOT_NEUTRAL_SQL}
         GROUP BY description_clean
         ORDER BY total DESC
         LIMIT 10
@@ -226,7 +226,7 @@ def _fetch_historical_summary(
             AVG(CASE WHEN direction = 'out' THEN amount_abs END) as avg_per_tx,
             SUM(direction = 'out') as count
         FROM transactions
-        WHERE month < ? AND (direction = 'out' OR {REFUND_SQL}) AND {NOT_SAVINGS_SQL}
+        WHERE month < ? AND (direction = 'out' OR {REFUND_SQL}) AND {NOT_NEUTRAL_SQL}
         GROUP BY 1
         ORDER BY total DESC
     """,

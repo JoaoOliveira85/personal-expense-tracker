@@ -517,6 +517,7 @@ class TestRefunds:
             (_t("in", None), False),
             (_t("out", "Health"), False),
             (_t("in", "Savings"), False),
+            (_t("in", "Ignored"), False),
         ],
     )
     def test_is_refund(self, tx, expected):
@@ -532,6 +533,8 @@ class TestRefunds:
             (_t("in", "", 30), 0),
             (_t("out", "Savings", 30), 0),
             (_t("in", "Savings", 30), 0),
+            (_t("out", "Ignored", 30), 0),
+            (_t("in", "Ignored", 30), 0),
         ],
     )
     def test_spend_amount(self, tx, expected):
@@ -545,8 +548,46 @@ class TestRefunds:
             (_t("in", ""), True),
             (_t("in", "Health"), False),
             (_t("in", "Savings"), False),
+            (_t("in", "Ignored"), False),
             (_t("out", "Income"), False),
         ],
     )
     def test_is_income(self, tx, expected):
         assert is_income(tx) is expected
+
+
+class TestSqlHelpers:
+    """The SQL helpers agree with the Python ones, Ignored included (#6)."""
+
+    @pytest.mark.parametrize(
+        "direction, category, spend, income",
+        [
+            ("out", "Health", 30, 0),
+            ("in", "Health", -30, 0),
+            ("in", "Income", 0, 30),
+            ("in", "Transfers", 0, 30),
+            ("out", "Transfers", 30, 0),
+            ("out", "Savings", 0, 0),
+            ("in", "Savings", 0, 0),
+            ("out", "Ignored", 0, 0),
+            ("in", "Ignored", 0, 0),
+        ],
+    )
+    def test_spend_and_income(self, direction, category, spend, income):
+        from expense_tracker.db import INCOME_SQL, SPEND_SQL
+
+        conn = sqlite3.connect(":memory:")
+        conn.execute(
+            "CREATE TABLE transactions (direction TEXT, category TEXT, amount_abs REAL)"
+        )
+        conn.execute(
+            "INSERT INTO transactions VALUES (?, ?, 30)", (direction, category)
+        )
+        got = conn.execute(
+            f"SELECT {SPEND_SQL}, CASE WHEN {INCOME_SQL} THEN amount_abs ELSE 0 END "
+            "FROM transactions"
+        ).fetchone()
+        conn.close()
+        assert got == (spend, income)
+        assert spend_amount(_t(direction, category, 30)) == spend
+        assert is_income(_t(direction, category)) is bool(income)

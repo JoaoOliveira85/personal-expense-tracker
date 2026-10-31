@@ -285,10 +285,11 @@
   <strong>Add your own sheets!</strong> In the ODS you can create as many custom sheets as you want with your own formulas and charts. The tool will never touch them. Refer to whole columns there (<code>Data.F:F</code>) so new rows are always included.
 </div>
 
-<h3>Refunds and savings</h3>
+<h3>Refunds, savings and ignored transactions</h3>
 <ul>
   <li><strong>Refunds</strong> &mdash; Money coming <em>in</em> with a spending category (e.g. a pharmacy refund categorized as Health) is subtracted from that category's spending, not counted as income.</li>
   <li><strong>Savings</strong> &mdash; Transactions categorized <code>Savings</code> count as neither spending nor income, so Net shows only what you earned and spent.</li>
+  <li><strong>Ignored</strong> &mdash; Transactions categorized <code>Ignored</code> (e.g. transfers between your own accounts, or a card bill payment whose purchases are already counted) are neither income nor spending and appear in no total, chart or ranking; they stay in the ledger. Add a rule with category <code>Ignored</code> to ignore them as they arrive.</li>
   <li><strong>Miscellaneous</strong> &mdash; For a transaction you have looked at that has no better category. It is ordinary spending under its own name, and the row no longer counts as uncategorized.</li>
 </ul>
 

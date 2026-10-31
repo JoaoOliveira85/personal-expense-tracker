@@ -49,7 +49,7 @@ Centralizes all default paths and column definitions. Every other module imports
 - `DEFAULT_*` paths — all configurable file locations
 - `DATA_COLUMNS` / `DATA_HEADERS` — column order for the Data sheet and CSV export (these two lists must stay in sync)
 - `COL_*` — zero-based column indices for ODS sync-back (must match `DATA_COLUMNS` order)
-- `NON_SPENDING_CATEGORIES` / `SAVINGS_CATEGORIES` — categories with special money semantics (see `db.py`); `MISCELLANEOUS` — the built-in "no better category" choice, offered wherever a category is picked but otherwise an ordinary spending category
+- `NON_SPENDING_CATEGORIES` / `SAVINGS_CATEGORIES` / `IGNORED_CATEGORIES` — categories with special money semantics (see `db.py`); `NEUTRAL_CATEGORIES` (savings + ignored) are neither income nor spending in either direction; `MISCELLANEOUS` — the built-in "no better category" choice, offered wherever a category is picked but otherwise an ordinary spending category
 
 **If you add a new column:** Update `DATA_COLUMNS`, `DATA_HEADERS`, and add a `COL_*` constant if it needs sync-back. Also update `_build_data_sheet()` in `ods.py` (column styles) and `fetch_all_transactions()` in `db.py` (SELECT query).
 
@@ -188,7 +188,7 @@ Monthly PDF report generator using `fpdf2`. Produces a single-page A4 summary fo
 
 **Key functions:**
 - `generate_monthly_pdf(db_path, month, output_path, desc_notes_path)` — Main entry point. Fetches transactions for the given month, computes stats, and renders a PDF.
-- `_compute_stats(transactions, merchant_notes)` — Computes all summary statistics: income/expenses, category breakdown, top merchants, tag totals, uncategorized count. Refunds (`db.is_refund`: incoming money in a category outside `NON_SPENDING_CATEGORIES` and `SAVINGS_CATEGORIES`) are subtracted from their category and from expenses, not added to income. `SAVINGS_CATEGORIES` transactions count as neither spending nor income (`db.is_savings`, `counts_as_spending`, `is_income`). The same rules are implemented as `SPEND_SQL`/`REFUND_SQL`/`INCOME_SQL`/`NOT_SAVINGS_SQL` (advisor, PDF history), `_spend()`/`_income()` formula builders in `xlsx.py` and `ods_sheets.py`, and the `spend` field added by `fetch_all_transactions()` (GUI).
+- `_compute_stats(transactions, merchant_notes)` — Computes all summary statistics: income/expenses, category breakdown, top merchants, tag totals, uncategorized count. Refunds (`db.is_refund`: incoming money in a category outside `NON_SPENDING_CATEGORIES` and `NEUTRAL_CATEGORIES`) are subtracted from their category and from expenses, not added to income. `NEUTRAL_CATEGORIES` transactions (`Savings`, `Ignored`) count as neither spending nor income (`db.is_neutral`, `counts_as_spending`, `is_income`); `Ignored` rows (`db.is_ignored`) are also left out of the Tags and Recurring Merchants sheets. The same rules are implemented as `SPEND_SQL`/`REFUND_SQL`/`INCOME_SQL`/`NOT_NEUTRAL_SQL` (advisor, PDF history), `_spend()`/`_income()` formula builders in `xlsx.py` and `ods_sheets.py`, and the `spend` field added by `fetch_all_transactions()` (GUI).
 - `previous_month_label()` — Returns the YYYY-MM label for the previous month.
 - `_setup_fonts(pdf)` — Tries to register a system Unicode font; falls back to built-in Helvetica.
 

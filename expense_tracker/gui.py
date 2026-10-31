@@ -42,8 +42,9 @@ from expense_tracker.constants import (
     DEFAULT_RAW,
     DEFAULT_REPORTS,
     DEFAULT_RULES,
+    IGNORED_CATEGORIES,
     MISCELLANEOUS,
-    SAVINGS_CATEGORIES,
+    NEUTRAL_CATEGORIES,
 )
 from expense_tracker.db import (
     IngestError,
@@ -255,10 +256,10 @@ if page == "Dashboard":
     # Summary metrics
     expenses = df[df["direction"] == "out"]
     # Refunds (spend < 0) reduce spending instead of counting as income;
-    # savings deposits and withdrawals are neither
-    savings = df["category"].isin(SAVINGS_CATEGORIES)
+    # savings and ignored transactions are neither
+    neutral = df["category"].isin(NEUTRAL_CATEGORIES)
     spending = df[df["spend"] != 0]
-    income = df[(df["direction"] == "in") & (df["spend"] == 0) & ~savings]
+    income = df[(df["direction"] == "in") & (df["spend"] == 0) & ~neutral]
 
     col1, col2, col3, col4 = st.columns(4)
     total_expenses = df["spend"].sum()
@@ -318,7 +319,7 @@ if page == "Dashboard":
 
     with col_d:
         st.subheader("Top 10 Merchants")
-        spent = expenses[~expenses["category"].isin(SAVINGS_CATEGORIES)]
+        spent = expenses[~expenses["category"].isin(NEUTRAL_CATEGORIES)]
         if not spent.empty:
             top = (
                 spent.groupby("description_clean")["amount_abs"]
@@ -447,10 +448,11 @@ elif page == "Categorize":
         "Categorize by merchant — all transactions with the same description get the rule."
     )
 
-    # Existing categories for the selectbox, and Miscellaneous for a merchant
-    # with no better home
+    # Existing categories for the selectbox, Miscellaneous for a merchant
+    # with no better home, and Ignored for one to leave out of every figure
     existing_cats = sorted(
-        {c for c in df["category"].dropna().unique() if c} | {MISCELLANEOUS},
+        {c for c in df["category"].dropna().unique() if c}
+        | {MISCELLANEOUS, *IGNORED_CATEGORIES},
         key=str.lower,
     )
 
@@ -568,7 +570,11 @@ elif page == "Rules":
         with col2:
             category = st.text_input(
                 "Category",
-                help=f"Use {MISCELLANEOUS} for transactions with no better category.",
+                help=(
+                    f"Use {MISCELLANEOUS} for transactions with no better "
+                    f"category, and {IGNORED_CATEGORIES[0]} for ones to leave out "
+                    "of every total (e.g. transfers between your own accounts)."
+                ),
             )
             subcategory = st.text_input("Subcategory (optional)")
 
