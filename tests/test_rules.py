@@ -295,6 +295,22 @@ class TestMatchRuleWordBoundary:
         assert _category(rules, "COMPRA 1234 XYZ", "CONTINENTE") == "Groceries"
 
 
+class TestMatchRuleDescriptionsSeparately:
+    """A description rule tests raw and clean text apart, never their join."""
+
+    def test_does_not_match_across_raw_and_clean(self, tmp_path):
+        rules = _rules(tmp_path, "LISBOA PINGO,description,Groceries,,")
+        assert _category(rules, "COMPRA 1234 LISBOA", "PINGO DOCE") is None
+
+    def test_matches_both_words_in_raw_alone(self, tmp_path):
+        rules = _rules(tmp_path, "LISBOA PINGO,description,Groceries,,")
+        assert _category(rules, "COMPRA LISBOA PINGO DOCE", "XYZ") == "Groceries"
+
+    def test_matches_both_words_in_clean_alone(self, tmp_path):
+        rules = _rules(tmp_path, "LISBOA PINGO,description,Groceries,,")
+        assert _category(rules, "COMPRA 1234", "LISBOA PINGO DOCE") == "Groceries"
+
+
 class TestMatchRuleSpecificity:
     def test_longer_pattern_beats_earlier_shorter_one(self, tmp_path):
         rules = _rules(

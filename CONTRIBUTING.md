@@ -125,7 +125,7 @@ Rule and card-holder management, plus the categorization engine.
 - `categorize_transactions(conn, rules)` — Applies rules via `match_rule()` to uncategorized and rule-categorized transactions, recording `category_source = 'rule'`; rule rows no rule matches any more become uncategorized. Never touches `category_source = 'manual'` rows (set by ODS sync-back). On first run, categories predating `category_source` are adopted as `rule` only if they equal what the old first-substring-match algorithm gives with the current rules, otherwise `manual`.
 - `match_rule(rules, desc_raw, desc_clean)` — Returns the winning rule or `None`. Patterns are case-insensitive and must start at a word boundary (a trailing space also requires one at the end). The longest matching pattern wins; ties fall back to file order.
 
-**Matching behavior:** When `match_field` is `description` (default), the rule pattern is matched against **both** the raw and cleaned descriptions (concatenated). When `match_field` is `description_raw`, only the raw description is searched.
+**Matching behavior:** When `match_field` is `description` (default), the rule pattern is matched against the raw and the cleaned description **separately** and matches if either does; a pattern never matches text spanning the two. When `match_field` is `description_raw`, only the raw description is searched.
 
 ### `expense_tracker/ods.py`
 

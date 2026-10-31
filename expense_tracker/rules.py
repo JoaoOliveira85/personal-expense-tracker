@@ -261,9 +261,8 @@ def _legacy_match(
 
 
 def _match_targets(desc_raw: str | None, desc_clean: str | None) -> tuple[str, str]:
-    """Uppercased text searched by description_raw rules and by all others."""
+    """Uppercased text the legacy matcher searches: raw only, or raw + clean."""
     raw = (desc_raw or "").upper()
-    # Default: match against both raw and clean descriptions
     return raw, raw + " " + (desc_clean or "").upper()
 
 
@@ -272,17 +271,25 @@ def match_rule(
 ) -> dict | None:
     """Return the rule that categorizes a transaction, or None.
 
+    A description rule is tested against the raw and the cleaned description
+    separately, so a pattern never matches text spanning the two; a
+    description_raw rule only against the raw one.
+
     The most specific (longest) matching pattern wins, so "UBER EATS" beats
     "UBER" regardless of where each sits in the file. Ties go to file order.
     """
-    raw, both = _match_targets(desc_raw, desc_clean)
+    raw = (desc_raw or "").upper()
+    clean = (desc_clean or "").upper()
 
     best = None
     for rule in rules:
-        target = raw if rule["match_field"] == "description_raw" else both
+        targets = (raw,) if rule["match_field"] == "description_raw" else (raw, clean)
         # The substring test is a cheap prefilter: every word-boundary match
         # is also a substring match, and most rules match neither.
-        if rule["pattern_upper"] in target and rule["regex"].search(target):
+        if any(
+            rule["pattern_upper"] in target and rule["regex"].search(target)
+            for target in targets
+        ):
             if best is None or len(rule["pattern"]) > len(best["pattern"]):
                 best = rule
     return best
