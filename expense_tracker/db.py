@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import sqlite3
+from collections import Counter
 from datetime import datetime
 from pathlib import Path
 from typing import Iterable
@@ -21,9 +22,8 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 
-def tx_id(row: dict) -> str:
-    """Stable hash for deduplication. Includes balance to reduce collisions."""
-    key = "|".join(
+def _id_fields(row: dict) -> str:
+    return "|".join(
         [
             row["account"],
             row["date_posted"],
@@ -33,6 +33,19 @@ def tx_id(row: dict) -> str:
             f"{row['balance']:.2f}",
         ]
     )
+
+
+def tx_id(row: dict, occurrence: int = 1) -> str:
+    """Stable hash for deduplication. Includes balance to reduce collisions.
+
+    ``occurrence`` is the row's 1-based position among the rows of its file
+    that share all the hashed fields: two identical purchases on a statement
+    that prints no balance. Only later occurrences add it to the key, so the
+    first keeps the id it always had.
+    """
+    key = _id_fields(row)
+    if occurrence > 1:
+        key += f"|{occurrence}"
     return hashlib.sha1(key.encode("utf-8")).hexdigest()[:16]
 
 
@@ -203,8 +216,11 @@ def ingest(
             try:
                 rows = _parse_file(p, cards_path, bank_id)
                 inserted = 0
+                seen: Counter[str] = Counter()
                 for r in rows:
-                    r["transaction_id"] = tx_id(r)
+                    fields = _id_fields(r)
+                    seen[fields] += 1
+                    r["transaction_id"] = tx_id(r, seen[fields])
                     r["imported_at"] = now
 
                     cur = conn.execute(

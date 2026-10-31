@@ -106,7 +106,7 @@ The original UTF-16 CSV parser. Still used internally by `parsers/utf16_csv.py` 
 SQLite storage layer. Handles schema creation, migrations, ingestion, and queries.
 
 **Key functions:**
-- `tx_id(row)` — Generates a 16-character hex hash (SHA-1) for deduplication. The hash key includes account, dates, description, amount, and balance.
+- `tx_id(row, occurrence=1)` — Generates a 16-character hex hash (SHA-1) for deduplication. The hash key includes account, dates, description, amount, and balance. `ingest()` passes each row's occurrence: its 1-based position among the rows of the same file that share those six fields (identical purchases on a statement without a balance column). Only occurrences above 1 are added to the key, so the first keeps the id it always had.
 - `ensure_schema(conn)` — Creates the `transactions` table if it doesn't exist.
 - `migrate_schema(conn)` — Adds columns that may be missing from an older schema (for forward compatibility), and the `ods_baseline` table used by ODS sync-back.
 - `ingest(db_path, paths, cards_path, bank_id)` — Parses files using the multi-bank parser framework (auto-detection or explicit `bank_id`) and inserts rows with `INSERT OR IGNORE` for deduplication. PDFs go to the PDF parser; a file that is neither `.csv` nor `.pdf` goes to the legacy UTF-16 parser when no `bank_id` is given. Each file is imported in its own transaction: a file that fails is reported and skipped, and `IngestError` is raised once the others are in.
@@ -389,7 +389,7 @@ Analysis sheets (Dashboard, Monthly Summary, etc.) contain starter formulas that
 
 ### Why `INSERT OR IGNORE` for deduplication?
 
-The `tx_id()` hash includes enough fields (account, dates, description, amount, balance) to make collisions extremely unlikely for real bank data. `INSERT OR IGNORE` makes re-importing idempotent — the same file can be imported multiple times safely.
+The `tx_id()` hash includes account, dates, description, amount and balance. When a statement prints a running balance, two real transactions never share all of them; when it prints none (the parsers store `0.0`), two identical purchases on one day would, so `ingest()` also hashes each repeat's occurrence within its file. `INSERT OR IGNORE` makes re-importing idempotent — the same file can be imported multiple times safely, and an overlapping statement adds only the rows (and repeats) that are new.
 
 ### Why a Protocol-based parser architecture?
 

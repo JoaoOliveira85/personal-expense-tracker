@@ -225,6 +225,8 @@ python bank_ingest.py ingest --dry-run raw/EXPORT_0_1022026.csv  # preview only
 
 The `ingest` command auto-renames files based on the date range inside the CSV or PDF (e.g. `EXPORT_0_1022026.csv` → `2026-01.csv`). Use `--no-rename` to skip this. Only UTF-16 CSV statements are renamed: a CSV from another bank keeps its name. When a CSV with a wider date range takes the name of an existing `YYYY-MM.csv`, the file it replaces is kept beside it as `YYYY-MM.csv.replaced`.
 
+Importing a file again adds only the transactions that are not in the database yet, so re-importing a statement, or a wider one that overlaps it, is safe. Two identical transactions in one statement (same day, description and amount, on a statement that prints no balance, e.g. two coffees) are both kept. Imports made before this was fixed kept only the first of each such pair: run `ingest` on those statements again to add the missing ones.
+
 ### `report`
 
 Apply rules and regenerate the report (without importing new data).
