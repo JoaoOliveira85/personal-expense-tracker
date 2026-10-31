@@ -32,6 +32,7 @@ FIRST_HALF = [
         "1000,00",
     ),
 ]
+RULES_HEADER = "pattern,match_field,category,subcategory,payment_type\n"
 SECOND_HALF = [
     ("28-01-2026", "28-01-2026", "COMPRA 1234 LIDL", "-20,00", "Compra", "924,50"),
     ("20-01-2026", "20-01-2026", "COMPRA 1234 FARMACIA", "-10,00", "Compra", "944,50"),
@@ -43,6 +44,7 @@ def workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """A project directory with data/ and raw/, used as the working directory."""
     (tmp_path / "data").mkdir()
     (tmp_path / "raw").mkdir()
+    (tmp_path / "data" / "rules.csv").write_text(RULES_HEADER, encoding="utf-8")
     monkeypatch.chdir(tmp_path)
     reset_cleaning_cache()
     yield tmp_path
@@ -475,3 +477,82 @@ class TestRulesAddShortPattern:
 
         out = capsys.readouterr().out
         assert "shorter than 4 characters" in out
+
+
+def _categories(db_path: Path) -> list[tuple]:
+    conn = sqlite3.connect(str(db_path))
+    try:
+        return conn.execute(
+            "SELECT description_raw, category, category_source FROM transactions "
+            "ORDER BY description_raw"
+        ).fetchall()
+    finally:
+        conn.close()
+
+
+class TestRulesFile:
+    """An empty rules file is an empty rule set; a missing one is an error."""
+
+    @pytest.fixture
+    def categorized(self, workspace: Path) -> Path:
+        """FIRST_HALF imported: CONTINENTE by rule, PINGO DOCE by hand."""
+        db = workspace / "data" / "ledger.sqlite"
+        statement = make_utf16_csv(workspace / "raw" / "2026-01.csv", FIRST_HALF)
+        ingest(db, [statement], cards_path=workspace / "none.csv")
+        conn = sqlite3.connect(str(db))
+        try:
+            cli.migrate_schema(conn)
+            rules = workspace / "continente.csv"
+            rules.write_text(
+                RULES_HEADER + "CONTINENTE,description,Groceries,,\n", encoding="utf-8"
+            )
+            cli.categorize_transactions(conn, cli.load_rules(rules))
+            conn.execute(
+                "UPDATE transactions SET category = 'Groceries', "
+                "category_source = 'manual' WHERE description_raw LIKE '%PINGO%'"
+            )
+            conn.commit()
+        finally:
+            conn.close()
+        return db
+
+    def _main(self, monkeypatch, *argv: str) -> None:
+        monkeypatch.setattr("sys.argv", ["bank_ingest.py", "-q", *argv])
+        cli.main()
+
+    def test_empty_rules_file_uncategorizes_rule_rows(
+        self, workspace: Path, categorized: Path, monkeypatch
+    ):
+        self._main(monkeypatch, "report")
+
+        assert _categories(categorized) == [
+            ("COMPRA 1234 CONTINENTE", None, None),
+            ("COMPRA 1234 PINGO DOCE", "Groceries", "manual"),
+        ]
+
+    def test_missing_rules_file_stops_report_and_changes_nothing(
+        self, workspace: Path, categorized: Path, monkeypatch, capsys
+    ):
+        (workspace / "data" / "rules.csv").unlink()
+        before = _categories(categorized)
+
+        with pytest.raises(SystemExit) as exit_info:
+            self._main(monkeypatch, "report")
+
+        assert exit_info.value.code == 1
+        assert "rules.csv" in capsys.readouterr().out
+        assert _categories(categorized) == before
+        assert not (workspace / "expense-report.xlsx").exists()
+
+    def test_missing_rules_file_stops_auto_before_importing(
+        self, workspace: Path, monkeypatch, capsys
+    ):
+        (workspace / "data" / "rules.csv").unlink()
+        make_utf16_csv(workspace / "raw" / "2026-01.csv", FIRST_HALF)
+
+        with pytest.raises(SystemExit) as exit_info:
+            self._main(monkeypatch, "auto", "--no-backup")
+
+        assert exit_info.value.code == 1
+        assert "rules.csv" in capsys.readouterr().out
+        assert not (workspace / "data" / "ledger.sqlite").exists()

@@ -60,6 +60,7 @@ from expense_tracker.email_fetch import (
 from expense_tracker.ods import generate_ods, sync_from_ods
 from expense_tracker.rules import (
     SHORT_PATTERN_LENGTH,
+    RulesFileError,
     add_rule,
     categorize_transactions,
     load_rules,
@@ -119,6 +120,16 @@ def _add_rule(
     add_rule(DEFAULT_RULES, pattern, match_field, category, subcategory)
     if warning := short_pattern_warning(pattern):
         st.session_state["rule_warning"] = warning
+
+
+def _load_rules() -> list[dict]:
+    """load_rules(), or stop the page with the error: an unreadable rules
+    file must not be applied as an empty rule set."""
+    try:
+        return load_rules(DEFAULT_RULES)
+    except RulesFileError as e:
+        st.error(f"{e}. Stopped: nothing was imported or categorized.")
+        st.stop()
 
 
 def _show_rule_warning() -> None:
@@ -454,8 +465,8 @@ elif page == "Categorize":
                     new_cat = st.text_input("New category name", key=f"new_{merchant}")
                     if new_cat and st.button("Add Rule", key=f"btn_{merchant}"):
                         _add_rule(merchant, "description", new_cat)
+                        rules = _load_rules()
                         conn = _get_connection(db_path)
-                        rules = load_rules(DEFAULT_RULES)
                         categorize_transactions(conn, rules)
                         conn.close()
                         _load_transactions.clear()
@@ -464,8 +475,8 @@ elif page == "Categorize":
                 elif selected != "-- Select --":
                     if st.button("Add Rule", key=f"btn_{merchant}"):
                         _add_rule(merchant, "description", selected)
+                        rules = _load_rules()
                         conn = _get_connection(db_path)
-                        rules = load_rules(DEFAULT_RULES)
                         categorize_transactions(conn, rules)
                         conn.close()
                         _load_transactions.clear()
@@ -476,8 +487,8 @@ elif page == "Categorize":
     # Quick: apply all rules
     st.subheader("Apply Rules")
     if st.button("Re-apply all categorization rules"):
+        rules = _load_rules()
         conn = _get_connection(db_path)
-        rules = load_rules(DEFAULT_RULES)
         updated = categorize_transactions(conn, rules)
         conn.close()
         _load_transactions.clear()
@@ -493,11 +504,17 @@ elif page == "Rules":
     st.title("Categorization Rules")
     _show_rule_warning()
 
-    rules = load_rules(DEFAULT_RULES)
-
-    if not rules:
-        st.info("No rules defined yet.")
+    try:
+        rules = load_rules(DEFAULT_RULES)
+    except RulesFileError as e:
+        # Still offer the form below: adding a rule creates a missing file
+        st.error(str(e))
+        rules = []
     else:
+        if not rules:
+            st.info("No rules defined yet.")
+
+    if rules:
         rules_df = pd.DataFrame(rules)
         display_cols = [
             "pattern",
@@ -589,14 +606,13 @@ elif page == "Import":
             st.caption(f"Saved: {dest.name}")
 
         if st.button("Ingest uploaded files"):
+            rules = _load_rules()
             with st.spinner("Importing..."):
                 import_result = _ingest_files(saved_files)
                 # Save unsynced ODS edits before the report is regenerated
                 sync_from_ods(DEFAULT_DB, DEFAULT_ODS, DEFAULT_DESC_NOTES)
                 conn = _get_connection(db_path)
-                rules = load_rules(DEFAULT_RULES)
-                if rules:
-                    categorize_transactions(conn, rules)
+                categorize_transactions(conn, rules)
                 conn.close()
                 generate_ods(DEFAULT_DB, DEFAULT_RULES, DEFAULT_ODS, DEFAULT_DESC_NOTES)
                 _load_transactions.clear()
@@ -748,6 +764,7 @@ elif page == "Tools":
                         for f in downloaded:
                             st.caption(f"  {f.name}")
                         if auto_ingest:
+                            rules = _load_rules()
                             with st.spinner("Ingesting downloaded files..."):
                                 import_result = _ingest_files(downloaded)
                                 # Save unsynced ODS edits before regenerating
@@ -755,9 +772,7 @@ elif page == "Tools":
                                     DEFAULT_DB, DEFAULT_ODS, DEFAULT_DESC_NOTES
                                 )
                                 conn = _get_connection(db_path)
-                                rules = load_rules(DEFAULT_RULES)
-                                if rules:
-                                    categorize_transactions(conn, rules)
+                                categorize_transactions(conn, rules)
                                 conn.close()
                                 generate_ods(
                                     DEFAULT_DB,
@@ -786,16 +801,14 @@ elif page == "Tools":
     sync_col1, sync_col2 = st.columns(2)
     with sync_col1:
         if st.button("Sync ODS & Regenerate Report"):
+            rules = _load_rules()
             with st.spinner("Syncing and regenerating..."):
                 # Sync manual edits from ODS
                 synced = sync_from_ods(DEFAULT_DB, DEFAULT_ODS, DEFAULT_DESC_NOTES)
 
                 # Apply rules
                 conn = _get_connection(db_path)
-                rules = load_rules(DEFAULT_RULES)
-                updated = 0
-                if rules:
-                    updated = categorize_transactions(conn, rules)
+                updated = categorize_transactions(conn, rules)
                 conn.close()
 
                 # Regenerate ODS
@@ -812,9 +825,9 @@ elif page == "Tools":
 
     with sync_col2:
         if st.button("Re-apply All Rules"):
+            rules = _load_rules()
             with st.spinner("Applying rules..."):
                 conn = _get_connection(db_path)
-                rules = load_rules(DEFAULT_RULES)
                 updated = categorize_transactions(conn, rules)
                 conn.close()
                 _load_transactions.clear()
@@ -992,8 +1005,8 @@ elif page == "Tools":
                             "page to match only the whole word."
                         )
                     # Re-apply rules after import
+                    rules = _load_rules()
                     conn = _get_connection(db_path)
-                    rules = load_rules(DEFAULT_RULES)
                     categorize_transactions(conn, rules)
                     conn.close()
                     _load_transactions.clear()

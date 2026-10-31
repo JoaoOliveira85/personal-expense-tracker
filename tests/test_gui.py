@@ -598,3 +598,53 @@ class TestShortPatternWarning:
         assert not at.exception
         assert "EDP" in _patterns(project.rules)
         assert any("'EDP'" in w.value for w in at.warning)
+
+
+class TestMissingRulesFile:
+    """A rules file that cannot be read is shown as an error, and nothing is
+    categorized or imported."""
+
+    def test_reapplying_rules_shows_the_error(self, project):
+        _insert_expense(project.db, "t1", "EDP", "Utilities")
+        conn = sqlite3.connect(str(project.db))
+        conn.execute("UPDATE transactions SET category_source = 'rule'")
+        conn.commit()
+        conn.close()
+        project.rules.unlink()
+
+        at = _click(_open_page("Tools"), "Re-apply All Rules")
+
+        assert not at.exception
+        assert any("rules.csv" in e.value for e in at.error)
+        conn = sqlite3.connect(str(project.db))
+        assert conn.execute("SELECT category FROM transactions").fetchall() == [
+            ("Utilities",)
+        ]
+        conn.close()
+
+    def test_import_stops_before_ingesting(self, project, tmp_path):
+        project.rules.unlink()
+        at = _open_page("Import")
+        at.file_uploader[0].upload(
+            "january.csv", _statement(tmp_path, "january.csv"), "text/csv"
+        ).run()
+
+        at = _click(at, "Ingest uploaded files")
+
+        assert not at.exception
+        assert any("rules.csv" in e.value for e in at.error)
+        assert not project.db.exists() or _transaction_count(project.db) == 0
+
+    def test_rules_page_shows_the_error_and_still_adds(self, project):
+        project.rules.unlink()
+        at = _open_page("Rules")
+
+        assert any("rules.csv" in e.value for e in at.error)
+        next(t for t in at.text_input if t.label.startswith("Pattern")).input(
+            "CONTINENTE"
+        )
+        next(t for t in at.text_input if t.label == "Category").input("Groceries")
+        at = next(b for b in at.button if b.label == "Add Rule").click().run()
+
+        assert not at.exception
+        assert _patterns(project.rules) == ["CONTINENTE"]
