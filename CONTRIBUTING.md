@@ -108,12 +108,14 @@ SQLite storage layer. Handles schema creation, migrations, ingestion, and querie
 **Key functions:**
 - `tx_id(row, occurrence=1)` — Generates a 16-character hex hash (SHA-1) for deduplication. The hash key includes account, dates, description, amount, and balance. `ingest()` passes each row's occurrence: its 1-based position among the rows of the same file that share those six fields (identical purchases on a statement without a balance column). Only occurrences above 1 are added to the key, so the first keeps the id it always had.
 - `ensure_schema(conn)` — Creates the `transactions` table if it doesn't exist.
-- `migrate_schema(conn)` — Adds columns that may be missing from an older schema (for forward compatibility), and the `ods_baseline` table used by ODS sync-back.
+- `migrate_schema(conn)` — Adds columns that may be missing from an older schema (for forward compatibility), the `ods_baseline` table used by ODS sync-back, and the `imports` table. When it creates `imports` it seeds it from the transactions already stored: one pseudo-import per `source_file` and account, spanning its earliest to latest `date_posted`.
 - `ingest(db_path, paths, cards_path, bank_id)` — Parses files using the multi-bank parser framework (auto-detection or explicit `bank_id`) and inserts rows with `INSERT OR IGNORE` for deduplication. PDFs go to the PDF parser; a file that is neither `.csv` nor `.pdf` goes to the legacy UTF-16 parser when no `bank_id` is given. Each file is imported in its own transaction: a file that fails is reported and skipped, and `IngestError` is raised once the others are in (its `result` holds the run's outcome). Returns an `IngestResult`: one `FileImport` per file, in order (`parsed`, `inserted`, `already_present`, `period_from`/`period_to` = earliest/latest `date_posted`, `error`), with run-wide totals and the parser `warnings` count; `FileImport.summary()` is the per-file line printed in the summary. With `dry_run=True` the same run happens against an in-memory copy of the ledger (`sqlite3` `backup()` from a read-only connection), so the counts are exact and the file, schema migrations included, is untouched; a missing ledger is not created.
+- `imports` table — one row per account per file import that inserted at least one row (`source_file`, `account`, `period_from`/`period_to` = earliest/latest `date_posted` of the file's parsed rows, `imported_at`, `rows_parsed`, `rows_inserted`), written by `ingest()` in the file's own transaction, so a failed import records nothing and a re-import that adds nothing records nothing.
+- `coverage(conn)` — Per account (sorted), an `AccountCoverage`: `covered` as merged runs of consecutive `YYYY-MM` months (`ranges()` gives them as text) and the `missing` months between the first and last run. Each import covers every month from `period_from` to `period_to`; a month covered only in part is not flagged. Used by the `coverage` command and the GUI's Import page.
 - `reclean_descriptions(db_path)` — Re-runs `clean_description()` on all rows and updates only those that changed.
 - `fetch_all_transactions(conn)` — Returns all transactions as a list of dicts, sorted by date descending. Adds a computed `status` field.
 
-**Schema migration approach:** Simple `ALTER TABLE ADD COLUMN` for each missing column. No migration versioning — the code checks which columns exist and adds any that are missing. This is sufficient for a personal project but would need a proper migration system at scale.
+**Schema migration approach:** Simple `ALTER TABLE ADD COLUMN` for each missing column. No migration versioning — the code checks which columns exist and adds any that are missing. A new table is created when `sqlite_master` does not list it, and filled from the existing rows at that moment when it needs history (`imports`). This is sufficient for a personal project but would need a proper migration system at scale.
 
 ### `expense_tracker/rules.py`
 
@@ -281,7 +283,7 @@ A Streamlit-based web interface that provides graphical access to the expense tr
 - **Transactions** — Full transaction table with filters for date range, category, subcategory, payment type, and amount range. Supports search by description.
 - **Categorize** — Bulk categorization workflow: groups uncategorized transactions by merchant, lets you assign a category to all at once, and optionally creates a rule for future imports.
 - **Rules** — View all categorization rules in a table, add new rules, or remove existing ones; the Categories section lists, adds and removes categories. Every category choice (here and on Categorize) is a select box over the category list ending in **Add category...**.
-- **Import** — File uploader for CSV/PDF files. Uploads are saved to `raw/` and ingested into the database.
+- **Import** — File uploader for CSV/PDF files. Uploads are saved to `raw/` and ingested into the database. The Statement Coverage table shows `coverage()` per account.
 - **Tools** — Email configuration (setup/update IMAP settings), fetch from email, sync ODS back to DB, download ODS and PDF reports, create backups, export CSV, import Portuguese starter rules.
 - **Manual** — Renders all project documentation (README, DEPLOYMENT, CONTRIBUTING) in tabbed view with section search. Docs are always in sync with the source markdown files.
 
@@ -292,7 +294,7 @@ A Streamlit-based web interface that provides graphical access to the expense tr
 
 ### `expense_tracker/cli.py`
 
-`argparse`-based CLI with 16 subcommands (`auto`, `ingest`, `report`, `cards`, `rules`, `categories`, `export`, `reclean`, `backup`, `reset`, `pdf`, `suggest`, `fetch`, `gui`, `banks`, `advisor`). Each subcommand has its own `cmd_*` function. The `auto` command is the default (used by `run.sh`) and orchestrates the full pipeline: discover → rename → ingest → sync → categorize → generate.
+`argparse`-based CLI with 17 subcommands (`auto`, `ingest`, `report`, `cards`, `rules`, `categories`, `export`, `reclean`, `backup`, `reset`, `pdf`, `suggest`, `fetch`, `gui`, `banks`, `coverage`, `advisor`). Each subcommand has its own `cmd_*` function. The `auto` command is the default (used by `run.sh`) and orchestrates the full pipeline: discover → rename → ingest → sync → categorize → generate.
 
 **Pre-flight checks:** `_check_setup()` verifies that `odfpy` is installed and the `data/` directory exists, providing friendly error messages that point to `install.sh`.
 

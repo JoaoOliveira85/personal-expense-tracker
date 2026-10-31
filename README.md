@@ -442,7 +442,7 @@ The GUI opens in your browser and provides seven pages:
 | **Transactions** | Filterable/searchable transaction table with date range, category, and amount filters |
 | **Categorize** | Bulk categorization by merchant — select a category for all transactions from the same merchant, optionally create a rule. Categories are picked from the [category list](#categories); **Add category...** adds a new one on the spot |
 | **Rules** | View, add, and remove categorization rules, and manage the category list |
-| **Import** | Upload CSV/PDF files directly through the browser and ingest them |
+| **Import** | Upload CSV/PDF files directly through the browser and ingest them; the Statement Coverage table shows which months of each account are imported and which are missing (see [`coverage`](#coverage)) |
 | **Tools** | Email configuration, fetch from email, sync ODS, download reports (ODS & PDF), create backups, export CSV, import starter rules |
 | **Manual** | Full project documentation (User Guide, Deployment Guide, Developer Guide) with section search |
 
@@ -462,6 +462,24 @@ The **Tools** page provides a one-stop shop for common operations:
 | **Starter Rules** | Import ~200 curated Portuguese categorization rules |
 
 The GUI uses [Streamlit](https://streamlit.io/) and reads/writes to the same SQLite database as the CLI. Changes made in the GUI are immediately visible in the CLI and vice versa.
+
+### `coverage`
+
+Show, for each account, the months covered by imported statements and the months missing between the first and the last, so a statement you never downloaded does not go unnoticed.
+
+```bash
+python bank_ingest.py coverage
+```
+
+Example output:
+
+```
+checkings_account
+  Covered: 2025-11 to 2026-01, 2026-03
+  Missing: 2026-02
+```
+
+Each import counts as covering every month from its first to its last transaction. Months are the unit: a month a statement covers only in part (e.g. a statement that starts on the 20th) is not flagged. A re-import that adds no transactions changes nothing, and a failed import is not recorded. For a database from before this command existed, the coverage is rebuilt once from the transactions already imported (one statement per file name).
 
 ### `banks`
 
@@ -838,6 +856,7 @@ For the full guide — including adding to an existing docker-compose, systemd s
 | `python bank_ingest.py fetch --setup` | Configure email settings interactively |
 | `python bank_ingest.py gui` | Launch the Streamlit web interface |
 | `python bank_ingest.py banks` | List supported bank statement formats |
+| `python bank_ingest.py coverage` | Show the months imported per account, and the months missing |
 | `python bank_ingest.py advisor` | Write an LLM advice prompt for last month |
 | `python bank_ingest.py reset` | Back up, then delete all data |
 

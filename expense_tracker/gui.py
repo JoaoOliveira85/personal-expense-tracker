@@ -49,6 +49,7 @@ from expense_tracker.constants import (
 )
 from expense_tracker.db import (
     IngestError,
+    coverage,
     ensure_schema,
     fetch_all_transactions,
     ingest,
@@ -779,6 +780,38 @@ elif page == "Import":
             st.caption("No files in raw/ directory.")
     else:
         st.caption("raw/ directory not found.")
+
+    st.subheader("Statement Coverage")
+    st.caption(
+        "Months covered by imported statements, per account, and the months "
+        "missing between the first and the last. A statement covers each month "
+        "from its first to its last transaction; a month covered only in part "
+        "is not flagged."
+    )
+    accounts = []
+    if DEFAULT_DB.exists():
+        conn = _get_connection(db_path)
+        try:
+            accounts = coverage(conn)
+        finally:
+            conn.close()
+    if accounts:
+        st.dataframe(
+            pd.DataFrame(
+                [
+                    {
+                        "Account": a.account,
+                        "Months covered": ", ".join(a.ranges()),
+                        "Missing months": ", ".join(a.missing) or "none",
+                    }
+                    for a in accounts
+                ]
+            ),
+            hide_index=True,
+            use_container_width=True,
+        )
+    else:
+        st.caption("No statements imported yet.")
 
 
 # ---------------------------------------------------------------------------

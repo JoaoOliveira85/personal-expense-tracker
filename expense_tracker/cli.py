@@ -41,6 +41,8 @@ from .constants import (
 )
 from .db import (
     IngestError,
+    coverage,
+    ensure_schema,
     ingest,
     ingested_source_files,
     migrate_schema,
@@ -963,6 +965,34 @@ def cmd_gui(args):
     )
 
 
+COVERAGE_HELP = (
+    "List, per account, the months covered by imported statements and the "
+    "months missing between the first and the last. A statement covers each "
+    "month from its first to its last transaction; a month covered only in "
+    "part is not flagged."
+)
+
+
+def cmd_coverage(args):
+    """Handle the 'coverage' subcommand: months imported per account."""
+    accounts = []
+    if args.db.exists():
+        conn = sqlite3.connect(str(args.db))
+        try:
+            ensure_schema(conn)
+            migrate_schema(conn)  # seeds the imports of an older ledger
+            accounts = coverage(conn)
+        finally:
+            conn.close()
+    if not accounts:
+        print("No statements imported yet.")
+        return
+    for account in accounts:
+        print(account.account)
+        print(f"  Covered: {', '.join(account.ranges())}")
+        print(f"  Missing: {', '.join(account.missing) or 'none'}")
+
+
 def cmd_banks(args):
     """Handle the 'banks' subcommand: list supported bank parsers."""
     parsers = get_registered_parsers()
@@ -1625,6 +1655,20 @@ def main() -> None:
     # -- banks --
     ap_banks = sub.add_parser("banks", help="List supported bank statement formats")
     ap_banks.set_defaults(func=cmd_banks)
+
+    # -- coverage --
+    ap_coverage = sub.add_parser(
+        "coverage",
+        help="Show which months of each account are imported, and which are missing",
+        description=COVERAGE_HELP,
+    )
+    ap_coverage.add_argument(
+        "--db",
+        type=Path,
+        default=DEFAULT_DB,
+        help=f"SQLite database path (default: {DEFAULT_DB})",
+    )
+    ap_coverage.set_defaults(func=cmd_coverage)
 
     # -- advisor --
     ap_advisor = sub.add_parser(
