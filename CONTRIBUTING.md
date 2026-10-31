@@ -120,6 +120,7 @@ Rule and card-holder management, plus the categorization engine.
 
 **Key functions:**
 - `add_rule()` / `remove_rule()` — CRUD for `data/rules.csv`. Creates the file with headers if it doesn't exist.
+- `short_pattern_warning(pattern)` — Returns a caution when a pattern is shorter than `SHORT_PATTERN_LENGTH` (4) characters and has no trailing space (it also matches longer words starting with it), else `None`. `rules add`, the GUI's Add-a-Rule form and merchant panel show it; the rule is added either way.
 - `add_card()` / `remove_card()` — CRUD for `data/account-holders.csv`. `add_card` raises `ValueError` on duplicates.
 - `load_rules(path)` — Reads rules CSV, pre-computes folded patterns for matching (`fold()`: accents removed, upper-cased).
 - `categorize_transactions(conn, rules)` — Applies rules via `match_rule()` to uncategorized and rule-categorized transactions, recording `category_source = 'rule'`; rule rows no rule matches any more become uncategorized. Never touches `category_source = 'manual'` rows (set by ODS sync-back). On first run, categories predating `category_source` are adopted as `rule` only if they equal what the old first-substring-match algorithm gives with the current rules, otherwise `manual`.
@@ -214,7 +215,7 @@ A curated collection of ~200 categorization rules tailored for Portuguese mercha
 **Key exports:**
 - `STARTER_RULES` — The master list of `(pattern, match_field, category, subcategory, payment_type)` tuples
 - `get_starter_rules()` — Returns the list as dicts (matching the `rules.csv` format)
-- `import_starter_rules(rules_path, dry_run=False)` — Appends starter rules to an existing `rules.csv`, skipping any patterns that already exist (ignoring case and accents). Returns `(added_count, skipped_count)`.
+- `import_starter_rules(rules_path, dry_run=False)` — Appends starter rules to an existing `rules.csv`, skipping any patterns that already exist (ignoring case and accents). Returns `(added_count, skipped_count, short_count)`, where `short_count` is how many added patterns trigger `short_pattern_warning()`.
 
 ### `expense_tracker/suggest.py`
 

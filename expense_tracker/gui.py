@@ -59,10 +59,12 @@ from expense_tracker.email_fetch import (
 )
 from expense_tracker.ods import generate_ods, sync_from_ods
 from expense_tracker.rules import (
+    SHORT_PATTERN_LENGTH,
     add_rule,
     categorize_transactions,
     load_rules,
     remove_rule,
+    short_pattern_warning,
 )
 
 # ---------------------------------------------------------------------------
@@ -108,6 +110,20 @@ def _get_connection(db_path: str) -> sqlite3.Connection:
     ensure_schema(conn)
     migrate_schema(conn)
     return conn
+
+
+def _add_rule(
+    pattern: str, match_field: str, category: str, subcategory: str = ""
+) -> None:
+    """add_rule(), keeping its short-pattern warning for after the rerun."""
+    add_rule(DEFAULT_RULES, pattern, match_field, category, subcategory)
+    if warning := short_pattern_warning(pattern):
+        st.session_state["rule_warning"] = warning
+
+
+def _show_rule_warning() -> None:
+    if warning := st.session_state.pop("rule_warning", None):
+        st.warning(warning)
 
 
 def _upload_name(name: str) -> str:
@@ -380,6 +396,7 @@ elif page == "Transactions":
 
 elif page == "Categorize":
     st.title("Categorize Transactions")
+    _show_rule_warning()
 
     df = _load_transactions(db_path)
     if df.empty:
@@ -436,7 +453,7 @@ elif page == "Categorize":
                 if selected == "+ New category":
                     new_cat = st.text_input("New category name", key=f"new_{merchant}")
                     if new_cat and st.button("Add Rule", key=f"btn_{merchant}"):
-                        add_rule(DEFAULT_RULES, merchant, "description", new_cat)
+                        _add_rule(merchant, "description", new_cat)
                         conn = _get_connection(db_path)
                         rules = load_rules(DEFAULT_RULES)
                         categorize_transactions(conn, rules)
@@ -446,7 +463,7 @@ elif page == "Categorize":
 
                 elif selected != "-- Select --":
                     if st.button("Add Rule", key=f"btn_{merchant}"):
-                        add_rule(DEFAULT_RULES, merchant, "description", selected)
+                        _add_rule(merchant, "description", selected)
                         conn = _get_connection(db_path)
                         rules = load_rules(DEFAULT_RULES)
                         categorize_transactions(conn, rules)
@@ -474,6 +491,7 @@ elif page == "Categorize":
 
 elif page == "Rules":
     st.title("Categorization Rules")
+    _show_rule_warning()
 
     rules = load_rules(DEFAULT_RULES)
 
@@ -519,7 +537,7 @@ elif page == "Rules":
 
         submitted = st.form_submit_button("Add Rule")
         if submitted and pattern and category:
-            add_rule(DEFAULT_RULES, pattern, match_field, category, subcategory)
+            _add_rule(pattern, match_field, category, subcategory)
             st.success(f"Added rule: {pattern} -> {category}")
             st.rerun()
         elif submitted:
@@ -959,12 +977,20 @@ elif page == "Tools":
             try:
                 from expense_tracker.starter_rules import import_starter_rules
 
-                added, skipped = import_starter_rules(DEFAULT_RULES)
+                added, skipped, short = import_starter_rules(DEFAULT_RULES)
                 if added:
                     st.success(
                         f"Imported {added} starter rule(s). "
                         f"({skipped} skipped — already present)"
                     )
+                    if short:
+                        st.warning(
+                            f"{short} of them are shorter than "
+                            f"{SHORT_PATTERN_LENGTH} characters without a "
+                            "trailing space, so they can match inside longer "
+                            "words. End a pattern with a space on the Rules "
+                            "page to match only the whole word."
+                        )
                     # Re-apply rules after import
                     conn = _get_connection(db_path)
                     rules = load_rules(DEFAULT_RULES)

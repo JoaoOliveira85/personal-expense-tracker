@@ -55,12 +55,14 @@ from .parsers import detect_parser, get_parser_by_id, get_registered_parsers
 from .pdf_parser import extract_pdf_date_range
 from .pdf_report import DEFAULT_REPORTS, generate_monthly_pdf, previous_month_label
 from .rules import (
+    SHORT_PATTERN_LENGTH,
     add_card,
     add_rule,
     categorize_transactions,
     load_rules,
     remove_card,
     remove_rule,
+    short_pattern_warning,
 )
 from .starter_rules import import_starter_rules
 from .suggest import analyze_patterns, format_suggestions
@@ -516,6 +518,8 @@ def cmd_rules(args):
             f"Added rule: {pattern} -> {category}"
             + (f" / {args.sub}" if args.sub else "")
         )
+        if warning := short_pattern_warning(pattern):
+            print(f"Warning: {warning}")
 
     elif action == "remove":
         if not args.extra:
@@ -529,7 +533,7 @@ def cmd_rules(args):
 
     elif action == "import-starter":
         dry = args.extra and args.extra[0] == "--dry-run"
-        added, skipped = import_starter_rules(rules_path, dry_run=dry)
+        added, skipped, short = import_starter_rules(rules_path, dry_run=dry)
         if dry:
             print(
                 f"[dry-run] Would add {added} starter rule(s), "
@@ -541,6 +545,17 @@ def cmd_rules(args):
                 print(f"  ({skipped} rule(s) skipped — pattern already exists)")
         else:
             print("All starter rules are already present. Nothing to import.")
+        if short:
+            print(f"  {_short_patterns_note(short)}")
+
+
+def _short_patterns_note(count: int) -> str:
+    return (
+        f"{count} of the starter pattern(s) are shorter than "
+        f"{SHORT_PATTERN_LENGTH} characters without a trailing space, so they can "
+        "match inside longer words (end a pattern with a space to match only the "
+        "whole word)."
+    )
 
 
 def cmd_export(args):

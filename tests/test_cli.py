@@ -430,3 +430,48 @@ class TestGuiBindsToLocalhost:
         assert "--server.address" in argv
         assert argv[argv.index("--server.address") + 1] == "localhost"
         assert "http://localhost:8765" in capsys.readouterr().out
+
+
+def _rules_add(rules: Path, pattern: str) -> argparse.Namespace:
+    return argparse.Namespace(
+        action="add",
+        extra=[pattern, "Utilities"],
+        rules=rules,
+        field="description",
+        sub=None,
+        payment=None,
+    )
+
+
+class TestRulesAddShortPattern:
+    """A short pattern is added, with a warning that it is broad."""
+
+    def test_short_pattern_warns_after_adding(self, tmp_path: Path, capsys):
+        rules = tmp_path / "rules.csv"
+        cli.cmd_rules(_rules_add(rules, "EDP"))
+
+        out = capsys.readouterr().out
+        assert out.index("Added rule: EDP -> Utilities") < out.index("'EDP'")
+        assert "longer words" in out
+        assert [r["pattern"] for r in cli.load_rules(rules)] == ["EDP"]
+
+    @pytest.mark.parametrize("pattern", ["EDP ", "EDPX"])
+    def test_anchored_or_long_pattern_adds_without_warning(
+        self, tmp_path: Path, capsys, pattern
+    ):
+        rules = tmp_path / "rules.csv"
+        cli.cmd_rules(_rules_add(rules, pattern))
+
+        out = capsys.readouterr().out
+        assert out.startswith("Added rule:")
+        assert "longer words" not in out
+        assert [r["pattern"] for r in cli.load_rules(rules)] == [pattern.strip()]
+
+    def test_import_starter_reports_short_patterns(self, tmp_path: Path, capsys):
+        args = argparse.Namespace(
+            action="import-starter", extra=[], rules=tmp_path / "rules.csv"
+        )
+        cli.cmd_rules(args)
+
+        out = capsys.readouterr().out
+        assert "shorter than 4 characters" in out

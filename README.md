@@ -642,6 +642,7 @@ TRF P/ Renda,description,Housing,Rent,transfer
 - When several rules match, the **longest pattern wins** (so `UBER EATS` beats `UBER` wherever each sits in the file); equal lengths fall back to file order
 - Matching ignores **case and accents** and a pattern must start at the beginning of a word: `PAO` matches "PÃO QUENTE" and "PAOZINHO" but not "JAPAO"; `CAFE` and `Café` are the same pattern
 - End a pattern with a space (write it quoted, e.g. `"BP "`) to also require it to end on a word boundary: `"BP "` matches "BP" but not "BPI"
+- Adding a pattern shorter than 4 characters without that trailing space (e.g. `EDP`) shows a warning, since it also matches every longer word starting with it; the rule is still added
 - Rules **never override manual edits** (categories you change in the ODS report). Categories set by rules are re-checked on every run, so editing or deleting a rule fixes the transactions it had categorized; a transaction no rule matches any more goes back to uncategorized
 - Clearing a category in the ODS hands that transaction back to the rules
 - After adding new rules, run `./run.sh` to apply them
