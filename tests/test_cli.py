@@ -479,6 +479,26 @@ class TestRulesAddShortPattern:
         assert "shorter than 4 characters" in out
 
 
+class TestRulesAddDuplicate:
+    """A pattern that folds to an existing rule's is refused (issue #8)."""
+
+    def test_duplicate_is_an_error_and_not_written(self, tmp_path: Path, capsys):
+        rules = tmp_path / "rules.csv"
+        cli.cmd_rules(_rules_add(rules, "Café"))
+        before = rules.read_text(encoding="utf-8")
+        capsys.readouterr()
+
+        with pytest.raises(SystemExit) as exit_info:
+            cli.cmd_rules(_rules_add(rules, "CAFE"))
+
+        assert exit_info.value.code == 1
+        out = capsys.readouterr().out
+        assert out.startswith("Error:")
+        assert "Café" in out
+        assert "Added rule" not in out
+        assert rules.read_text(encoding="utf-8") == before
+
+
 def _categories(db_path: Path) -> list[tuple]:
     conn = sqlite3.connect(str(db_path))
     try:

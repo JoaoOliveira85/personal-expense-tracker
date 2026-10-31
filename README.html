@@ -328,7 +328,7 @@ FARMACIA,description,Health,Pharmacy,card
 VODAFONE,description,Utilities,Phone,direct_debit</code></pre>
 
 <ul>
-  <li>Matching ignores <strong>case and accents</strong> and a pattern must start at the beginning of a word: <code>PAO</code> matches &ldquo;P&Atilde;O QUENTE&rdquo; and &ldquo;PAOZINHO&rdquo; but not &ldquo;JAPAO&rdquo;; <code>CAFE</code> and <code>Caf&eacute;</code> are the same pattern</li>
+  <li>Matching ignores <strong>case and accents</strong> and a pattern must start at the beginning of a word: <code>PAO</code> matches &ldquo;P&Atilde;O QUENTE&rdquo; and &ldquo;PAOZINHO&rdquo; but not &ldquo;JAPAO&rdquo;; <code>CAFE</code> and <code>Caf&eacute;</code> are the same pattern, so adding one when the other exists is refused</li>
   <li>End a pattern with a space (written quoted, e.g. <code>"BP "</code>) to also require it to end on a word boundary</li>
   <li>When several rules match, the <strong>longest pattern wins</strong> (so <code>UBER EATS</code> beats <code>UBER</code>)</li>
   <li>Rules <strong>never override your manual edits</strong>. Categories set by rules are re-checked on every run, so editing or deleting a rule fixes the transactions it had categorized</li>

@@ -648,3 +648,42 @@ class TestMissingRulesFile:
 
         assert not at.exception
         assert _patterns(project.rules) == ["CONTINENTE"]
+
+
+class TestDuplicateRule:
+    """A pattern that differs from an existing rule's only by case or accents
+    is the same rule: the GUI refuses it and writes nothing (issue #8)."""
+
+    def test_rules_form_refuses_duplicate(self, project):
+        project.rules.write_text(
+            "pattern,match_field,category,subcategory,payment_type\n"
+            "Café,description,Eating Out,,\n",
+            encoding="utf-8",
+        )
+        before = project.rules.read_text(encoding="utf-8")
+        at = _open_page("Rules")
+        next(t for t in at.text_input if t.label.startswith("Pattern")).input("CAFE")
+        next(t for t in at.text_input if t.label == "Category").input("Groceries")
+        at = next(b for b in at.button if b.label == "Add Rule").click().run()
+
+        assert not at.exception
+        assert any("Café" in e.value for e in at.error)
+        assert not at.success
+        assert project.rules.read_text(encoding="utf-8") == before
+
+    def test_merchant_panel_refuses_duplicate(self, project):
+        project.rules.write_text(
+            "pattern,match_field,category,subcategory,payment_type\n"
+            "Café,description_raw,,,\n",
+            encoding="utf-8",
+        )
+        before = project.rules.read_text(encoding="utf-8")
+        _insert_expense(project.db, "t1", "CAFE")
+        _insert_expense(project.db, "t2", "VODAFONE", "Utilities")
+        at = _open_page("Categorize")
+        at.selectbox(key="cat_CAFE").set_value("Utilities").run()
+        at = next(b for b in at.button if b.label == "Add Rule").click().run()
+
+        assert not at.exception
+        assert any("Café" in e.value for e in at.error)
+        assert project.rules.read_text(encoding="utf-8") == before

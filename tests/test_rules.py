@@ -10,6 +10,7 @@ import pytest
 from expense_tracker.db import migrate_schema
 from expense_tracker.parser import _get_cleaning_patterns, reset_cleaning_cache
 from expense_tracker.rules import (
+    DuplicateRuleError,
     RulesFileError,
     add_card,
     add_rule,
@@ -63,6 +64,25 @@ class TestRuleCRUD:
 
     def test_remove_rule_missing_file(self, tmp_path):
         assert remove_rule(tmp_path / "missing.csv", "TEST") is False
+
+    @pytest.mark.parametrize("duplicate", ["CAFE", "café", " Cafe ", "CAFÉ"])
+    def test_add_rule_refuses_same_pattern_ignoring_case_and_accents(
+        self, tmp_path, duplicate
+    ):
+        p = tmp_path / "rules.csv"
+        add_rule(p, "Café", "description", "Eating Out")
+        before = p.read_text(encoding="utf-8")
+
+        with pytest.raises(DuplicateRuleError, match="Café"):
+            add_rule(p, duplicate, "description", "Groceries")
+
+        assert p.read_text(encoding="utf-8") == before
+
+    def test_add_rule_accepts_a_different_pattern(self, tmp_path):
+        p = tmp_path / "rules.csv"
+        add_rule(p, "Café", "description", "Eating Out")
+        add_rule(p, "CAFETERIA", "description", "Eating Out")
+        assert [r["pattern"] for r in load_rules(p)] == ["Café", "CAFETERIA"]
 
     def test_add_rule_to_empty_file(self, tmp_path):
         p = tmp_path / "rules.csv"

@@ -30,6 +30,10 @@ RULES_HEADER = ["pattern", "match_field", "category", "subcategory", "payment_ty
 SHORT_PATTERN_LENGTH = 4
 
 
+class DuplicateRuleError(ValueError):
+    """A rule with the same pattern, ignoring case and accents, exists."""
+
+
 def add_rule(
     rules_path: Path,
     pattern: str,
@@ -38,8 +42,22 @@ def add_rule(
     subcategory: str = "",
     payment_type: str = "",
 ) -> None:
-    """Append a new rule to the rules CSV file."""
+    """Append a new rule to the rules CSV file.
+
+    Raises DuplicateRuleError, and writes nothing, when a rule's pattern
+    already equals `pattern` ignoring case, accents and surrounding spaces
+    (the comparison remove_rule() uses): such a rule is the same rule.
+    """
     is_new = not rules_path.exists() or rules_path.stat().st_size == 0
+    if not is_new:
+        key = fold(pattern.strip())
+        for row in _read_rule_rows(rules_path):
+            existing = (row.get("pattern") or "").strip()
+            if existing and fold(existing) == key:
+                raise DuplicateRuleError(
+                    f"A rule for '{existing}' already exists; '{pattern.strip()}' "
+                    "is the same pattern (case and accents are ignored)"
+                )
     with rules_path.open("a", encoding="utf-8", newline="") as f:
         writer = csv.writer(f)
         if is_new:

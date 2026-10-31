@@ -60,6 +60,7 @@ from expense_tracker.email_fetch import (
 from expense_tracker.ods import generate_ods, sync_from_ods
 from expense_tracker.rules import (
     SHORT_PATTERN_LENGTH,
+    DuplicateRuleError,
     RulesFileError,
     add_rule,
     categorize_transactions,
@@ -115,11 +116,20 @@ def _get_connection(db_path: str) -> sqlite3.Connection:
 
 def _add_rule(
     pattern: str, match_field: str, category: str, subcategory: str = ""
-) -> None:
-    """add_rule(), keeping its short-pattern warning for after the rerun."""
-    add_rule(DEFAULT_RULES, pattern, match_field, category, subcategory)
+) -> bool:
+    """add_rule(), keeping its short-pattern warning for after the rerun.
+
+    A rule it refuses (a duplicate, or an unreadable rules file) is shown as
+    an error and False is returned: nothing was written.
+    """
+    try:
+        add_rule(DEFAULT_RULES, pattern, match_field, category, subcategory)
+    except (DuplicateRuleError, RulesFileError) as e:
+        st.error(f"{e}. The rule was not added.")
+        return False
     if warning := short_pattern_warning(pattern):
         st.session_state["rule_warning"] = warning
+    return True
 
 
 def _load_rules() -> list[dict]:
@@ -463,8 +473,11 @@ elif page == "Categorize":
 
                 if selected == "+ New category":
                     new_cat = st.text_input("New category name", key=f"new_{merchant}")
-                    if new_cat and st.button("Add Rule", key=f"btn_{merchant}"):
-                        _add_rule(merchant, "description", new_cat)
+                    if (
+                        new_cat
+                        and st.button("Add Rule", key=f"btn_{merchant}")
+                        and _add_rule(merchant, "description", new_cat)
+                    ):
                         rules = _load_rules()
                         conn = _get_connection(db_path)
                         categorize_transactions(conn, rules)
@@ -473,8 +486,9 @@ elif page == "Categorize":
                         st.rerun()
 
                 elif selected != "-- Select --":
-                    if st.button("Add Rule", key=f"btn_{merchant}"):
-                        _add_rule(merchant, "description", selected)
+                    if st.button("Add Rule", key=f"btn_{merchant}") and _add_rule(
+                        merchant, "description", selected
+                    ):
                         rules = _load_rules()
                         conn = _get_connection(db_path)
                         categorize_transactions(conn, rules)
@@ -554,9 +568,9 @@ elif page == "Rules":
 
         submitted = st.form_submit_button("Add Rule")
         if submitted and pattern and category:
-            _add_rule(pattern, match_field, category, subcategory)
-            st.success(f"Added rule: {pattern} -> {category}")
-            st.rerun()
+            if _add_rule(pattern, match_field, category, subcategory):
+                st.success(f"Added rule: {pattern} -> {category}")
+                st.rerun()
         elif submitted:
             st.error("Pattern and category are required.")
 
