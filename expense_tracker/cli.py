@@ -258,13 +258,22 @@ def cmd_auto(args):
     new_files = _discover_new_files(raw_dir, args.db)
 
     if dry:
+        ingest_error = None
         if new_files:
-            print(f"[dry-run] Would rename and ingest {len(new_files)} file(s):")
-            for f in new_files:
-                print(f"  {f.name}")
+            print(
+                f"[dry-run] Would rename and ingest {len(new_files)} file(s) "
+                "(listed under their current names):"
+            )
+            try:
+                ingest(args.db, new_files, dry_run=True)
+            except IngestError as e:
+                ingest_error = e
+                print(f"Error: {e}")
         else:
             print("[dry-run] No new files to ingest.")
         print("[dry-run] Would sync ODS edits, apply rules, and regenerate report.")
+        if ingest_error is not None:
+            sys.exit(1)
         return
 
     # Step 2: Auto-rename
@@ -350,11 +359,17 @@ def cmd_ingest(args):
         sys.exit(1)
 
     if dry:
-        print(f"[dry-run] Would ingest {len(files)} file(s):")
-        for f in files:
-            print(f"  {f.name}")
+        # Parse and count against a copy of the ledger; nothing is renamed
         if not args.no_rename:
-            print("[dry-run] Would auto-rename files based on date ranges.")
+            print(
+                "[dry-run] Would auto-rename files based on date ranges "
+                "(listed under their current names)."
+            )
+        try:
+            ingest(args.db, files, bank_id=bank_id, dry_run=True)
+        except IngestError as e:
+            print(f"Error: {e}")
+            sys.exit(1)
         return
 
     # Auto-rename files based on date range (unless --no-rename)
@@ -1171,7 +1186,10 @@ def main() -> None:
     ap_auto.add_argument(
         "--dry-run",
         action="store_true",
-        help="Show what would happen without making any changes",
+        help=(
+            "Parse the new files and show, per file, how many transactions "
+            "are new or already imported, without changing anything"
+        ),
     )
     ap_auto.set_defaults(func=cmd_auto)
 
@@ -1200,7 +1218,10 @@ def main() -> None:
     ap_ingest.add_argument(
         "--dry-run",
         action="store_true",
-        help="Show what would happen without making any changes",
+        help=(
+            "Parse the files and show, per file, how many transactions are "
+            "new or already imported, without renaming or writing anything"
+        ),
     )
     ap_ingest.add_argument(
         "files",

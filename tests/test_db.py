@@ -279,6 +279,141 @@ class TestIngestIdenticalRows:
         assert stored == expected
 
 
+class TestIngestResult:
+    """ingest() returns per-file counts, and a dry run returns the same ones."""
+
+    @pytest.fixture(autouse=True)
+    def _setup_cleaning(self, noise_words, cleaning_patterns):
+        reset_cleaning_cache()
+        _get_cleaning_patterns(noise_words, cleaning_patterns)
+        yield
+        reset_cleaning_cache()
+
+    def _counts(self, result) -> list[tuple]:
+        return [
+            (f.path.name, f.parsed, f.inserted, f.already_present)
+            + (f.period_from, f.period_to)
+            for f in result.files
+        ]
+
+    def test_result_counts_each_file(self, test_db, tmp_path, cards_csv):
+        first = make_utf16_csv(tmp_path / "first.csv", SAMPLE_ROWS[:3])
+        overlap = make_utf16_csv(tmp_path / "overlap.csv", SAMPLE_ROWS[1:])
+
+        result = ingest(test_db, [first, overlap], cards_path=cards_csv)
+
+        assert self._counts(result) == [
+            ("first.csv", 3, 3, 0, "2026-01-13", "2026-01-15"),
+            ("overlap.csv", 4, 2, 2, "2026-01-10", "2026-01-14"),
+        ]
+        assert (result.parsed, result.inserted, result.already_present) == (7, 5, 2)
+        assert result.failures == []
+        assert not result.dry_run
+
+    def test_summary_lists_each_file(self, test_db, utf16_csv, cards_csv, capsys):
+        ingest(test_db, [utf16_csv], cards_path=cards_csv)
+
+        out = capsys.readouterr().out
+        assert (
+            f"  {utf16_csv.name}: 5 parsed, 5 new, 0 already present, "
+            "2026-01-10 to 2026-01-15" in out
+        )
+
+    def test_dry_run_counts_what_the_real_run_inserts(
+        self, test_db, tmp_path, cards_csv
+    ):
+        first = make_utf16_csv(tmp_path / "first.csv", SAMPLE_ROWS[:3])
+        ingest(test_db, [first], cards_path=cards_csv)
+        overlap = make_utf16_csv(tmp_path / "overlap.csv", SAMPLE_ROWS[1:])
+        again = make_utf16_csv(tmp_path / "again.csv", SAMPLE_ROWS)
+
+        dry = ingest(test_db, [overlap, again], cards_path=cards_csv, dry_run=True)
+        real = ingest(test_db, [overlap, again], cards_path=cards_csv)
+
+        assert dry.dry_run
+        assert self._counts(dry) == self._counts(real)
+        assert self._counts(dry)[1][2] == 0  # sees the rows of the file before it
+
+    def test_dry_run_leaves_the_database_byte_identical(
+        self, test_db, utf16_csv, cards_csv, capsys
+    ):
+        before = test_db.read_bytes()
+
+        result = ingest(test_db, [utf16_csv], cards_path=cards_csv, dry_run=True)
+
+        assert result.inserted == 5
+        assert test_db.read_bytes() == before
+        out = capsys.readouterr().out
+        assert "[dry-run]" in out
+        assert "Nothing was written" in out
+
+    def test_dry_run_does_not_migrate_an_old_ledger(
+        self, tmp_path, utf16_csv, cards_csv
+    ):
+        db_path = tmp_path / "old.sqlite"
+        conn = sqlite3.connect(str(db_path))
+        # Before month, day_of_week, description_clean, ... and ods_baseline
+        conn.execute("""
+            CREATE TABLE transactions (
+                transaction_id TEXT PRIMARY KEY,
+                date_posted TEXT NOT NULL,
+                date_value TEXT NOT NULL,
+                description_raw TEXT NOT NULL,
+                amount_signed REAL NOT NULL,
+                amount_abs REAL NOT NULL,
+                direction TEXT NOT NULL,
+                tx_type TEXT,
+                balance REAL,
+                currency TEXT NOT NULL,
+                account TEXT NOT NULL,
+                card_last4 TEXT,
+                category TEXT,
+                subcategory TEXT,
+                source_file TEXT NOT NULL,
+                imported_at TEXT NOT NULL
+            )
+        """)
+        conn.commit()
+        conn.close()
+        before = db_path.read_bytes()
+
+        ingest(db_path, [utf16_csv], cards_path=cards_csv, dry_run=True)
+
+        assert db_path.read_bytes() == before
+
+    def test_dry_run_without_a_ledger_creates_none(
+        self, tmp_path, utf16_csv, cards_csv
+    ):
+        db_path = tmp_path / "data" / "ledger.sqlite"
+
+        result = ingest(db_path, [utf16_csv], cards_path=cards_csv, dry_run=True)
+
+        assert result.inserted == 5
+        assert not db_path.parent.exists()
+
+    def test_bad_file_fails_the_same_way_in_a_dry_run(
+        self, test_db, tmp_path, cards_csv, capsys
+    ):
+        good = make_utf16_csv(tmp_path / "good.csv", SAMPLE_ROWS)
+        bad = tmp_path / "junk.csv"
+        bad.write_text("not a bank statement\n", encoding="utf-8")
+        before = test_db.read_bytes()
+
+        with pytest.raises(IngestError) as dry:
+            ingest(test_db, [good, bad], cards_path=cards_csv, dry_run=True)
+        dry_out = capsys.readouterr().out
+        assert test_db.read_bytes() == before
+        with pytest.raises(IngestError) as real:
+            ingest(test_db, [good, bad], cards_path=cards_csv)
+        real_out = capsys.readouterr().out
+
+        assert str(dry.value) == str(real.value)
+        error_line = next(x for x in real_out.splitlines() if "Error:" in x)
+        assert error_line in dry_out
+        assert dry.value.result.dry_run
+        assert self._counts(dry.value.result) == self._counts(real.value.result)
+
+
 class TestIngestBadFile:
     """One file that cannot be read must not undo, or block, the others."""
 
