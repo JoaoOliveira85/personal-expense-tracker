@@ -277,7 +277,7 @@ The project ships with a curated pack of ~200 rules for common Portuguese mercha
 python bank_ingest.py rules import-starter
 ```
 
-Rules are appended to your existing `data/rules.csv`. Any patterns that already exist (case-insensitive) are skipped, so it's safe to run multiple times. Use `--dry-run` to preview what would be added.
+Rules are appended to your existing `data/rules.csv`. Any patterns that already exist (ignoring case and accents) are skipped, so it's safe to run multiple times. Use `--dry-run` to preview what would be added.
 
 | Flag | Default | Description |
 |------|---------|-------------|
@@ -631,7 +631,7 @@ TRF P/ Renda,description,Housing,Rent,transfer
 
 | Column | Required | Description |
 |--------|----------|-------------|
-| `pattern` | Yes | Text to search for (case-insensitive) |
+| `pattern` | Yes | Text to search for (ignores case and accents) |
 | `match_field` | Yes | Which field to search: `description` (cleaned) or `description_raw` (original) |
 | `category` | Yes | Main category (e.g. Groceries, Health, Transport) |
 | `subcategory` | No | Optional sub-category (e.g. Pharmacy, Rent, Fast Food) |
@@ -640,7 +640,7 @@ TRF P/ Renda,description,Housing,Rent,transfer
 ### How Rules Work
 
 - When several rules match, the **longest pattern wins** (so `UBER EATS` beats `UBER` wherever each sits in the file); equal lengths fall back to file order
-- Matching is **case-insensitive** and a pattern must start at the beginning of a word: `PAO` matches "PAO QUENTE" and "PAOZINHO" but not "JAPAO"
+- Matching ignores **case and accents** and a pattern must start at the beginning of a word: `PAO` matches "PÃO QUENTE" and "PAOZINHO" but not "JAPAO"; `CAFE` and `Café` are the same pattern
 - End a pattern with a space (write it quoted, e.g. `"BP "`) to also require it to end on a word boundary: `"BP "` matches "BP" but not "BPI"
 - Rules **never override manual edits** (categories you change in the ODS report). Categories set by rules are re-checked on every run, so editing or deleting a rule fixes the transactions it had categorized; a transaction no rule matches any more goes back to uncategorized
 - Clearing a category in the ODS hands that transaction back to the rules

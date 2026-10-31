@@ -11,7 +11,7 @@ from __future__ import annotations
 import csv
 from pathlib import Path
 
-from .rules import RULES_HEADER, load_rules
+from .rules import RULES_HEADER, fold, load_rules
 
 # ---------------------------------------------------------------------------
 # Curated Portuguese merchant/service patterns
@@ -19,7 +19,8 @@ from .rules import RULES_HEADER, load_rules
 # Each tuple: (pattern, match_field, category, subcategory, payment_type)
 #
 # Guidelines:
-# - Patterns are case-insensitive and must start at a word boundary; a
+# - Patterns ignore case and accents ("MINIPRECO" also matches "MINIPREÇO",
+#   so one spelling is enough) and must start at a word boundary; a
 #   trailing space ("BP ") also requires a word boundary at the end
 # - The longest matching pattern wins, so order within the list does not
 #   matter; add a more specific pattern to override a broad one
@@ -38,7 +39,6 @@ STARTER_RULES: list[tuple[str, str, str, str, str]] = [
     ("LIDL", "description", "Groceries", "Supermarket", ""),
     ("ALDI", "description", "Groceries", "Supermarket", ""),
     ("MINIPRECO", "description", "Groceries", "Supermarket", ""),
-    ("MINIPREÇO", "description", "Groceries", "Supermarket", ""),
     ("MERCADONA", "description", "Groceries", "Supermarket", ""),
     ("INTERMARCHE", "description", "Groceries", "Supermarket", ""),
     ("AUCHAN", "description", "Groceries", "Supermarket", ""),
@@ -335,18 +335,18 @@ def get_starter_rules() -> list[dict]:
 def import_starter_rules(rules_path: Path, *, dry_run: bool = False) -> tuple[int, int]:
     """
     Import starter rules into the user's rules.csv, skipping any
-    whose pattern already exists (case-insensitive).
+    whose pattern already exists (ignoring case and accents).
 
     Returns (added, skipped) counts.
     """
     # Load existing rules to detect duplicates (strip to match CSV round-trip)
     existing = load_rules(rules_path) if rules_path.exists() else []
-    existing_patterns = {r["pattern"].strip().upper() for r in existing}
+    existing_patterns = {fold(r["pattern"].strip()) for r in existing}
 
     to_add = []
     skipped = 0
     for rule in get_starter_rules():
-        if rule["pattern"].strip().upper() in existing_patterns:
+        if fold(rule["pattern"].strip()) in existing_patterns:
             skipped += 1
         else:
             to_add.append(rule)

@@ -121,9 +121,9 @@ Rule and card-holder management, plus the categorization engine.
 **Key functions:**
 - `add_rule()` / `remove_rule()` — CRUD for `data/rules.csv`. Creates the file with headers if it doesn't exist.
 - `add_card()` / `remove_card()` — CRUD for `data/account-holders.csv`. `add_card` raises `ValueError` on duplicates.
-- `load_rules(path)` — Reads rules CSV, pre-computes upper-case patterns for matching.
+- `load_rules(path)` — Reads rules CSV, pre-computes folded patterns for matching (`fold()`: accents removed, upper-cased).
 - `categorize_transactions(conn, rules)` — Applies rules via `match_rule()` to uncategorized and rule-categorized transactions, recording `category_source = 'rule'`; rule rows no rule matches any more become uncategorized. Never touches `category_source = 'manual'` rows (set by ODS sync-back). On first run, categories predating `category_source` are adopted as `rule` only if they equal what the old first-substring-match algorithm gives with the current rules, otherwise `manual`.
-- `match_rule(rules, desc_raw, desc_clean)` — Returns the winning rule or `None`. Patterns are case-insensitive and must start at a word boundary (a trailing space also requires one at the end). The longest matching pattern wins; ties fall back to file order.
+- `match_rule(rules, desc_raw, desc_clean)` — Returns the winning rule or `None`. Patterns ignore case and accents (both sides are compared through `fold()`) and must start at a word boundary (a trailing space also requires one at the end). The longest matching pattern wins; ties fall back to file order.
 
 **Matching behavior:** When `match_field` is `description` (default), the rule pattern is matched against the raw and the cleaned description **separately** and matches if either does; a pattern never matches text spanning the two. When `match_field` is `description_raw`, only the raw description is searched.
 
@@ -214,7 +214,7 @@ A curated collection of ~200 categorization rules tailored for Portuguese mercha
 **Key exports:**
 - `STARTER_RULES` — The master list of `(pattern, match_field, category, subcategory, payment_type)` tuples
 - `get_starter_rules()` — Returns the list as dicts (matching the `rules.csv` format)
-- `import_starter_rules(rules_path, dry_run=False)` — Appends starter rules to an existing `rules.csv`, skipping any patterns that already exist (case-insensitive). Returns `(added_count, skipped_count)`.
+- `import_starter_rules(rules_path, dry_run=False)` — Appends starter rules to an existing `rules.csv`, skipping any patterns that already exist (ignoring case and accents). Returns `(added_count, skipped_count)`.
 
 ### `expense_tracker/suggest.py`
 
