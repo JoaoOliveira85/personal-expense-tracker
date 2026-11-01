@@ -48,7 +48,9 @@ from .db import (
     ingested_source_files,
     list_accounts,
     migrate_schema,
+    normalize_currency,
     reclean_descriptions,
+    resolve_currency,
     set_account_currency,
 )
 from .email_fetch import (
@@ -230,6 +232,43 @@ def _discover_new_files(raw_dir: Path, db_path: Path) -> list[Path]:
     return new
 
 
+def _report_currency(args) -> str | None:
+    """The one currency the reports show: --currency, or the ledger's only
+    one. Amounts of different currencies are never added together, so with
+    several and no --currency this stops with the ledger's currencies."""
+    chosen = getattr(args, "currency", None)
+    try:
+        if not args.db.exists():
+            return normalize_currency(chosen) if chosen else None
+        conn = sqlite3.connect(str(args.db))
+        try:
+            ensure_schema(conn)
+            return resolve_currency(conn, chosen)
+        finally:
+            conn.close()
+    except CurrencyError as e:
+        print(f"Error: {e}.")
+        if e.currencies:
+            print(
+                f"  Run again with --currency (one of {', '.join(e.currencies)}), "
+                f"e.g. --currency {e.currencies[0]}."
+            )
+        sys.exit(1)
+
+
+def _add_currency_option(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--currency",
+        type=str,
+        default=None,
+        help=(
+            "Currency to report on (three letters, e.g. EUR); required when "
+            "the ledger holds several, since their amounts are never added "
+            "together"
+        ),
+    )
+
+
 # ---------------------------------------------------------------------------
 # Subcommands
 # ---------------------------------------------------------------------------
@@ -304,6 +343,9 @@ def cmd_auto(args):
     else:
         _info("No new files to ingest.")
 
+    # The new files may have brought a second currency: the imports are kept
+    currency = _report_currency(args)
+
     # Step 3: Sync manual edits, apply rules, regenerate report
     _detail("")
 
@@ -328,16 +370,20 @@ def cmd_auto(args):
         xlsx_path = (
             args.out if args.out.suffix == ".xlsx" else args.out.with_suffix(".xlsx")
         )
-        generate_xlsx(args.db, args.rules, xlsx_path, args.desc_notes)
+        generate_xlsx(args.db, args.rules, xlsx_path, args.desc_notes, currency)
         _info(f"\nDone! Report saved to {xlsx_path}")
     elif output_format == "ods":
-        generate_ods(args.db, args.rules, ods_path, args.desc_notes)
+        generate_ods(args.db, args.rules, ods_path, args.desc_notes, currency)
         _info(f"\nDone! Report saved to {ods_path}")
     elif output_format == "both":
         generate_xlsx(
-            args.db, args.rules, args.out.with_suffix(".xlsx"), args.desc_notes
+            args.db,
+            args.rules,
+            args.out.with_suffix(".xlsx"),
+            args.desc_notes,
+            currency,
         )
-        generate_ods(args.db, args.rules, ods_path, args.desc_notes)
+        generate_ods(args.db, args.rules, ods_path, args.desc_notes, currency)
         _info(
             f"\nDone! Reports saved to {args.out.with_suffix('.xlsx')} and {ods_path}"
         )
@@ -402,6 +448,7 @@ def cmd_report(args):
     _set_verbosity(args)
     # Before anything changes: an unreadable rules file stops the command
     rules = load_rules(args.rules)
+    currency = _report_currency(args)
 
     output_format = getattr(args, "format", "xlsx")
 
@@ -434,13 +481,13 @@ def cmd_report(args):
             _info(f"Pre-fresh backup: {zp} ({format_size(zp.stat().st_size)})")
             ods_path.unlink()
             _info(f"Deleted existing {ods_path} (--fresh flag).")
-        generate_ods(args.db, args.rules, ods_path, args.desc_notes)
+        generate_ods(args.db, args.rules, ods_path, args.desc_notes, currency)
 
     elif output_format == "xlsx":
         if args.fresh and xlsx_path.exists():
             xlsx_path.unlink()
             _info(f"Deleted existing {xlsx_path} (--fresh flag).")
-        generate_xlsx(args.db, args.rules, xlsx_path, args.desc_notes)
+        generate_xlsx(args.db, args.rules, xlsx_path, args.desc_notes, currency)
 
     elif output_format == "both":
         if args.fresh:
@@ -451,8 +498,8 @@ def cmd_report(args):
             if xlsx_path.exists():
                 xlsx_path.unlink()
             _info("Deleted existing files (--fresh flag).")
-        generate_ods(args.db, args.rules, ods_path, args.desc_notes)
-        generate_xlsx(args.db, args.rules, xlsx_path, args.desc_notes)
+        generate_ods(args.db, args.rules, ods_path, args.desc_notes, currency)
+        generate_xlsx(args.db, args.rules, xlsx_path, args.desc_notes, currency)
 
 
 def cmd_cards(args):
@@ -658,13 +705,14 @@ def _short_patterns_note(count: int) -> str:
 def cmd_export(args):
     """Handle the 'export' subcommand."""
     _check_setup()
-    export_csv(args.db, args.out)
+    export_csv(args.db, args.out, _report_currency(args))
 
 
 def cmd_reclean(args):
     """Handle the 'reclean' subcommand: recompute cleaned descriptions."""
     _check_setup()
     _set_verbosity(args)
+    currency = _report_currency(args)
 
     # Pre-destructive backup
     zp = create_backup(args.backup_dir, ods_path=args.out)
@@ -682,7 +730,7 @@ def cmd_reclean(args):
 
     # Regenerate the report with fresh descriptions
     _detail("")
-    generate_ods(args.db, args.rules, args.out, args.desc_notes)
+    generate_ods(args.db, args.rules, args.out, args.desc_notes, currency)
     _info(f"\nDone! Report saved to {args.out}")
 
 
@@ -808,13 +856,16 @@ def cmd_pdf(args):
     """Handle the 'pdf' subcommand: generate a monthly PDF report."""
     _check_setup()
     _set_verbosity(args)
+    currency = _report_currency(args)
 
     if args.all:
-        # Generate PDFs for all months with data
+        # Generate PDFs for all months with data in that currency
         conn = sqlite3.connect(str(args.db))
         try:
             rows = conn.execute(
-                "SELECT DISTINCT month FROM transactions ORDER BY month ASC"
+                "SELECT DISTINCT month FROM transactions WHERE currency = ? "
+                "ORDER BY month ASC",
+                (currency,),
             ).fetchall()
             months = [r[0] for r in rows if r[0]]
         finally:
@@ -833,6 +884,7 @@ def cmd_pdf(args):
                     month=month,
                     output_path=None,  # Use default path
                     desc_notes_path=args.desc_notes,
+                    currency=currency,
                 )
                 _detail(f"  {month} -> {pdf_path.name}")
                 generated += 1
@@ -848,6 +900,7 @@ def cmd_pdf(args):
             month=month,
             output_path=args.out,
             desc_notes_path=args.desc_notes,
+            currency=currency,
         )
         print(f"PDF report saved to {pdf_path}")
 
@@ -857,12 +910,14 @@ def cmd_suggest(args):
     _check_setup()
     _set_verbosity(args)
 
+    currency = _report_currency(args)
     _info("Analyzing transaction patterns...")
     results = analyze_patterns(
         db_path=args.db,
         min_months_recurring=args.min_months,
         similarity_threshold=args.similarity,
         min_count_frequent=args.min_count,
+        currency=currency,
     )
 
     print()
@@ -1082,11 +1137,13 @@ def cmd_advisor(args):
 
     if action == "generate":
         # Generate the prompt
+        currency = _report_currency(args)
         _info(f"Generating advisor prompt for {month}...")
         prompt = generate_prompt(
             db_path=args.db,
             context_path=args.context,
             target_month=month,
+            currency=currency,
         )
 
         # Save to file
@@ -1276,6 +1333,7 @@ def main() -> None:
             "from the one recorded for the account label"
         ),
     )
+    _add_currency_option(ap_auto)
     ap_auto.set_defaults(func=cmd_auto)
 
     # -- ingest --
@@ -1382,6 +1440,7 @@ def main() -> None:
         default=DEFAULT_RAW,
         help=f"Directory containing raw bank CSV files (default: {DEFAULT_RAW})",
     )
+    _add_currency_option(ap_report)
     ap_report.set_defaults(func=cmd_report)
 
     # -- cards --
@@ -1500,6 +1559,7 @@ def main() -> None:
         default=DEFAULT_CSV,
         help=f"Output CSV path (default: {DEFAULT_CSV})",
     )
+    _add_currency_option(ap_export)
     ap_export.set_defaults(func=cmd_export)
 
     # -- reclean --
@@ -1537,6 +1597,7 @@ def main() -> None:
         default=DEFAULT_BACKUPS,
         help=f"Directory for backup archives (default: {DEFAULT_BACKUPS})",
     )
+    _add_currency_option(ap_reclean)
     ap_reclean.set_defaults(func=cmd_reclean)
 
     # -- backup --
@@ -1626,6 +1687,7 @@ def main() -> None:
         default=DEFAULT_DESC_NOTES,
         help=f"Merchant notes CSV (default: {DEFAULT_DESC_NOTES})",
     )
+    _add_currency_option(ap_pdf)
     ap_pdf.set_defaults(func=cmd_pdf)
 
     # -- suggest --
@@ -1657,6 +1719,7 @@ def main() -> None:
         default=5,
         help="Minimum transaction count for frequent merchants (default: 5)",
     )
+    _add_currency_option(ap_suggest)
     ap_suggest.set_defaults(func=cmd_suggest)
 
     # -- fetch --
@@ -1817,6 +1880,7 @@ def main() -> None:
         action="store_true",
         help="Edit context interactively (for 'context' action)",
     )
+    _add_currency_option(ap_advisor)
     ap_advisor.set_defaults(func=cmd_advisor)
 
     args = ap.parse_args()

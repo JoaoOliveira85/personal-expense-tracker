@@ -27,6 +27,7 @@ from .db import (
     is_ignored,
     is_neutral,
     migrate_schema,
+    resolve_currency,
 )
 from .ods_sheets import top_categories
 from .rules import load_rules
@@ -134,8 +135,15 @@ def generate_xlsx(
     rules_path: Path,
     xlsx_path: Path,
     desc_notes_path: Path = DEFAULT_DESC_NOTES,
+    currency: str | None = None,
 ) -> None:
-    """Generate an XLSX expense report with all analysis sheets."""
+    """Generate an XLSX expense report with all analysis sheets.
+
+    The report holds one currency: ``currency``, which may be left out when
+    the ledger holds one (db.resolve_currency raises CurrencyError
+    otherwise). Only its rows are written to the Data sheet, so every
+    formula over it adds amounts of that currency alone.
+    """
     if not OPENPYXL_AVAILABLE:
         print("Error: openpyxl is required for XLSX generation.")
         print("Install it with: pip install openpyxl")
@@ -144,7 +152,8 @@ def generate_xlsx(
     conn = sqlite3.connect(str(db_path))
     try:
         migrate_schema(conn)
-        transactions = fetch_all_transactions(conn)
+        currency = resolve_currency(conn, currency)
+        transactions = fetch_all_transactions(conn, currency=currency)
     finally:
         conn.close()
 

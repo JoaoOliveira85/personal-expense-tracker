@@ -19,8 +19,20 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
-from .constants import DEFAULT_ADVISOR_DIR, DEFAULT_DB
-from .db import INCOME_SQL, NOT_NEUTRAL_SQL, REFUND_SQL, SPEND_SQL
+from .constants import (
+    CURRENCY_SYMBOLS,
+    DEFAULT_ADVISOR_DIR,
+    DEFAULT_CURRENCY,
+    DEFAULT_DB,
+)
+from .db import (
+    INCOME_SQL,
+    NOT_NEUTRAL_SQL,
+    REFUND_SQL,
+    SPEND_SQL,
+    currency_sql,
+    resolve_currency,
+)
 from .pdf_report import month_display_name, previous_month_label
 
 # ---------------------------------------------------------------------------
@@ -118,8 +130,11 @@ def _get_months_in_range(start_month: str, end_month: str) -> list[str]:
 def _fetch_monthly_summary(
     conn: sqlite3.Connection,
     month: str,
+    currency: str | None = None,
 ) -> dict[str, Any]:
-    """Fetch summary statistics for a single month."""
+    """Fetch summary statistics for a single month (with ``currency``, of
+    the transactions in that currency)."""
+    in_currency, params = currency_sql(currency)
     conn.row_factory = sqlite3.Row
 
     # Get totals
@@ -130,9 +145,9 @@ def _fetch_monthly_summary(
             SUM(CASE WHEN {INCOME_SQL} THEN amount_abs ELSE 0 END) as income,
             SUM({SPEND_SQL}) as expenses
         FROM transactions
-        WHERE month = ?
+        WHERE month = ? AND {in_currency}
     """,
-        (month,),
+        (month, *params),
     ).fetchone()
 
     if not row or row["tx_count"] == 0:
@@ -148,10 +163,11 @@ def _fetch_monthly_summary(
             SUM(direction = 'out') as count
         FROM transactions
         WHERE month = ? AND (direction = 'out' OR {REFUND_SQL}) AND {NOT_NEUTRAL_SQL}
+          AND {in_currency}
         GROUP BY 1
         ORDER BY total DESC
     """,
-        (month,),
+        (month, *params),
     ).fetchall()
 
     # Get top merchants
@@ -163,11 +179,12 @@ def _fetch_monthly_summary(
             COUNT(*) as count
         FROM transactions
         WHERE month = ? AND direction = 'out' AND {NOT_NEUTRAL_SQL}
+          AND {in_currency}
         GROUP BY description_clean
         ORDER BY total DESC
         LIMIT 10
     """,
-        (month,),
+        (month, *params),
     ).fetchall()
 
     conn.row_factory = None
@@ -193,8 +210,11 @@ def _fetch_monthly_summary(
 def _fetch_historical_summary(
     conn: sqlite3.Connection,
     before_month: str,
+    currency: str | None = None,
 ) -> dict[str, Any]:
-    """Fetch aggregated summary for all months before the given month."""
+    """Fetch aggregated summary for all months before the given month (with
+    ``currency``, of the transactions in that currency)."""
+    in_currency, params = currency_sql(currency)
     conn.row_factory = sqlite3.Row
 
     # Get overall totals
@@ -208,9 +228,9 @@ def _fetch_historical_summary(
             MIN(month) as first_month,
             MAX(month) as last_month
         FROM transactions
-        WHERE month < ?
+        WHERE month < ? AND {in_currency}
     """,
-        (before_month,),
+        (before_month, *params),
     ).fetchone()
 
     if not row or row["month_count"] == 0:
@@ -227,10 +247,11 @@ def _fetch_historical_summary(
             SUM(direction = 'out') as count
         FROM transactions
         WHERE month < ? AND (direction = 'out' OR {REFUND_SQL}) AND {NOT_NEUTRAL_SQL}
+          AND {in_currency}
         GROUP BY 1
         ORDER BY total DESC
     """,
-        (before_month,),
+        (before_month, *params),
     ).fetchall()
 
     conn.row_factory = None
@@ -262,6 +283,7 @@ def fetch_expense_data(
     db_path: Path = DEFAULT_DB,
     target_month: str | None = None,
     detailed_months: int = 12,
+    currency: str | None = None,
 ) -> dict[str, Any]:
     """
     Fetch expense data for prompt generation.
@@ -270,9 +292,12 @@ def fetch_expense_data(
         db_path: Path to the SQLite database.
         target_month: The month to analyze (YYYY-MM). Defaults to previous month.
         detailed_months: Number of recent months to include with full detail.
+        currency: The currency to analyze; may be left out when the ledger
+            holds one (db.resolve_currency raises CurrencyError otherwise).
 
     Returns:
         Dict with:
+        - currency: The currency of every amount
         - target_month: The month being analyzed
         - recent_months: List of detailed monthly summaries (last N months)
         - historical_summary: Aggregated data for older months
@@ -282,6 +307,7 @@ def fetch_expense_data(
 
     conn = sqlite3.connect(str(db_path))
     try:
+        currency = resolve_currency(conn, currency)
         # Calculate the range for detailed months
         # Go back `detailed_months` from target_month
         year, month = map(int, target_month.split("-"))
@@ -299,14 +325,15 @@ def fetch_expense_data(
         recent_months = []
         months_to_fetch = _get_months_in_range(start_month, target_month)
         for m in months_to_fetch:
-            summary = _fetch_monthly_summary(conn, m)
+            summary = _fetch_monthly_summary(conn, m, currency)
             if summary:
                 recent_months.append(summary)
 
         # Fetch historical summary for older data
-        historical = _fetch_historical_summary(conn, start_month)
+        historical = _fetch_historical_summary(conn, start_month, currency)
 
         return {
+            "currency": currency,
             "target_month": target_month,
             "target_month_name": month_display_name(target_month),
             "recent_months": recent_months,
@@ -321,18 +348,21 @@ def fetch_expense_data(
 # ---------------------------------------------------------------------------
 
 
-def _format_currency(amount: float) -> str:
-    """Format amount as currency."""
-    return f"€{amount:,.2f}"
+def _format_currency(amount: float, currency: str = DEFAULT_CURRENCY) -> str:
+    """Format amount as currency: after its symbol, or before its code."""
+    symbol = CURRENCY_SYMBOLS.get(currency)
+    return f"{symbol}{amount:,.2f}" if symbol else f"{amount:,.2f} {currency}"
 
 
-def _format_monthly_data(month_data: dict[str, Any]) -> str:
+def _format_monthly_data(
+    month_data: dict[str, Any], currency: str = DEFAULT_CURRENCY
+) -> str:
     """Format a single month's data for the prompt."""
     lines = [
         f"### {month_data['month_name']} ({month_data['month']})",
-        f"- **Income**: {_format_currency(month_data['income'])}",
-        f"- **Expenses**: {_format_currency(month_data['expenses'])}",
-        f"- **Net**: {_format_currency(month_data['net'])}",
+        f"- **Income**: {_format_currency(month_data['income'], currency)}",
+        f"- **Expenses**: {_format_currency(month_data['expenses'], currency)}",
+        f"- **Net**: {_format_currency(month_data['net'], currency)}",
         f"- **Transactions**: {month_data['transaction_count']}",
         "",
         "**Spending by Category:**",
@@ -340,20 +370,22 @@ def _format_monthly_data(month_data: dict[str, Any]) -> str:
 
     for cat in month_data.get("categories", [])[:10]:
         lines.append(
-            f"- {cat['name']}: {_format_currency(cat['total'])} ({cat['count']} txns)"
+            f"- {cat['name']}: {_format_currency(cat['total'], currency)} ({cat['count']} txns)"
         )
 
     if month_data.get("top_merchants"):
         lines.extend(["", "**Top Merchants:**"])
         for m in month_data["top_merchants"][:5]:
             lines.append(
-                f"- {m['name']}: {_format_currency(m['total'])} ({m['count']} txns)"
+                f"- {m['name']}: {_format_currency(m['total'], currency)} ({m['count']} txns)"
             )
 
     return "\n".join(lines)
 
 
-def _format_historical_data(historical: dict[str, Any]) -> str:
+def _format_historical_data(
+    historical: dict[str, Any], currency: str = DEFAULT_CURRENCY
+) -> str:
     """Format historical summary for the prompt."""
     if not historical:
         return "No historical data available (this appears to be the first year of tracking)."
@@ -361,15 +393,17 @@ def _format_historical_data(historical: dict[str, Any]) -> str:
     lines = [
         f"### Historical Summary ({historical['period']})",
         f"- **Months tracked**: {historical['month_count']}",
-        f"- **Average monthly income**: {_format_currency(historical['avg_monthly_income'])}",
-        f"- **Average monthly expenses**: {_format_currency(historical['avg_monthly_expenses'])}",
-        f"- **Average monthly net**: {_format_currency(historical['avg_monthly_net'])}",
+        f"- **Average monthly income**: {_format_currency(historical['avg_monthly_income'], currency)}",
+        f"- **Average monthly expenses**: {_format_currency(historical['avg_monthly_expenses'], currency)}",
+        f"- **Average monthly net**: {_format_currency(historical['avg_monthly_net'], currency)}",
         "",
         "**Average Monthly Spending by Category:**",
     ]
 
     for cat in historical.get("categories", []):
-        lines.append(f"- {cat['name']}: {_format_currency(cat['monthly_avg'])}/month")
+        lines.append(
+            f"- {cat['name']}: {_format_currency(cat['monthly_avg'], currency)}/month"
+        )
 
     return "\n".join(lines)
 
@@ -412,6 +446,7 @@ def generate_prompt(
     db_path: Path = DEFAULT_DB,
     context_path: Path = DEFAULT_CONTEXT_FILE,
     target_month: str | None = None,
+    currency: str | None = None,
 ) -> str:
     """
     Generate the LLM prompt for financial advice.
@@ -420,12 +455,14 @@ def generate_prompt(
         db_path: Path to the SQLite database.
         context_path: Path to the context JSON file.
         target_month: The month to analyze (YYYY-MM). Defaults to previous month.
+        currency: The currency to analyze (see fetch_expense_data).
 
     Returns:
         The complete prompt as a string.
     """
     context = load_context(context_path)
-    data = fetch_expense_data(db_path, target_month)
+    data = fetch_expense_data(db_path, target_month, currency=currency)
+    currency = data["currency"]
     first_run = is_first_run(context)
 
     # Build the prompt
@@ -463,7 +500,7 @@ Please provide your analysis in a structured format that can be saved and refere
 
     if target_data:
         sections.append("")
-        sections.append(_format_monthly_data(target_data))
+        sections.append(_format_monthly_data(target_data, currency))
     else:
         sections.append(f"\nNo data found for {data['target_month_name']}.")
 
@@ -476,13 +513,13 @@ Please provide your analysis in a structured format that can be saved and refere
         sections.append("## Recent Months (for comparison)")
         for month_data in reversed(other_months):  # Oldest first
             sections.append("")
-            sections.append(_format_monthly_data(month_data))
+            sections.append(_format_monthly_data(month_data, currency))
 
     # Historical summary
     if data.get("historical_summary"):
         sections.append("")
         sections.append("## Historical Data (older than 12 months)")
-        sections.append(_format_historical_data(data["historical_summary"]))
+        sections.append(_format_historical_data(data["historical_summary"], currency))
 
     # Request section
     sections.append("")

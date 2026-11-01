@@ -31,7 +31,7 @@ from .constants import (
     DATA_HEADERS,
     DEFAULT_DESC_NOTES,
 )
-from .db import fetch_all_transactions, migrate_schema
+from .db import fetch_all_transactions, migrate_schema, resolve_currency
 from .ods_sheets import (
     build_data_sheet,
     build_intro_sheet,
@@ -446,8 +446,14 @@ def generate_ods(
     rules_path: Path,
     ods_path: Path,
     desc_notes_path: Path = DEFAULT_DESC_NOTES,
+    currency: str | None = None,
 ) -> None:
-    """Generate (or update) an ODS expense report."""
+    """Generate (or update) an ODS expense report.
+
+    The report holds one currency, as in generate_xlsx(): only the rows of
+    ``currency`` (the ledger's only one when left out) are written to the
+    Data sheet and the sync baseline.
+    """
     try:
         from odf.opendocument import OpenDocumentSpreadsheet
         from odf.opendocument import load as load_ods
@@ -460,7 +466,8 @@ def generate_ods(
     conn = sqlite3.connect(str(db_path))
     try:
         migrate_schema(conn)
-        transactions = fetch_all_transactions(conn)
+        currency = resolve_currency(conn, currency)
+        transactions = fetch_all_transactions(conn, currency=currency)
     finally:
         conn.close()
 

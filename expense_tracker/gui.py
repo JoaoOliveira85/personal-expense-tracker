@@ -46,6 +46,7 @@ from expense_tracker.constants import (
     IGNORED_CATEGORIES,
     MISCELLANEOUS,
     NEUTRAL_CATEGORIES,
+    currency_symbol,
 )
 from expense_tracker.db import (
     IngestError,
@@ -55,7 +56,9 @@ from expense_tracker.db import (
     fetch_all_transactions,
     ingest,
     ingested_source_files,
+    ledger_currencies,
     migrate_schema,
+    resolve_currency,
 )
 from expense_tracker.email_fetch import (
     DEFAULT_EMAIL_CONFIG,
@@ -96,13 +99,13 @@ st.set_page_config(
 
 
 @st.cache_data(ttl=5)
-def _load_transactions(db_path: str) -> pd.DataFrame:
-    """Load all transactions into a pandas DataFrame."""
+def _load_transactions(db_path: str, currency: str) -> pd.DataFrame:
+    """Load the transactions in ``currency`` into a pandas DataFrame."""
     conn = sqlite3.connect(db_path)
     try:
         ensure_schema(conn)
         migrate_schema(conn)
-        rows = fetch_all_transactions(conn)
+        rows = fetch_all_transactions(conn, currency=currency)
     finally:
         conn.close()
     if not rows:
@@ -345,6 +348,32 @@ page = st.sidebar.radio(
     index=0,
 )
 
+# One currency at a time: amounts of different currencies are never added
+# together. The choice is offered only once the ledger holds several.
+_conn = _get_connection(db_path)
+try:
+    _currencies = ledger_currencies(_conn)
+    currency = (
+        st.sidebar.selectbox("Currency", _currencies, key="currency")
+        if len(_currencies) > 1
+        else resolve_currency(_conn)
+    )
+finally:
+    _conn.close()
+symbol = currency_symbol(currency)
+
+
+def _report_currency() -> str | None:
+    """The currency to regenerate the report in, read again after an
+    import: the one shown, unless the import made it the wrong guess (an
+    empty ledger shows the default currency), when the ledger's only one."""
+    conn = _get_connection(db_path)
+    try:
+        return currency if currency in ledger_currencies(conn) else None
+    finally:
+        conn.close()
+
+
 st.sidebar.divider()
 st.sidebar.caption("Expense Tracker GUI")
 st.sidebar.caption(f"Database: {db_path}")
@@ -357,7 +386,7 @@ st.sidebar.caption(f"Database: {db_path}")
 if page == "Dashboard":
     st.title("Dashboard")
 
-    df = _load_transactions(db_path)
+    df = _load_transactions(db_path, currency)
 
     if df.empty:
         st.info("No transactions found. Import some bank statements to get started.")
@@ -374,9 +403,9 @@ if page == "Dashboard":
     col1, col2, col3, col4 = st.columns(4)
     total_expenses = df["spend"].sum()
     total_income = income["amount_abs"].sum()
-    col1.metric("Total Expenses", f"{total_expenses:,.2f} €")
-    col2.metric("Total Income", f"{total_income:,.2f} €")
-    col3.metric("Net", f"{total_income - total_expenses:,.2f} €")
+    col1.metric("Total Expenses", f"{total_expenses:,.2f} {symbol}")
+    col2.metric("Total Income", f"{total_income:,.2f} {symbol}")
+    col3.metric("Net", f"{total_income - total_expenses:,.2f} {symbol}")
     col4.metric("Transactions", len(df))
 
     st.divider()
@@ -447,7 +476,7 @@ if page == "Dashboard":
 elif page == "Transactions":
     st.title("Transactions")
 
-    df = _load_transactions(db_path)
+    df = _load_transactions(db_path, currency)
     if df.empty:
         st.info("No transactions found.")
         st.stop()
@@ -524,7 +553,9 @@ elif page == "Transactions":
         column_config={
             "date_posted": st.column_config.DateColumn("Date", format="YYYY-MM-DD"),
             "description_clean": "Description",
-            "amount_abs": st.column_config.NumberColumn("Amount", format="%.2f €"),
+            "amount_abs": st.column_config.NumberColumn(
+                "Amount", format=f"%.2f {symbol}"
+            ),
             "direction": "Direction",
             "category": "Category",
             "subcategory": "Subcategory",
@@ -545,7 +576,7 @@ elif page == "Transactions":
             "the figures."
         )
         labels = {
-            f"{r.date_posted:%Y-%m-%d}  {r.amount_signed:.2f} €  "
+            f"{r.date_posted:%Y-%m-%d}  {r.amount_signed:.2f} {symbol}  "
             f"{r.description_raw}  [{r.source_format}, {r.transaction_id}]": (
                 r.transaction_id
             )
@@ -570,7 +601,7 @@ elif page == "Categorize":
     st.title("Categorize Transactions")
     _show_rule_warning()
 
-    df = _load_transactions(db_path)
+    df = _load_transactions(db_path, currency)
     if df.empty:
         st.info("No transactions found.")
         st.stop()
@@ -610,7 +641,7 @@ elif page == "Categorize":
             col1, col2, col3, col4 = st.columns([3, 1, 1, 2])
             col1.write(f"**{merchant}**")
             col2.write(f"{count} txn(s)")
-            col3.write(f"{total:.2f} €")
+            col3.write(f"{total:.2f} {symbol}")
 
             with col4:
                 selected = _category_select(
@@ -825,7 +856,13 @@ elif page == "Import":
                 conn = _get_connection(db_path)
                 categorize_transactions(conn, rules)
                 conn.close()
-                generate_ods(DEFAULT_DB, DEFAULT_RULES, DEFAULT_ODS, DEFAULT_DESC_NOTES)
+                generate_ods(
+                    DEFAULT_DB,
+                    DEFAULT_RULES,
+                    DEFAULT_ODS,
+                    DEFAULT_DESC_NOTES,
+                    _report_currency(),
+                )
                 _load_transactions.clear()
             # A message written here would be wiped by the rerun
             st.session_state["import_result"] = import_result
@@ -1020,6 +1057,7 @@ elif page == "Tools":
                                     DEFAULT_RULES,
                                     DEFAULT_ODS,
                                     DEFAULT_DESC_NOTES,
+                                    _report_currency(),
                                 )
                                 _load_transactions.clear()
                             _show_import_result(import_result)
@@ -1053,7 +1091,9 @@ elif page == "Tools":
                 conn.close()
 
                 # Regenerate ODS
-                generate_ods(DEFAULT_DB, DEFAULT_RULES, DEFAULT_ODS, DEFAULT_DESC_NOTES)
+                generate_ods(
+                    DEFAULT_DB, DEFAULT_RULES, DEFAULT_ODS, DEFAULT_DESC_NOTES, currency
+                )
                 _load_transactions.clear()
 
             msgs = []
@@ -1148,6 +1188,7 @@ elif page == "Tools":
                         db_path=DEFAULT_DB,
                         reports_dir=DEFAULT_REPORTS,
                         desc_notes_path=DEFAULT_DESC_NOTES,
+                        currency=currency,
                     )
                     if len(pdf_paths) == 1:
                         st.session_state["pdf_generation_message"] = (
@@ -1210,7 +1251,7 @@ elif page == "Tools":
                 from expense_tracker.constants import DEFAULT_CSV
                 from expense_tracker.export import export_csv
 
-                export_csv(DEFAULT_DB, DEFAULT_CSV)
+                export_csv(DEFAULT_DB, DEFAULT_CSV, currency)
                 st.success(f"Exported to {DEFAULT_CSV}")
 
                 csv_bytes = DEFAULT_CSV.read_bytes()

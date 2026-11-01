@@ -408,6 +408,13 @@ python bank_ingest.py cards add 5678 Bob</code></pre>
 
 <hr>
 
+<h2 id="currencies">Accounts in Other Currencies</h2>
+
+<p>Each account has a currency, and its transactions carry it. A new account gets <code>EUR</code> (or the code in <code>EXPENSE_TRACKER_CURRENCY</code>). To keep an account in another currency, set it before you import into it:</p>
+<pre><code>python bank_ingest.py accounts set-currency usd_checking USD
+EXPENSE_TRACKER_ACCOUNT_TYPE=usd_checking python bank_ingest.py ingest raw/us-statement.csv</code></pre>
+<p>Once the account holds transactions its currency cannot change. The reports show one currency at a time and never add different currencies together: with a single currency nothing changes, and once there are several, the report commands (<code>auto</code>, <code>report</code>, <code>reclean</code>, <code>pdf</code>, <code>export</code>, <code>suggest</code>, <code>advisor</code>) need <code>--currency USD</code> (they stop and list the currencies otherwise), and the app shows a <strong>Currency</strong> selector in the sidebar. Give each currency's report its own file with <code>--out</code>.</p>
+
 <h2 id="pdf">Monthly PDF Report</h2>
 
 <p>Want a quick one-page summary of a month's spending? Generate a PDF from the Tools page, or:</p>

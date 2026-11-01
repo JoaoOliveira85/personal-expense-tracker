@@ -12,7 +12,7 @@ from expense_tracker.pdf_report import (
     _compute_stats,
     _extract_tags,
     _fetch_historical_category_totals,
-    _fmt_eur,
+    _fmt_amount,
     _next_month,
     _parse_report_month,
     _prev_month,
@@ -76,22 +76,22 @@ class TestExtractTags:
 
 
 # ---------------------------------------------------------------------------
-# _fmt_eur
+# _fmt_amount
 # ---------------------------------------------------------------------------
 
 
 class TestFmtEur:
     def test_basic(self):
-        result = _fmt_eur(1234.56)
+        result = _fmt_amount(1234.56)
         assert "1,234.56" in result
         assert "EUR" in result
 
     def test_zero(self):
-        result = _fmt_eur(0.0)
+        result = _fmt_amount(0.0)
         assert "0.00" in result
 
     def test_large_number(self):
-        result = _fmt_eur(1234567.89)
+        result = _fmt_amount(1234567.89)
         assert "1,234,567.89" in result
 
 

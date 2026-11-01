@@ -202,6 +202,7 @@ python bank_ingest.py auto --raw path/to/csvs
 python bank_ingest.py auto --no-backup    # skip automatic monthly backup
 python bank_ingest.py auto --dry-run      # show what would happen, change nothing
 python bank_ingest.py auto --force        # import statements of another account too
+python bank_ingest.py auto --currency USD # report on USD (needed once there are several)
 ```
 
 The report is written as `expense-report.xlsx` unless you pass `--format ods` (writes `expense-report.ods`, the report described in [The ODS Report](#the-ods-report-expense-reportods)) or `--format both`. Whatever the format, edits made in an existing `expense-report.ods` are synced back to the database first; the ODS itself is only regenerated with `ods` or `both`.
@@ -266,6 +267,7 @@ python bank_ingest.py report --format ods --fresh --no-sync   # full nuclear res
 | `--format` | `xlsx` (default), `ods` or `both`. The xlsx report is rewritten completely on every run. |
 | `--fresh` | With `--format ods` or `both`: creates a backup, then deletes the existing ODS and regenerates all sheets (including Dashboard, Monthly Summary/Trend, Category/Subcategory Breakdown, and any custom sheets). Manual edits are still saved to the database first. Without `--format ods` the ODS is left as it is. |
 | `--no-sync` | Skips reading manual edits from the ODS back into the database. |
+| `--currency` | The currency to report on; needed once the database holds several (see [Several currencies](#several-currencies)). |
 
 ### `cards`
 
@@ -327,11 +329,12 @@ The first time the list is needed it is created from every category already used
 
 ### `export`
 
-Export all transactions to a clean UTF-8 CSV file.
+Export all transactions to a clean UTF-8 CSV file (those of `--currency` once the database holds several currencies; the CSV has no currency column).
 
 ```bash
 python bank_ingest.py export
 python bank_ingest.py export --out my-data.csv
+python bank_ingest.py export --currency USD --out usd.csv
 ```
 
 ### `reclean`
@@ -373,6 +376,7 @@ python bank_ingest.py pdf                      # previous month (default)
 python bank_ingest.py pdf --month 2026-01      # specific month
 python bank_ingest.py pdf --all                # one PDF per month with data
 python bank_ingest.py pdf --out ~/Desktop/jan.pdf  # custom output path
+python bank_ingest.py pdf --currency USD --out reports/report-2026-01-USD.pdf
 ```
 
 The PDF includes:
@@ -406,6 +410,7 @@ python bank_ingest.py suggest --min-count 3          # lower frequency threshold
 | `--min-months` | `3` | Minimum distinct months for recurring detection |
 | `--similarity` | `0.65` | Text similarity threshold (0-1) for grouping |
 | `--min-count` | `5` | Minimum transaction count for frequent merchants |
+| `--currency` | the only one | Currency of the transactions analyzed; needed once the database holds several |
 
 The output groups suggestions by type and shows transaction counts, total amounts, and recommended categories. Turn a suggestion into a rule with `python bank_ingest.py rules add <PATTERN> <CATEGORY>`.
 
@@ -450,7 +455,7 @@ python bank_ingest.py gui --port 8080        # use a custom port
 ./run.sh                                     # same as above (default behavior)
 ```
 
-The GUI opens in your browser and provides seven pages:
+The GUI opens in your browser and provides seven pages. Once the database holds transactions in several currencies, a **Currency** selector in the sidebar picks the one every page shows (see [Several currencies](#several-currencies)).
 
 | Page | What it does |
 |------|-------------|
@@ -509,6 +514,15 @@ EXPENSE_TRACKER_ACCOUNT_TYPE=usd_checking python bank_ingest.py ingest raw/us-st
 
 The code is three letters (any case; stored upper-cased). An account that does not exist yet is created, so its first import uses that currency. Setting a different currency on an account that already holds transactions is refused, and nothing is changed. An account created by an import gets the default currency (`EUR`, or `EXPENSE_TRACKER_CURRENCY`). A database from before currencies were recorded gets its accounts once, in the currency of their rows (`EUR`).
 
+#### Several currencies
+
+The reports show one currency at a time and never add amounts of different currencies together. With a single currency in the database nothing changes: no option is needed and the reports are as before. Once it holds transactions in several, `auto`, `report`, `reclean`, `pdf`, `export`, `suggest` and `advisor` need `--currency <code>`; without it they stop with an error that lists the currencies (exit 1; `auto` keeps the files it imported). The report then holds only that currency's transactions, so its sheets, totals and charts are of that currency alone. Write each currency's report to its own file (`--out`): an ODS report keeps its analysis sheets between runs, and the PDFs default to `reports/report-YYYY-MM.pdf` whatever the currency. In the GUI a **Currency** selector appears in the sidebar once there are several, and every page, and the ODS, PDF and CSV it writes, shows the chosen one. Amounts are labelled `€` for EUR and with the currency code otherwise.
+
+```bash
+python bank_ingest.py report --currency USD --out usd-report.xlsx
+python bank_ingest.py pdf --currency USD --out reports/report-2026-01-USD.pdf
+```
+
 ### `banks`
 
 List all supported bank statement formats and their parser IDs.
@@ -538,6 +552,7 @@ python bank_ingest.py advisor ingest            # record the saved LLM response 
 python bank_ingest.py advisor status            # context summary + months with no response
 python bank_ingest.py advisor catchup           # prompt for the oldest month with no response
 python bank_ingest.py advisor context --edit    # show (or, with --edit, update) your goals and profile
+python bank_ingest.py advisor --currency USD    # the prompt of one currency, once there are several
 ```
 
 Prompts, responses and `context.json` live in `data/advisor/` (gitignored). The first prompt includes discovery questions to establish your financial context.
