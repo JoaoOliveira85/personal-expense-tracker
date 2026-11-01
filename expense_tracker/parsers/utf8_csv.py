@@ -18,7 +18,7 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Optional
 
-from ..constants import DEFAULT_CARDS, DOW_NAMES, account_type
+from ..constants import DEFAULT_CARDS, DEFAULT_CURRENCY, DOW_NAMES, account_type
 from ..parser import (
     clean_description,
     detect_card,
@@ -306,7 +306,8 @@ class Utf8CsvParser:
             "direction": direction,
             "tx_type": "",
             "balance": balance or 0.0,
-            "currency": "EUR",
+            # ingest() replaces it with the currency of the row's account
+            "currency": DEFAULT_CURRENCY,
             "account": account_type(),
             "card_last4": card_last4,
             "payment_type": payment_type,

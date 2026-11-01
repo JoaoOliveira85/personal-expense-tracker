@@ -175,6 +175,8 @@ Imported rows are labelled `checkings_account` in the `account` column. Set `EXP
 
 When a statement prints its account number (a `Conta:` line in its header), the first import under a label remembers that account, and a later statement of another account is refused with an error naming the label and the file, so a savings statement can't end up under `checkings_account` by mistake. Set the right label and import it again, or pass `--force` to `ingest`/`auto` (in the GUI: **Import even if the account does not match**) to import it anyway; the remembered account stays the same. The account number itself is never stored or printed: the database keeps only a fingerprint of it (a salted SHA-256 hash). Statements without such a line are not checked.
 
+Each account label has a currency, and its imported rows carry it. An import into a new label creates the account in the default currency: `EUR`, or the three-letter code in `EXPENSE_TRACKER_CURRENCY`. To keep an account in another currency, set it before its first import with [`accounts set-currency`](#accounts); once the account holds transactions its currency cannot change.
+
 ---
 
 ## Python CLI Reference
@@ -494,6 +496,18 @@ checkings_account
 ```
 
 Each import counts as covering every month from its first to its last transaction. Months are the unit: a month a statement covers only in part (e.g. a statement that starts on the 20th) is not flagged. A re-import that adds no transactions changes nothing, and a failed import is not recorded. For a database from before this command existed, the coverage is rebuilt once from the transactions already imported (one statement per file name).
+
+### `accounts`
+
+List the accounts (labels, see `EXPENSE_TRACKER_ACCOUNT_TYPE`) with their currency and number of transactions, or set the currency of an account.
+
+```bash
+python bank_ingest.py accounts
+python bank_ingest.py accounts set-currency usd_checking USD
+EXPENSE_TRACKER_ACCOUNT_TYPE=usd_checking python bank_ingest.py ingest raw/us-statement.csv
+```
+
+The code is three letters (any case; stored upper-cased). An account that does not exist yet is created, so its first import uses that currency. Setting a different currency on an account that already holds transactions is refused, and nothing is changed. An account created by an import gets the default currency (`EUR`, or `EXPENSE_TRACKER_CURRENCY`). A database from before currencies were recorded gets its accounts once, in the currency of their rows (`EUR`).
 
 ### `banks`
 
@@ -884,6 +898,8 @@ For the full guide — including adding to an existing docker-compose, systemd s
 | `python bank_ingest.py gui` | Launch the Streamlit web interface |
 | `python bank_ingest.py banks` | List supported bank statement formats |
 | `python bank_ingest.py coverage` | Show the months imported per account, and the months missing |
+| `python bank_ingest.py accounts` | List accounts and their currency |
+| `python bank_ingest.py accounts set-currency <label> <code>` | Set the currency of an account before its first import |
 | `python bank_ingest.py advisor` | Write an LLM advice prompt for last month |
 | `python bank_ingest.py reset` | Back up, then delete all data |
 

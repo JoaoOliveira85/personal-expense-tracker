@@ -17,6 +17,7 @@ from typing import Optional
 from .constants import (
     DEFAULT_CARDS,
     DEFAULT_CLEANING_PATTERNS,
+    DEFAULT_CURRENCY,
     DEFAULT_NOISE_WORDS,
     DOW_NAMES,
     account_type,
@@ -471,7 +472,8 @@ def parse_utf16_csv(path: Path, cards_path: Path = DEFAULT_CARDS) -> list[dict]:
                 "direction": direction,
                 "tx_type": tx_type,
                 "balance": balance,
-                "currency": "EUR",
+                # ingest() replaces it with the currency of the row's account
+                "currency": DEFAULT_CURRENCY,
                 "account": account_type(),
                 "card_last4": card_last4,
                 "payment_type": payment_type,
