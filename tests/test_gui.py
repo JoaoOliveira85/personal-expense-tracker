@@ -1006,3 +1006,22 @@ class TestAccountMismatch:
         assert not at.exception
         assert not at.error
         assert _transaction_count(project.db) == 6
+
+
+class TestCardHolders:
+    """The Who column follows the card-holder file (issue #4)."""
+
+    def test_renamed_holder_shows_on_old_rows(self, project, tmp_path, cards_csv):
+        from expense_tracker.db import ingest
+
+        from .conftest import SAMPLE_ROWS, make_utf16_csv
+
+        ingest(project.db, [make_utf16_csv(tmp_path / "jan.csv", SAMPLE_ROWS)])
+        cards_csv.write_text("card_last4,name\n1234,Alicia\n", encoding="utf-8")
+
+        at = _open_page("Transactions")
+
+        table = at.dataframe[0].value
+        who = dict(zip(table["description_clean"], table["who"]))
+        assert who["CONTINENTE"] == "Alicia"
+        assert set(who.values()) == {"Alicia", "Joint"}

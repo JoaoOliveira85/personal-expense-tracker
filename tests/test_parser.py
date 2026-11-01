@@ -137,26 +137,19 @@ class TestCleanDescription:
 
 
 class TestDetectCard:
-    def test_known_card(self):
-        assert (
-            detect_card("COMPRA 1234 CONTINENTE", known_cards={"1234", "5678"})
-            == "1234"
-        )
+    """The digits are kept whether or not a holder is known (issue #4)."""
 
-    def test_unknown_card(self):
-        assert (
-            detect_card("COMPRA 9999 CONTINENTE", known_cards={"1234", "5678"}) is None
-        )
+    def test_card(self):
+        assert detect_card("COMPRA 1234 CONTINENTE") == "1234"
+
+    def test_card_without_a_holder(self):
+        assert detect_card("COMPRA 9999 CONTINENTE") == "9999"
 
     def test_no_four_digit_groups(self):
-        assert detect_card("TRANSFERENCIA SALARIO", known_cards={"1234"}) is None
+        assert detect_card("TRANSFERENCIA SALARIO 12345") is None
 
-    def test_empty_known_cards(self):
-        assert detect_card("COMPRA 1234 CONTINENTE", known_cards=set()) is None
-
-    def test_multiple_cards_first_match(self):
-        result = detect_card("COMPRA 1234 LOJA 5678", known_cards={"1234", "5678"})
-        assert result == "1234"
+    def test_multiple_groups_first_match(self):
+        assert detect_card("COMPRA 5678 LOJA 1234") == "5678"
 
 
 # ---------------------------------------------------------------------------
@@ -524,7 +517,13 @@ class TestParseUtf16Csv:
         rows = parse_utf16_csv(utf16_csv, cards_path=cards_csv)
         continente = [r for r in rows if "CONTINENTE" in r["description_raw"]][0]
         assert continente["card_last4"] == "1234"
-        assert continente["who"] == "Alice"
+        assert "who" not in continente  # looked up when read (issue #4)
+
+    def test_card_without_a_holder_is_stored(self, utf16_csv, tmp_path):
+        rows = parse_utf16_csv(utf16_csv, cards_path=tmp_path / "none.csv")
+        cards = {r["description_raw"]: r["card_last4"] for r in rows}
+        assert cards["COMPRA 1234 CONTINENTE PORTO"] == "1234"
+        assert cards["COMPRA 5678 FARMACIA DA GARE 1000-001 LISBOA"] == "5678"
 
     def test_payment_types_detected(self, utf16_csv, cards_csv):
         rows = parse_utf16_csv(utf16_csv, cards_path=cards_csv)

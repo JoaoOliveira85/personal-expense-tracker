@@ -23,7 +23,6 @@ from .parser import (
     clean_description,
     detect_card,
     detect_payment_type,
-    load_card_holders,
     parse_amount,
 )
 
@@ -254,7 +253,9 @@ def parse_pdf_statement(
     then applies the same cleaning, card detection, and payment type
     inference as the CSV parser.
 
-    Returns the same list[dict] format as parse_utf16_csv().
+    Returns the same list[dict] format as parse_utf16_csv(). ``cards_path``
+    is no longer read: card holders are looked up when transactions are read
+    (db.apply_card_holders).
     """
     try:
         import pdfplumber
@@ -264,8 +265,6 @@ def parse_pdf_statement(
             "Install it with: pip install pdfplumber"
         )
 
-    card_owners = load_card_holders(cards_path)
-    known_cards = set(card_owners.keys())
     credit_patterns = load_credit_patterns(credit_patterns_path)
 
     rows: list[dict] = []
@@ -307,13 +306,7 @@ def parse_pdf_statement(
 
                 # Process data rows
                 for row in table[header_idx + 1 :]:
-                    parsed = _parse_table_row(
-                        row,
-                        col_map,
-                        known_cards,
-                        card_owners,
-                        path.name,
-                    )
+                    parsed = _parse_table_row(row, col_map, path.name)
                     if parsed:
                         rows.append(parsed)
 
@@ -322,8 +315,6 @@ def parse_pdf_statement(
             rows = _parse_text_transactions(
                 full_text,
                 statement_year,
-                known_cards,
-                card_owners,
                 path.name,
                 credit_patterns,
                 period=(d1, d2) if d1 and d2 else None,
@@ -407,8 +398,6 @@ def _balance_mismatches(rows: list[dict]) -> list[tuple[dict, float]]:
 def _parse_text_transactions(
     full_text: str,
     statement_year: Optional[int],
-    known_cards: set[str],
-    card_owners: dict[str, str],
     source_file: str,
     credit_patterns: list[str] = None,
     period: Optional[tuple[date, date]] = None,
@@ -461,8 +450,6 @@ def _parse_text_transactions(
             line,
             statement_year,
             current_month,
-            known_cards,
-            card_owners,
             source_file,
             credit_patterns,
             period=period,
@@ -593,8 +580,6 @@ def _parse_text_transaction_line(
     line: str,
     year: int,
     current_month: Optional[int],
-    known_cards: set[str],
-    card_owners: dict[str, str],
     source_file: str,
     credit_patterns: list[str] = None,
     period: Optional[tuple[date, date]] = None,
@@ -719,11 +704,10 @@ def _parse_text_transaction_line(
     balance = _parse_amount_pdf_text(balance_s) or 0.0
 
     # Apply same enrichment as CSV parser
-    card_last4 = detect_card(desc, known_cards)
+    card_last4 = detect_card(desc)
     payment_type = detect_payment_type(desc)
     description_clean = clean_description(desc)
     direction = "out" if amount < 0 else "in"
-    who = card_owners.get(card_last4, "Joint") if card_last4 else "Joint"
 
     return {
         "date_posted": posted.isoformat(),
@@ -741,7 +725,6 @@ def _parse_text_transaction_line(
         "account": account_type(),
         "card_last4": card_last4,
         "payment_type": payment_type,
-        "who": who,
         "source_file": source_file,
     }
 
@@ -749,8 +732,6 @@ def _parse_text_transaction_line(
 def _parse_table_row(
     row: list[str],
     col_map: dict[str, int],
-    known_cards: set[str],
-    card_owners: dict[str, str],
     source_file: str,
 ) -> Optional[dict]:
     """Parse a single table row into a transaction dict, or return None."""
@@ -806,11 +787,10 @@ def _parse_table_row(
     balance = _parse_amount(balance_s) if balance_s else 0.0
 
     # --- Apply same enrichment as CSV parser ---
-    card_last4 = detect_card(desc, known_cards)
+    card_last4 = detect_card(desc)
     payment_type = detect_payment_type(desc)
     description_clean = clean_description(desc)
     direction = "out" if amount < 0 else "in"
-    who = card_owners.get(card_last4, "Joint") if card_last4 else "Joint"
 
     return {
         "date_posted": posted.isoformat(),
@@ -828,7 +808,6 @@ def _parse_table_row(
         "account": account_type(),
         "card_last4": card_last4,
         "payment_type": payment_type,
-        "who": who,
         "source_file": source_file,
     }
 

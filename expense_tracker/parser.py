@@ -224,14 +224,15 @@ def clean_description(raw: str) -> str:
     return cleaned if cleaned else raw
 
 
-def detect_card(description: str, known_cards: set[str] | None = None) -> Optional[str]:
-    """Extract known card last-4 from description."""
-    if known_cards is None:
-        known_cards = set(load_card_holders().keys())
-    for m in CARD_RE.finditer(description):
-        if m.group(1) in known_cards:
-            return m.group(1)
-    return None
+def detect_card(description: str) -> Optional[str]:
+    """The first four-digit group of the description: the card's last 4.
+
+    Stored whether or not a holder is known; the holder's name is looked up
+    from the card-holder file when transactions are read (see
+    db.apply_card_holders), so a mapping added later still applies.
+    """
+    m = CARD_RE.search(description)
+    return m.group(1) if m else None
 
 
 # ---------------------------------------------------------------------------
@@ -400,10 +401,10 @@ def parse_utf16_csv(path: Path, cards_path: Path = DEFAULT_CARDS) -> list[dict]:
     - Non-tabular header/footer lines
     - Portuguese date format (dd-mm-YYYY)
     - Comma or dot decimal separators
-    """
-    card_owners = load_card_holders(cards_path)
-    known_cards = set(card_owners.keys())
 
+    ``cards_path`` is no longer read: card holders are looked up when
+    transactions are read (db.apply_card_holders). It stays for callers.
+    """
     lines = _decode_utf16(path)
 
     # Find the table header line
@@ -452,11 +453,10 @@ def parse_utf16_csv(path: Path, cards_path: Path = DEFAULT_CARDS) -> list[dict]:
         amount = parse_amount(amount_s)
         balance = parse_amount(balance_s)
 
-        card_last4 = detect_card(desc, known_cards)
+        card_last4 = detect_card(desc)
         payment_type = detect_payment_type(desc)
         description_clean = clean_description(desc)
         direction = "out" if amount < 0 else "in"
-        who = card_owners.get(card_last4, "Joint") if card_last4 else "Joint"
 
         rows.append(
             {
@@ -475,7 +475,6 @@ def parse_utf16_csv(path: Path, cards_path: Path = DEFAULT_CARDS) -> list[dict]:
                 "account": account_type(),
                 "card_last4": card_last4,
                 "payment_type": payment_type,
-                "who": who,
                 "source_file": path.name,
             }
         )
