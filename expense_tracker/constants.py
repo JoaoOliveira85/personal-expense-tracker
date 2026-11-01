@@ -129,3 +129,24 @@ DEFAULT_ACCOUNT_TYPE = "checkings_account"
 def account_type() -> str:
     """Account label written on imported rows (EXPENSE_TRACKER_ACCOUNT_TYPE)."""
     return os.environ.get("EXPENSE_TRACKER_ACCOUNT_TYPE", DEFAULT_ACCOUNT_TYPE)
+
+
+# ---------------------------------------------------------------------------
+# Currency
+# ---------------------------------------------------------------------------
+
+DEFAULT_CURRENCY = "EUR"
+
+# How amounts in a currency are labelled; any other currency shows its code
+CURRENCY_SYMBOLS = {"EUR": "€"}
+
+
+def default_currency() -> str:
+    """Currency given to an account created by an import, as written in
+    EXPENSE_TRACKER_CURRENCY (db.normalize_currency checks it)."""
+    return os.environ.get("EXPENSE_TRACKER_CURRENCY", DEFAULT_CURRENCY)
+
+
+def currency_symbol(code: str) -> str:
+    """The symbol of a currency code, or the code itself when it has none."""
+    return CURRENCY_SYMBOLS.get(code, code)

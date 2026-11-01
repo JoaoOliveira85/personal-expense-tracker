@@ -936,3 +936,64 @@ class TestAccountMismatch:
         monkeypatch.setattr("sys.argv", ["x", "auto", "--force"])
         cli.main()
         assert seen == {"i": True, "a": True}
+
+
+def _accounts_args(root: Path, action: str = "list", *extra: str):
+    return argparse.Namespace(
+        action=action, extra=list(extra), db=root / "data" / "ledger.sqlite"
+    )
+
+
+class TestAccountsCommand:
+    """`accounts set-currency` gives an account its currency before its
+    first import; `accounts` lists them."""
+
+    @pytest.fixture(autouse=True)
+    def _env(self, monkeypatch):
+        monkeypatch.setenv("EXPENSE_TRACKER_ACCOUNT_TYPE", "checkings_account")
+        monkeypatch.delenv("EXPENSE_TRACKER_CURRENCY", raising=False)
+
+    def test_set_currency_then_list(self, workspace: Path, capsys):
+        cli.cmd_accounts(_accounts_args(workspace, "set-currency", "usd_card", "usd"))
+        out = capsys.readouterr().out
+        assert "usd_card" in out and "USD" in out
+
+        cli.cmd_accounts(_accounts_args(workspace))
+
+        assert "usd_card" in capsys.readouterr().out
+
+    def test_change_refused_once_the_account_has_rows(self, workspace: Path, capsys):
+        csv = make_utf16_csv(workspace / "raw" / "jan.csv", FIRST_HALF)
+        ingest(workspace / "data" / "ledger.sqlite", [csv])
+        capsys.readouterr()
+
+        with pytest.raises(SystemExit) as excinfo:
+            cli.cmd_accounts(
+                _accounts_args(workspace, "set-currency", "checkings_account", "USD")
+            )
+
+        assert excinfo.value.code == 1
+        out = capsys.readouterr().out
+        assert "cannot be changed" in out and "EUR" in out
+
+    def test_invalid_code_exits_non_zero(self, workspace: Path, capsys):
+        with pytest.raises(SystemExit) as excinfo:
+            cli.cmd_accounts(_accounts_args(workspace, "set-currency", "x", "dollar"))
+
+        assert excinfo.value.code == 1
+        assert "three letters" in capsys.readouterr().out
+
+    def test_set_currency_needs_label_and_code(self, workspace: Path, capsys):
+        with pytest.raises(SystemExit):
+            cli.cmd_accounts(_accounts_args(workspace, "set-currency", "usd_card"))
+
+        assert "Usage" in capsys.readouterr().out
+
+    def test_parser_accepts_the_command(self, workspace: Path, monkeypatch, capsys):
+        monkeypatch.setattr(
+            "sys.argv", ["bank_ingest.py", "accounts", "set-currency", "a", "GBP"]
+        )
+
+        cli.main()
+
+        assert "GBP" in capsys.readouterr().out

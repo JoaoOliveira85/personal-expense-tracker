@@ -186,6 +186,22 @@ def migrate_schema(conn: sqlite3.Connection) -> None:
             recorded_at TEXT NOT NULL
         )
         """)
+    # The currency of each account label (see set_account_currency). A ledger
+    # from before the table gets its labels with the currency of their rows.
+    has_accounts = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'accounts'"
+    ).fetchone()
+    if not has_accounts:
+        conn.execute("""
+            CREATE TABLE accounts (
+                label    TEXT PRIMARY KEY,
+                currency TEXT NOT NULL
+            )
+            """)
+        conn.execute("""
+            INSERT INTO accounts (label, currency)
+            SELECT account, MIN(currency) FROM transactions GROUP BY account
+            """)
     conn.commit()
 
 
@@ -214,6 +230,135 @@ def _backfill_card_last4(conn: sqlite3.Connection) -> None:
     conn.execute(
         "INSERT INTO settings (key, value) VALUES ('card_last4_backfilled', '1')"
     )
+
+
+# ---------------------------------------------------------------------------
+# Account currency
+# ---------------------------------------------------------------------------
+
+
+class CurrencyError(ValueError):
+    """A currency code that is not valid, one that may not be set, or no
+    single currency to report on. ``currencies`` lists the ledger's, when
+    the error is that several need a choice."""
+
+    def __init__(self, message: str, currencies: list[str] | None = None) -> None:
+        self.currencies = currencies or []
+        super().__init__(message)
+
+
+def normalize_currency(code: str, source: str = "currency") -> str:
+    """``code`` upper-cased; CurrencyError unless it is three letters."""
+    normalized = (code or "").strip().upper()
+    if not re.fullmatch(r"[A-Z]{3}", normalized):
+        raise CurrencyError(
+            f"{source} '{code}' is not a currency code: use three letters, "
+            "such as EUR or USD"
+        )
+    return normalized
+
+
+def _default_currency() -> str:
+    from .constants import default_currency
+
+    return normalize_currency(default_currency(), "EXPENSE_TRACKER_CURRENCY")
+
+
+def _rows_currencies(conn: sqlite3.Connection, account: str) -> list[str]:
+    rows = conn.execute(
+        "SELECT DISTINCT currency FROM transactions WHERE account = ? "
+        "ORDER BY currency",
+        (account,),
+    ).fetchall()
+    return [code for (code,) in rows]
+
+
+def _account_currency(conn: sqlite3.Connection, account: str, default: str) -> str:
+    """The currency of ``account``, which is created with the currency of
+    its rows (when some were stored without an ``accounts`` row) or else
+    ``default``. In the caller's transaction: a failed import creates none."""
+    stored = conn.execute(
+        "SELECT currency FROM accounts WHERE label = ?", (account,)
+    ).fetchone()
+    if stored:
+        return stored[0]
+    currency = (_rows_currencies(conn, account) or [default])[0]
+    conn.execute(
+        "INSERT INTO accounts (label, currency) VALUES (?, ?)", (account, currency)
+    )
+    return currency
+
+
+def set_account_currency(conn: sqlite3.Connection, label: str, code: str) -> str:
+    """Give the account ``label`` the currency ``code`` (three letters, any
+    case); return it upper-cased.
+
+    An account that does not exist yet is created, so its first import uses
+    the currency. Once it holds transactions its currency cannot change
+    (CurrencyError); setting the one it has is accepted.
+    """
+    currency = normalize_currency(code)
+    held = _rows_currencies(conn, label)
+    if held and held != [currency]:
+        count = conn.execute(
+            "SELECT COUNT(*) FROM transactions WHERE account = ?", (label,)
+        ).fetchone()[0]
+        raise CurrencyError(
+            f"account '{label}' holds {count} transaction(s) in "
+            f"{', '.join(held)}: its currency cannot be changed"
+        )
+    conn.execute(
+        "INSERT OR REPLACE INTO accounts (label, currency) VALUES (?, ?)",
+        (label, currency),
+    )
+    conn.commit()
+    return currency
+
+
+def list_accounts(conn: sqlite3.Connection) -> list[tuple[str, str, int]]:
+    """Each account as (label, currency, transaction count), by label."""
+    return conn.execute("""
+        SELECT a.label, a.currency, COUNT(t.transaction_id)
+        FROM accounts a LEFT JOIN transactions t ON t.account = a.label
+        GROUP BY a.label, a.currency
+        ORDER BY a.label
+        """).fetchall()
+
+
+def ledger_currencies(conn: sqlite3.Connection) -> list[str]:
+    """The currencies the ledger's transactions are in, sorted."""
+    rows = conn.execute(
+        "SELECT DISTINCT currency FROM transactions ORDER BY currency"
+    ).fetchall()
+    return [code for (code,) in rows]
+
+
+def resolve_currency(conn: sqlite3.Connection, currency: str | None = None) -> str:
+    """The one currency a report shows: ``currency`` if given, else the
+    ledger's only one (the default currency for an empty ledger).
+
+    Amounts of different currencies are never added together, so a ledger
+    with several needs a choice (CurrencyError, with ``currencies``), and
+    a currency it holds no transaction in is refused.
+    """
+    held = ledger_currencies(conn)
+    if currency:
+        code = normalize_currency(currency)
+        if held and code not in held:
+            raise CurrencyError(
+                f"the ledger holds no transaction in {code} (it holds "
+                f"{', '.join(held)})",
+                held,
+            )
+        return code
+    if len(held) > 1:
+        raise CurrencyError(
+            f"the ledger holds transactions in several currencies "
+            f"({', '.join(held)}), and their amounts are never added "
+            "together: choose one",
+            held,
+        )
+    return held[0] if held else _default_currency()
 
 
 # ---------------------------------------------------------------------------
@@ -649,6 +794,8 @@ def ingest(
         ensure_schema(conn)
         migrate_schema(conn)
         now = datetime.now().astimezone().isoformat(timespec="seconds")
+        # Checked before any file: a mistyped setting must not import some
+        default_currency = _default_currency()
 
         paths = list(file_paths)
         for p in paths:
@@ -661,8 +808,15 @@ def ingest(
                 rows, source_format, account_id = parsed[:3]
                 if account_id is not None:
                     _check_account(conn, rows, account_id, p, force, now)
+                # The parsers do not know the ledger: each row takes the
+                # currency of its account, created if new
+                currencies = {
+                    account: _account_currency(conn, account, default_currency)
+                    for account in sorted({r["account"] for r in rows})
+                }
                 for r in rows:
                     r["source_format"] = source_format
+                    r["currency"] = currencies[r["account"]]
                 inserted = _insert_rows(conn, rows, now)
                 suspected = _flag_suspected(conn, inserted)
                 _record_import(conn, rows, inserted, now)
@@ -897,15 +1051,20 @@ def reclean_descriptions(db_path: Path) -> int:
 
 
 def fetch_all_transactions(
-    conn: sqlite3.Connection, cards_path: Path | None = None
+    conn: sqlite3.Connection,
+    cards_path: Path | None = None,
+    currency: str | None = None,
 ) -> list[dict]:
     """Fetch all transactions as a list of dicts, sorted by date desc.
 
     ``who`` comes from the card-holder file (``cards_path``, by default
     DEFAULT_CARDS) via apply_card_holders(), not from the stored column.
+    With ``currency``, only the transactions in that currency.
     """
+    where, params = ("WHERE currency = ?", (currency,)) if currency else ("", ())
     conn.row_factory = sqlite3.Row
-    rows = conn.execute("""
+    rows = conn.execute(
+        f"""
         SELECT
             transaction_id, date_posted, date_value, month, day_of_week,
             description_raw, description_clean,
@@ -914,8 +1073,11 @@ def fetch_all_transactions(
             category, subcategory, notes, source_file, imported_at,
             source_format, suspected_of
         FROM transactions
+        {where}
         ORDER BY date_posted DESC, rowid DESC
-        """).fetchall()
+        """,
+        params,
+    ).fetchall()
     conn.row_factory = None
 
     result = []

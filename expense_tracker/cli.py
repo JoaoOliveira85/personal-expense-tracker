@@ -40,13 +40,16 @@ from .constants import (
     MISCELLANEOUS,
 )
 from .db import (
+    CurrencyError,
     IngestError,
     coverage,
     ensure_schema,
     ingest,
     ingested_source_files,
+    list_accounts,
     migrate_schema,
     reclean_descriptions,
+    set_account_currency,
 )
 from .email_fetch import (
     DEFAULT_EMAIL_CONFIG,
@@ -1006,6 +1009,37 @@ def cmd_coverage(args):
         print(f"  Missing: {', '.join(account.missing) or 'none'}")
 
 
+def cmd_accounts(args):
+    """Handle the 'accounts' subcommand: list accounts, set a currency."""
+    args.db.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(str(args.db))
+    try:
+        ensure_schema(conn)
+        migrate_schema(conn)
+        if args.action == "set-currency":
+            if len(args.extra) != 2:
+                print("Usage: accounts set-currency <label> <code>")
+                print("  Example: accounts set-currency usd_checking USD")
+                sys.exit(1)
+            label, code = args.extra
+            try:
+                currency = set_account_currency(conn, label, code)
+            except CurrencyError as e:
+                print(f"Error: {e}. Nothing was changed.")
+                sys.exit(1)
+            print(f"Account '{label}' is in {currency}.")
+            return
+        accounts = list_accounts(conn)
+    finally:
+        conn.close()
+    if not accounts:
+        print("No accounts yet: an import creates its account.")
+        return
+    print(f"  {'Account':<24} {'Currency':<8} Transactions")
+    for label, currency, count in accounts:
+        print(f"  {label:<24} {currency:<8} {count}")
+
+
 def cmd_banks(args):
     """Handle the 'banks' subcommand: list supported bank parsers."""
     parsers = get_registered_parsers()
@@ -1698,6 +1732,38 @@ def main() -> None:
         help=f"SQLite database path (default: {DEFAULT_DB})",
     )
     ap_coverage.set_defaults(func=cmd_coverage)
+
+    # -- accounts --
+    ap_accounts = sub.add_parser(
+        "accounts",
+        help="List accounts and their currency, or set an account's currency",
+        description=(
+            "Each account label (EXPENSE_TRACKER_ACCOUNT_TYPE) has a currency. "
+            "An import creates a new account in the default currency "
+            "(EXPENSE_TRACKER_CURRENCY, else EUR); set another before the "
+            "first import into it. It cannot change once the account holds "
+            "transactions."
+        ),
+    )
+    ap_accounts.add_argument(
+        "action",
+        nargs="?",
+        default="list",
+        choices=["list", "set-currency"],
+        help="Action to perform (default: list)",
+    )
+    ap_accounts.add_argument(
+        "extra",
+        nargs="*",
+        help="For 'set-currency': the account label and a three-letter code",
+    )
+    ap_accounts.add_argument(
+        "--db",
+        type=Path,
+        default=DEFAULT_DB,
+        help=f"SQLite database path (default: {DEFAULT_DB})",
+    )
+    ap_accounts.set_defaults(func=cmd_accounts)
 
     # -- advisor --
     ap_advisor = sub.add_parser(

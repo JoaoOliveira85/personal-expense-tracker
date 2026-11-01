@@ -1485,3 +1485,242 @@ class TestSqlHelpers:
         assert got == (spend, income)
         assert spend_amount(_t(direction, category, 30)) == spend
         assert is_income(_t(direction, category)) is bool(income)
+
+
+# ---------------------------------------------------------------------------
+# Account currency
+# ---------------------------------------------------------------------------
+
+
+def _accounts(db_path) -> list[tuple]:
+    conn = sqlite3.connect(str(db_path))
+    try:
+        return conn.execute(
+            "SELECT label, currency FROM accounts ORDER BY label"
+        ).fetchall()
+    finally:
+        conn.close()
+
+
+def _row_currencies(db_path) -> list[tuple]:
+    conn = sqlite3.connect(str(db_path))
+    try:
+        return conn.execute(
+            "SELECT account, currency, COUNT(*) FROM transactions "
+            "GROUP BY account, currency ORDER BY account"
+        ).fetchall()
+    finally:
+        conn.close()
+
+
+def _set_currency(db_path, label: str, code: str) -> None:
+    from expense_tracker.db import set_account_currency
+
+    conn = sqlite3.connect(str(db_path))
+    try:
+        ensure_schema(conn)
+        migrate_schema(conn)
+        set_account_currency(conn, label, code)
+    finally:
+        conn.close()
+
+
+class TestAccountCurrency:
+    """Currency is a property of the account; rows carry their account's."""
+
+    @pytest.fixture(autouse=True)
+    def _env(self, monkeypatch):
+        monkeypatch.setenv("EXPENSE_TRACKER_ACCOUNT_TYPE", "checkings_account")
+        monkeypatch.delenv("EXPENSE_TRACKER_CURRENCY", raising=False)
+
+    def _ingest(self, db_path, tmp_path, name, *dates, **kwargs):
+        path = _utf8_statement(tmp_path / name, *dates)
+        return ingest(db_path, [path], cards_path=tmp_path / "none.csv", **kwargs)
+
+    def test_new_account_gets_the_default_currency(self, test_db, tmp_path):
+        self._ingest(test_db, tmp_path, "jan.csv", "05-01-2026")
+
+        assert _accounts(test_db) == [("checkings_account", "EUR")]
+        assert _row_currencies(test_db) == [("checkings_account", "EUR", 1)]
+
+    def test_default_currency_is_configurable(self, test_db, tmp_path, monkeypatch):
+        monkeypatch.setenv("EXPENSE_TRACKER_CURRENCY", "GBP")
+
+        self._ingest(test_db, tmp_path, "jan.csv", "05-01-2026")
+
+        assert _accounts(test_db) == [("checkings_account", "GBP")]
+        assert _row_currencies(test_db) == [("checkings_account", "GBP", 1)]
+
+    def test_invalid_default_currency_stops_the_import(
+        self, test_db, tmp_path, monkeypatch
+    ):
+        from expense_tracker.db import CurrencyError
+
+        monkeypatch.setenv("EXPENSE_TRACKER_CURRENCY", "euro")
+
+        with pytest.raises(CurrencyError, match="EXPENSE_TRACKER_CURRENCY"):
+            self._ingest(test_db, tmp_path, "jan.csv", "05-01-2026")
+        assert _row_currencies(test_db) == []
+
+    def test_currency_set_before_the_first_import_is_used(
+        self, test_db, tmp_path, monkeypatch
+    ):
+        self._ingest(test_db, tmp_path, "jan.csv", "05-01-2026")
+        _set_currency(test_db, "usd_account", "USD")
+        monkeypatch.setenv("EXPENSE_TRACKER_ACCOUNT_TYPE", "usd_account")
+
+        self._ingest(test_db, tmp_path, "us.csv", "06-01-2026", "07-01-2026")
+
+        assert _accounts(test_db) == [
+            ("checkings_account", "EUR"),
+            ("usd_account", "USD"),
+        ]
+        assert _row_currencies(test_db) == [
+            ("checkings_account", "EUR", 1),
+            ("usd_account", "USD", 2),
+        ]
+
+    def test_code_is_upper_cased(self, test_db):
+        _set_currency(test_db, "usd_account", "usd")
+
+        assert _accounts(test_db) == [("usd_account", "USD")]
+
+    @pytest.mark.parametrize("code", ["US", "USDX", "U$D", "", "12A"])
+    def test_code_must_be_three_letters(self, test_db, code):
+        from expense_tracker.db import CurrencyError
+
+        with pytest.raises(CurrencyError, match="three letters"):
+            _set_currency(test_db, "usd_account", code)
+        assert _accounts(test_db) == []
+
+    def test_currency_of_an_account_with_rows_cannot_change(self, test_db, tmp_path):
+        from expense_tracker.db import CurrencyError
+
+        self._ingest(test_db, tmp_path, "jan.csv", "05-01-2026")
+
+        with pytest.raises(CurrencyError, match="checkings_account"):
+            _set_currency(test_db, "checkings_account", "USD")
+        assert _accounts(test_db) == [("checkings_account", "EUR")]
+        assert _row_currencies(test_db) == [("checkings_account", "EUR", 1)]
+
+    def test_setting_the_same_currency_again_is_allowed(self, test_db, tmp_path):
+        self._ingest(test_db, tmp_path, "jan.csv", "05-01-2026")
+
+        _set_currency(test_db, "checkings_account", "eur")
+
+        assert _accounts(test_db) == [("checkings_account", "EUR")]
+
+    def test_currency_can_change_while_the_account_is_empty(self, test_db):
+        _set_currency(test_db, "usd_account", "USD")
+        _set_currency(test_db, "usd_account", "CAD")
+
+        assert _accounts(test_db) == [("usd_account", "CAD")]
+
+    def test_dry_run_creates_no_account(self, test_db, tmp_path):
+        self._ingest(test_db, tmp_path, "jan.csv", "05-01-2026", dry_run=True)
+
+        assert _accounts(test_db) == []
+
+    def test_failed_import_creates_no_account(self, test_db, tmp_path):
+        bad = tmp_path / "junk.csv"
+        bad.write_text("not a bank statement\n", encoding="utf-8")
+
+        with pytest.raises(IngestError):
+            ingest(test_db, [bad], cards_path=tmp_path / "none.csv")
+        assert _accounts(test_db) == []
+
+    def test_old_ledger_is_seeded_from_its_transactions(self, test_db, tmp_path):
+        self._ingest(test_db, tmp_path, "jan.csv", "05-01-2026")
+        conn = sqlite3.connect(str(test_db))
+        conn.execute("DROP TABLE accounts")  # a ledger from before the table
+        conn.commit()
+
+        migrate_schema(conn)
+        migrate_schema(conn)
+        conn.close()
+
+        assert _accounts(test_db) == [("checkings_account", "EUR")]
+
+    def test_list_accounts(self, test_db, tmp_path):
+        from expense_tracker.db import list_accounts
+
+        self._ingest(test_db, tmp_path, "jan.csv", "05-01-2026", "06-01-2026")
+        _set_currency(test_db, "usd_account", "USD")
+        conn = sqlite3.connect(str(test_db))
+        try:
+            accounts = list_accounts(conn)
+        finally:
+            conn.close()
+
+        assert accounts == [("checkings_account", "EUR", 2), ("usd_account", "USD", 0)]
+
+
+class TestResolveCurrency:
+    """Which currency a report shows: the chosen one, or the only one."""
+
+    def _conn(self, db_path, *currencies: str) -> sqlite3.Connection:
+        from tests.conftest import add_transaction
+
+        for i, code in enumerate(currencies):
+            tid = add_transaction(db_path, f"2026-01-{i + 1:02d}", "SHOP", 10.0)
+            conn = sqlite3.connect(str(db_path))
+            conn.execute(
+                "UPDATE transactions SET currency = ? WHERE transaction_id = ?",
+                (code, tid),
+            )
+            conn.commit()
+            conn.close()
+        return sqlite3.connect(str(db_path))
+
+    def test_single_currency_ledger(self, test_db, monkeypatch):
+        from expense_tracker.db import ledger_currencies, resolve_currency
+
+        monkeypatch.setenv("EXPENSE_TRACKER_CURRENCY", "GBP")
+        conn = self._conn(test_db, "EUR", "EUR")
+
+        assert ledger_currencies(conn) == ["EUR"]
+        assert resolve_currency(conn) == "EUR"
+        assert resolve_currency(conn, "eur") == "EUR"
+        conn.close()
+
+    def test_empty_ledger_uses_the_default(self, test_db, monkeypatch):
+        from expense_tracker.db import resolve_currency
+
+        monkeypatch.setenv("EXPENSE_TRACKER_CURRENCY", "GBP")
+        conn = self._conn(test_db)
+
+        assert resolve_currency(conn) == "GBP"
+        assert resolve_currency(conn, "USD") == "USD"
+        conn.close()
+
+    def test_several_currencies_need_a_choice(self, test_db):
+        from expense_tracker.db import CurrencyError, resolve_currency
+
+        conn = self._conn(test_db, "USD", "EUR")
+
+        with pytest.raises(CurrencyError, match="EUR, USD") as excinfo:
+            resolve_currency(conn)
+        assert excinfo.value.currencies == ["EUR", "USD"]
+        assert resolve_currency(conn, "USD") == "USD"
+        conn.close()
+
+    def test_currency_not_in_the_ledger_is_refused(self, test_db):
+        from expense_tracker.db import CurrencyError, resolve_currency
+
+        conn = self._conn(test_db, "USD", "EUR")
+
+        with pytest.raises(CurrencyError, match="GBP"):
+            resolve_currency(conn, "GBP")
+        conn.close()
+
+    def test_fetch_all_transactions_by_currency(self, test_db):
+        conn = self._conn(test_db, "USD", "EUR", "EUR")
+
+        assert len(fetch_all_transactions(conn)) == 3
+        assert [
+            r["currency"] for r in fetch_all_transactions(conn, currency="EUR")
+        ] == [
+            "EUR",
+            "EUR",
+        ]
+        conn.close()

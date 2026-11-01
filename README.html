@@ -553,6 +553,8 @@ python bank_ingest.py advisor status    # see which months still need an answer<
     <tr><td><code>python bank_ingest.py gui</code></td><td>Launch the app</td></tr>
     <tr><td><code>python bank_ingest.py banks</code></td><td>List supported bank statement formats</td></tr>
     <tr><td><code>python bank_ingest.py coverage</code></td><td>Show the months imported per account and the months missing between them (a month covered only in part is not flagged)</td></tr>
+    <tr><td><code>python bank_ingest.py accounts</code></td><td>List accounts and their currency</td></tr>
+    <tr><td><code>python bank_ingest.py accounts set-currency &lt;label&gt; &lt;code&gt;</code></td><td>Set the currency of an account before its first import (refused once it holds transactions)</td></tr>
     <tr><td><code>python bank_ingest.py advisor</code></td><td>Write an AI advice prompt for last month</td></tr>
     <tr><td><code>python bank_ingest.py reset</code></td><td>Back up, then delete all data</td></tr>
   </tbody>
