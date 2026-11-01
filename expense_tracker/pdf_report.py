@@ -14,6 +14,7 @@ import sqlite3
 from collections import defaultdict
 from datetime import date, timedelta
 from pathlib import Path
+from typing import Iterable
 
 from .constants import (
     DEFAULT_ADVISOR_DIR,
@@ -92,6 +93,42 @@ def _fetch_historical_category_totals(
     for month, category, total in rows:
         result[month][category] = total
     return dict(result)
+
+
+def _fetch_ledger_months(conn: sqlite3.Connection) -> list[str]:
+    """The months (YYYY-MM) that have any transaction, oldest first."""
+    rows = conn.execute(
+        "SELECT DISTINCT month FROM transactions ORDER BY month"
+    ).fetchall()
+    return [month for (month,) in rows]
+
+
+# How many earlier months the "vs Avg" column of the monthly PDF averages
+AVERAGE_MONTHS = 12
+
+
+def _category_averages(
+    historical: dict[str, dict[str, float]],
+    ledger_months: Iterable[str],
+    month: str,
+    categories: Iterable[str] = (),
+) -> dict[str, float]:
+    """Per-category monthly spending average over the months before ``month``.
+
+    The months are the latest AVERAGE_MONTHS before ``month`` that have any
+    transaction (``ledger_months``); a month in which a category had no
+    spending counts 0, so a bill paid once a year averages a twelfth of it.
+    ``categories`` (those of ``month``) get an average of 0 when no earlier
+    month has them. With no earlier month there is no average: empty dict.
+    """
+    prior = sorted(m for m in set(ledger_months) if m < month)[-AVERAGE_MONTHS:]
+    if not prior:
+        return {}
+    names = set(categories).union(*(historical.get(m, {}) for m in prior))
+    return {
+        cat: sum(historical.get(m, {}).get(cat, 0.0) for m in prior) / len(prior)
+        for cat in names
+    }
 
 
 def _load_merchant_notes(desc_notes_path: Path) -> dict[str, str]:
@@ -469,6 +506,7 @@ def generate_monthly_pdf(
     try:
         transactions = _fetch_month_transactions(conn, month)
         historical = _fetch_historical_category_totals(conn)
+        ledger_months = _fetch_ledger_months(conn)
     finally:
         conn.close()
 
@@ -476,27 +514,22 @@ def generate_monthly_pdf(
     prev = _prev_month(month)
     prev_month_totals = historical.get(prev, {})
 
-    # Compute per-category monthly averages over the months before this one.
-    # Later months are no part of its history: the report is usually written
-    # a few days into the next month, and old months can be regenerated.
-    category_averages: dict[str, float] = defaultdict(float)
-    category_month_counts: dict[str, int] = defaultdict(int)
-    for m, cats in historical.items():
-        if m >= month:
-            continue
-        for cat, total in cats.items():
-            category_averages[cat] += total
-            category_month_counts[cat] += 1
-    for cat in list(category_averages):
-        if category_month_counts[cat] > 0:
-            category_averages[cat] /= category_month_counts[cat]
+    # Per-category monthly averages over the months before this one. Later
+    # months are no part of its history: the report is usually written a few
+    # days into the next month, and old months can be regenerated.
+    category_averages = _category_averages(
+        historical,
+        ledger_months,
+        month,
+        {tx["category"] for tx in transactions if tx.get("category")},
+    )
 
     merchant_notes = _load_merchant_notes(desc_notes_path)
     stats = _compute_stats(
         transactions,
         merchant_notes,
         prev_month_totals,
-        dict(category_averages),
+        category_averages,
     )
 
     # Create PDF
