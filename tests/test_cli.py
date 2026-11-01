@@ -192,6 +192,46 @@ class TestRecleanKeepsOdsEdits:
         assert _category(args.db, tid) == "Groceries"
 
 
+class TestAutoReportsSyncConflicts:
+    """An ODS edit of a value the database changed since is printed and not
+    applied (issue #14)."""
+
+    def test_conflict_is_printed_with_both_values(self, workspace: Path, capsys):
+        from expense_tracker.ods import generate_ods
+
+        from .test_ods_sync import _category, _set_db_category, _set_ods_category
+
+        args = _auto_args(workspace)
+        ods = workspace / "expense-report.ods"
+        statement = make_utf16_csv(workspace / "2026-01.csv", FIRST_HALF)
+        ingest(args.db, [statement], cards_path=workspace / "none.csv")
+        generate_ods(args.db, args.rules, ods, args.desc_notes)
+        conn = sqlite3.connect(str(args.db))
+        tid = conn.execute(
+            "SELECT transaction_id FROM transactions "
+            "WHERE description_raw LIKE '%CONTINENTE%'"
+        ).fetchone()[0]
+        conn.execute(
+            "UPDATE transactions SET category_source = 'manual' "
+            "WHERE transaction_id = ?",
+            (tid,),
+        )
+        conn.commit()
+        conn.close()
+        allow_categories(args.rules, "Groceries", "Supermarket")
+        _set_db_category(args.db, tid, "Supermarket")
+        _set_ods_category(ods, tid, "Groceries")
+        capsys.readouterr()
+
+        cli.cmd_auto(args)
+
+        out = capsys.readouterr().out
+        line = next(ln for ln in out.splitlines() if tid in ln)
+        assert "'Groceries'" in line and "'Supermarket'" in line
+        assert "1 spreadsheet edit(s) not applied" in out
+        assert _category(args.db, tid) == "Supermarket"
+
+
 class TestFetchFailure:
     """The cron sync runs `fetch || echo warning`: a failure must not exit 0."""
 

@@ -62,7 +62,7 @@ from expense_tracker.email_fetch import (
     create_email_config,
     load_email_config,
 )
-from expense_tracker.ods import generate_ods, sync_from_ods
+from expense_tracker.ods import SyncResult, generate_ods, sync_from_ods
 from expense_tracker.rules import (
     SHORT_PATTERN_LENGTH,
     CategoryError,
@@ -282,9 +282,10 @@ def _ingest_files(paths: list[Path], force: bool = False) -> dict:
     }
 
 
-def _sync_ods() -> tuple[int, list[str]]:
-    """sync_from_ods() against the category list: the number of rows it
-    updated, and the edits it skipped (categories not in the list)."""
+def _sync_ods() -> tuple[SyncResult, list[str]]:
+    """sync_from_ods() against the category list: what it did, and the
+    edits it skipped (categories not in the list, and conflicts: edits of a
+    value the database changed after the spreadsheet was written)."""
     categories = _categories()
     collected = _ParserWarnings()
     package_logger = logging.getLogger("expense_tracker")
@@ -295,7 +296,7 @@ def _sync_ods() -> tuple[int, list[str]]:
         )
     finally:
         package_logger.removeHandler(collected)
-    return synced, collected.messages
+    return synced, collected.messages + [c.describe() for c in synced.conflicts]
 
 
 def _show_sync_warnings(messages: list[str]) -> None:
@@ -1056,8 +1057,13 @@ elif page == "Tools":
                 _load_transactions.clear()
 
             msgs = []
-            if synced:
-                msgs.append(f"Synced {synced} edit(s) from ODS")
+            if synced.updated:
+                msgs.append(f"Synced {synced.updated} edit(s) from ODS")
+            if synced.conflicts:
+                msgs.append(
+                    f"{len(synced.conflicts)} edit(s) not applied (changed in "
+                    "the database since)"
+                )
             if updated:
                 msgs.append(f"categorized {updated} transaction(s)")
             msgs.append("report regenerated")

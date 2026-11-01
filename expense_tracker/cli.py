@@ -309,11 +309,7 @@ def cmd_auto(args):
     # Sync from ODS if it exists (for backward compatibility)
     ods_path = args.out.with_suffix(".ods") if args.out.suffix == ".xlsx" else args.out
     if ods_path.exists():
-        synced = sync_from_ods(
-            args.db, ods_path, args.desc_notes, categories=_categories(args)
-        )
-        if synced:
-            _info(f"Synced {synced} manual edit(s) from {ods_path} back to database.")
+        _sync_ods_edits(args, ods_path)
 
     conn = sqlite3.connect(str(args.db))
     try:
@@ -415,11 +411,7 @@ def cmd_report(args):
 
     # Step 1: Sync back any manual edits from the existing ODS (if it exists)
     if not args.no_sync and ods_path.exists():
-        synced = sync_from_ods(
-            args.db, ods_path, args.desc_notes, categories=_categories(args)
-        )
-        if synced:
-            _info(f"Synced {synced} manual edit(s) from {ods_path} back to database.")
+        _sync_ods_edits(args, ods_path)
     else:
         _detail("Skipping sync (--no-sync flag or no ODS file found).")
 
@@ -503,6 +495,29 @@ def cmd_cards(args):
             print(f"Removed card {last4}")
         else:
             print(f"Card {last4} not found.")
+
+
+def _sync_ods_edits(args, ods_path: Path) -> None:
+    """sync_from_ods() against the category list, printing what it did.
+
+    Conflicts (edits of a value the database changed since the sheet was
+    written) are printed even with --quiet: the edit was not applied.
+    """
+    result = sync_from_ods(
+        args.db, ods_path, args.desc_notes, categories=_categories(args)
+    )
+    if result.updated:
+        _info(
+            f"Synced {result.updated} manual edit(s) from {ods_path} back to "
+            "database."
+        )
+    for conflict in result.conflicts:
+        print(f"  Conflict: {conflict.describe()}")
+    if result.conflicts:
+        print(
+            f"{len(result.conflicts)} spreadsheet edit(s) not applied: see the "
+            "conflicts above."
+        )
 
 
 def _categories(args) -> list[str]:
@@ -653,11 +668,7 @@ def cmd_reclean(args):
     _info(f"Pre-reclean backup: {zp} ({format_size(zp.stat().st_size)})")
 
     # The report below is regenerated from the DB: save unsynced ODS edits first
-    synced = sync_from_ods(
-        args.db, args.out, args.desc_notes, categories=_categories(args)
-    )
-    if synced:
-        _info(f"Synced {synced} manual edit(s) from {args.out} back to database.")
+    _sync_ods_edits(args, args.out)
 
     _info("Re-cleaning all descriptions using current patterns...")
     updated = reclean_descriptions(args.db)
