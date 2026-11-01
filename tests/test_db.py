@@ -556,7 +556,33 @@ class TestIngestWarnings:
         conn.close()
         assert count == 1
 
-    def test_pdf_balance_mismatch_is_counted(self, test_db, tmp_path, capsys):
+    def test_pdf_line_the_balance_disproves_fails_the_file(
+        self, test_db, tmp_path, capsys
+    ):
+        from tests.test_pdf_parser import _make_text_pdf
+
+        path = _make_text_pdf(
+            tmp_path / "statement.pdf",
+            [
+                "EXTRATO DE 2026/02/02 A 2026/02/27",
+                "2.02 2.02 COMPRA KIOSK 3.00 1 529.13",
+                "2.06 2.06 TRF MB WAY DE ALICE 20.00 1 559.13",
+            ],
+        )
+
+        with pytest.raises(IngestError):
+            ingest(test_db, [path], cards_path=tmp_path / "none.csv")
+
+        out = capsys.readouterr().out
+        assert "Error: statement.pdf was not imported" in out
+        assert "line 3" in out
+
+    @pytest.mark.parametrize("dry_run, prefix", [(False, ""), (True, "[dry-run] ")])
+    def test_pdf_signs_from_credit_patterns_are_counted(
+        self, test_db, tmp_path, capsys, dry_run, prefix
+    ):
+        """Issue #17: the first line has no balance before it, the third
+        none on it; the second is signed by the balance."""
         from tests.test_pdf_parser import _make_text_pdf
 
         path = _make_text_pdf(
@@ -565,14 +591,26 @@ class TestIngestWarnings:
                 "EXTRATO DE 2026/02/02 A 2026/02/27",
                 "2.02 2.02 COMPRA KIOSK 3.00 1 529.13",
                 "2.06 2.06 TRF MB WAY DE ALICE 20.00 1 549.13",
+                "2.07 2.07 >PAGAMENTO CARTAO DE CREDITO 4.68",
             ],
         )
 
-        ingest(test_db, [path], cards_path=tmp_path / "none.csv")
+        result = ingest(
+            test_db, [path], cards_path=tmp_path / "none.csv", dry_run=dry_run
+        )
 
+        assert result.files[0].signs_guessed == 2
+        assert result.signs_guessed == 2
         out = capsys.readouterr().out
-        assert "Warning: statement.pdf" in out
-        assert "1 warning(s)" in out
+        assert "statement.pdf: 3 parsed" in out
+        assert "2 sign(s) from credit patterns" in out
+        assert f"{prefix}2 amount sign(s) could not be read from the running" in out
+
+    def test_no_guessed_sign_no_line(self, test_db, utf16_csv, cards_csv, capsys):
+        result = ingest(test_db, [utf16_csv], cards_path=cards_csv)
+
+        assert result.signs_guessed == 0
+        assert "sign(s)" not in capsys.readouterr().out
 
     def test_unread_pdf_line_is_counted(self, test_db, tmp_path, capsys):
         from tests.test_pdf_parser import _make_text_pdf

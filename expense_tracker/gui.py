@@ -265,20 +265,20 @@ def _ingest_files(paths: list[Path], force: bool = False) -> dict:
     package_logger = logging.getLogger("expense_tracker")
     package_logger.addHandler(collected)
     error = ""
-    suspected = 0
+    result = None
     try:
-        suspected = ingest(DEFAULT_DB, paths, force=force).suspected
+        result = ingest(DEFAULT_DB, paths, force=force)
     except IngestError as e:
         error = str(e)
-        if e.result is not None:
-            suspected = e.result.suspected
+        result = e.result
     finally:
         package_logger.removeHandler(collected)
     return {
         "files": len(paths),
         "error": error,
         "warnings": collected.messages,
-        "suspected": suspected,
+        "suspected": result.suspected if result else 0,
+        "signs_guessed": result.signs_guessed if result else 0,
     }
 
 
@@ -320,6 +320,12 @@ def _show_import_result(result: dict) -> None:
             "format: the same transactions may have been imported from a CSV "
             "and a PDF. They are kept and counted; review them on the "
             "Transactions page."
+        )
+    if result.get("signs_guessed"):
+        st.warning(
+            f"{result['signs_guessed']} amount sign(s) could not be read from the "
+            "running balance (no balance on the line or before it) and were set "
+            "from data/credit-patterns.csv: check them against the statement."
         )
     if not result["error"] and not result["warnings"]:
         st.success(f"Imported {result['files']} file(s) and regenerated report.")

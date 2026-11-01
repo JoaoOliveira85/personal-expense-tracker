@@ -383,10 +383,18 @@ class TestExtractPdfDateRange:
 # ---------------------------------------------------------------------------
 
 
+def _year(year: int) -> tuple[date, date]:
+    """A statement period covering the whole year."""
+    return date(year, 1, 1), date(year, 12, 31)
+
+
 def _text_rows(text: str, year: int = 2026, credit_patterns=None) -> list[dict]:
     from expense_tracker.pdf_parser import _parse_text_transactions
 
-    return _parse_text_transactions(text, year, "statement.pdf", credit_patterns)
+    rows, _ = _parse_text_transactions(
+        text, _year(year), "statement.pdf", credit_patterns
+    )
+    return rows
 
 
 class TestTextCreditPatterns:
@@ -398,12 +406,23 @@ class TestTextCreditPatterns:
         assert [r["amount_signed"] for r in rows] == [50.00]
         assert rows[0]["direction"] == "in"
 
-    def test_default_pattern_absent_from_config_is_not_credit(self):
+    def test_keyword_absent_from_config_is_not_credit(self):
         rows = _text_rows(
             "2.03 2.03 TRF. P/O EXEMPLO 84.00 966.00",
             credit_patterns=["VENCIMENTO"],
         )
         assert [r["amount_signed"] for r in rows] == [-84.00]
+
+    def test_there_are_no_built_in_patterns(self, tmp_path):
+        """data/credit-patterns.csv is the only source (issue #17)."""
+        from expense_tracker.pdf_parser import load_credit_patterns
+
+        assert load_credit_patterns(tmp_path / "missing.csv") == []
+        empty = tmp_path / "credit-patterns.csv"
+        empty.write_text("pattern\n", encoding="utf-8")
+        assert load_credit_patterns(empty) == []
+        rows = _text_rows("2.03 2.03 TRANSFERENCIA - VENCIMENTO 1 000.00 2 000.00")
+        assert [r["amount_signed"] for r in rows] == [-1000.00]
 
     def test_loaded_from_file_by_parse_pdf_statement(self, tmp_path):
         from expense_tracker.pdf_parser import load_credit_patterns
@@ -496,8 +515,10 @@ class TestBalanceCheck:
             tmp_path / "statement.pdf", ["EXTRATO DE 2026/02/02 A 2026/02/27"] + lines
         )
 
-    def test_amount_signed_against_the_balance_is_reported(self, tmp_path, caplog):
-        """MB WAY money received: no credit keyword, so it is booked as spent."""
+    def test_money_received_without_a_keyword_is_signed_by_the_balance(
+        self, tmp_path, caplog
+    ):
+        """MB WAY money received: no credit keyword, the balance went up."""
         path = self._text_statement(
             tmp_path,
             [
@@ -508,14 +529,10 @@ class TestBalanceCheck:
         )
         rows = parse_pdf_statement(path, cards_path=tmp_path / "none.csv")
 
-        assert [r["amount_signed"] for r in rows] == [-3.00, -20.00, -0.40]
-        messages = self._warnings(caplog)
-        assert len(messages) == 1
-        assert "statement.pdf" in messages[0]
-        assert "TRF MB WAY DE ALICE" in messages[0]
-        assert "-20.00" in messages[0] and "+20.00" in messages[0]
+        assert [r["amount_signed"] for r in rows] == [-3.00, 20.00, -0.40]
+        assert self._warnings(caplog) == []
 
-    def test_wrong_sign_on_a_small_amount_is_reported(self, tmp_path, caplog):
+    def test_small_credit_is_signed_by_the_balance(self, tmp_path, caplog):
         path = self._text_statement(
             tmp_path,
             [
@@ -523,9 +540,10 @@ class TestBalanceCheck:
                 "2.06 2.06 JUROS CREDORES 0.40 1 529.53",
             ],
         )
-        parse_pdf_statement(path, cards_path=tmp_path / "none.csv")
+        rows = parse_pdf_statement(path, cards_path=tmp_path / "none.csv")
 
-        assert len(self._warnings(caplog)) == 1
+        assert [r["amount_signed"] for r in rows] == [-3.00, 0.40]
+        assert self._warnings(caplog) == []
 
     def test_consistent_statement_reports_nothing(self, tmp_path, caplog):
         path = self._text_statement(
@@ -585,7 +603,9 @@ class TestBalanceCheck:
         assert len(parse_pdf_statement(path, cards_path=cards_csv)) == 3
         assert self._warnings(caplog) == []
 
-    def test_wrong_sign_among_equal_amounts_is_still_reported(self, tmp_path, caplog):
+    def test_credit_among_equal_amounts_is_signed_by_the_balance(
+        self, tmp_path, caplog
+    ):
         path = self._text_statement(
             tmp_path,
             [
@@ -593,13 +613,12 @@ class TestBalanceCheck:
                 "2.03 2.03 TRF MB WAY DE ALICE 10.00 1 000.00",
             ],
         )
-        parse_pdf_statement(path, cards_path=tmp_path / "none.csv")
+        rows = parse_pdf_statement(path, cards_path=tmp_path / "none.csv")
 
-        messages = self._warnings(caplog)
-        assert len(messages) == 1
-        assert "TRF MB WAY DE ALICE" in messages[0]
+        assert [r["amount_signed"] for r in rows] == [-10.00, 10.00]
+        assert self._warnings(caplog) == []
 
-    def test_amount_that_does_not_explain_the_balance_is_reported(
+    def test_table_amount_that_does_not_explain_the_balance_fails(
         self, tmp_path, cards_csv, caplog
     ):
         rows = list(SAMPLE_PDF_ROWS)
@@ -612,11 +631,14 @@ class TestBalanceCheck:
             "1280,06",
         )
         path = _make_pdf_statement(tmp_path / "statement.pdf", rows)
-        parse_pdf_statement(path, cards_path=cards_csv)
 
-        messages = self._warnings(caplog)
-        assert len(messages) == 1
-        assert "FARMACIA" in messages[0]
+        with pytest.raises(ValueError) as error:
+            parse_pdf_statement(path, cards_path=cards_csv)
+
+        message = str(error.value)
+        assert "statement.pdf" in message
+        assert "FARMACIA" in message
+        assert "-1280.00" in message and "-12.80" in message
 
 
 class TestTextCarryOverLines:
@@ -800,13 +822,12 @@ class TestTextAmountSplit:
         assert "COMPRA 1234 LIDL 280 150.00 1 379.13" in messages[0]
         assert "280 150.00" in messages[0] and "could be 150.00" in messages[0]
 
-    def test_balance_that_fits_no_reading_is_reported(self, caplog):
-        _text_triples(
-            "2.02 2.02 COMPRA KIOSK 3.00 1 529.13\n"
-            "2.03 2.03 COMPRA 1234 LIDL 280 150.00 1 000.00"
-        )
-
-        assert len(_text_warnings(caplog)) == 1
+    def test_balance_that_fits_no_reading_fails(self, caplog):
+        with pytest.raises(ValueError, match="line 2"):
+            _text_triples(
+                "2.02 2.02 COMPRA KIOSK 3.00 1 529.13\n"
+                "2.03 2.03 COMPRA 1234 LIDL 280 150.00 1 000.00"
+            )
 
     def test_ambiguous_line_without_balance_is_reported(self, caplog):
         triples = _text_triples(
@@ -853,7 +874,10 @@ class TestTextAmountSplit:
 class TestTextFixturesUnchanged:
     """Every text line the tests and the parser's docstrings used before the
     amount split looked at the balance, with what the parser made of it
-    then (description, amount, balance): none of them may move."""
+    then (description, amount, balance): none of them may move. The sign
+    is no longer the parser's guess but the running balance's (see
+    TestTextSign), so only the magnitude is compared; some of these lines,
+    put together, are no consistent statement."""
 
     @pytest.mark.parametrize(
         "lines, expected",
@@ -947,10 +971,13 @@ class TestTextFixturesUnchanged:
         ],
     )
     def test_parses_as_before(self, lines, expected, caplog):
-        # As one statement, and each line on its own (no balance before it).
-        # 2024, so that the fixture with a 29 February has one.
-        assert _text_triples("\n".join(lines), 2024) == expected
-        assert [t for ln in lines for t in _text_triples(ln, 2024)] == expected
+        # Each line on its own (no balance before it). 2024, so that the
+        # fixture with a 29 February has one.
+        def unsigned(triples):
+            return [(d, abs(a), b) for d, a, b in triples]
+
+        triples = [t for ln in lines for t in _text_triples(ln, 2024)]
+        assert unsigned(triples) == unsigned(expected)
         assert not [m for m in _text_warnings(caplog) if "could be" in m]
 
 
@@ -1062,9 +1089,9 @@ class TestTableSkippedRows:
 
 
 class TestTextStatementWithoutPeriod:
-    """Text lines carry no year. When the statement does not state its
-    period either, no line may be dated in the future, and the guess is
-    reported."""
+    """Text lines carry no year. A statement that does not state its period
+    cannot be dated: it is not imported, and today's date plays no part
+    (issue #17)."""
 
     @pytest.fixture(autouse=True)
     def read_on_20_january_2027(self, monkeypatch):
@@ -1075,58 +1102,44 @@ class TestTextStatementWithoutPeriod:
 
         monkeypatch.setattr("expense_tracker.pdf_parser.date", FrozenDate)
 
-    def _dates(self, tmp_path, lines: list[str]) -> list[tuple[str, str]]:
-        path = _make_text_pdf(tmp_path / "statement.pdf", ["CONTA 123456789"] + lines)
-        rows = parse_pdf_statement(path, cards_path=tmp_path / "none.csv")
-        return [(r["date_posted"], r["date_value"]) for r in rows]
-
-    def test_december_statement_read_in_january_is_dated_last_year(self, tmp_path):
-        dates = self._dates(
-            tmp_path,
+    @pytest.mark.parametrize(
+        "lines",
+        [
+            # A December statement read in January
             [
                 "12.30 12.30 COMPRA CONTINENTE 10.00 990.00",
                 "1.05 1.05 COMPRA PINGO DOCE 20.00 970.00",
             ],
-        )
-
-        assert dates == [
-            ("2026-12-30", "2026-12-30"),
-            ("2027-01-05", "2027-01-05"),
-        ]
-
-    def test_value_date_stays_next_to_the_posting_date(self, tmp_path):
-        dates = self._dates(tmp_path, ["1.02 12.31 COMPRA LIDL 5.00 965.00"])
-
-        assert dates == [("2027-01-02", "2026-12-31")]
-
-    def test_today_is_this_year_and_tomorrow_is_last_year(self, tmp_path):
-        dates = self._dates(
-            tmp_path,
+            ["1.02 12.31 COMPRA LIDL 5.00 965.00"],
             [
                 "1.21 1.21 COMPRA CONTINENTE 10.00 990.00",
                 "1.20 1.20 COMPRA PINGO DOCE 20.00 970.00",
             ],
-        )
+            ["2.29 2.29 COMPRA LIDL 5.00 985.00"],
+        ],
+    )
+    def test_statement_without_a_period_fails(self, tmp_path, lines):
+        path = _make_text_pdf(tmp_path / "statement.pdf", ["CONTA 123456789"] + lines)
 
-        assert dates == [
-            ("2026-01-21", "2026-01-21"),
-            ("2027-01-20", "2027-01-20"),
-        ]
+        with pytest.raises(ValueError, match="period") as error:
+            parse_pdf_statement(path, cards_path=tmp_path / "none.csv")
 
-    def test_leap_day_gets_the_latest_year_that_has_one(self, tmp_path):
-        dates = self._dates(tmp_path, ["2.29 2.29 COMPRA LIDL 5.00 985.00"])
+        assert "statement.pdf" in str(error.value)
 
-        assert dates == [("2024-02-29", "2024-02-29")]
+    def test_missing_period_fails_before_any_line_is_read(self):
+        from expense_tracker.pdf_parser import _parse_text_transactions
 
-    def test_missing_period_is_reported(self, tmp_path, caplog):
-        self._dates(tmp_path, ["12.30 12.30 COMPRA CONTINENTE 10.00 990.00"])
+        with pytest.raises(ValueError, match="period"):
+            _parse_text_transactions(
+                "2.02 2.02 COMPRA KIOSK 3.00 1 529.13", None, "statement.pdf"
+            )
 
-        messages = [m for m in _text_warnings(caplog) if "period" in m]
-        assert len(messages) == 1
-        assert "statement.pdf" in messages[0]
-        assert "2027-01-20" in messages[0]
+    def test_text_without_transactions_needs_no_period(self):
+        from expense_tracker.pdf_parser import _parse_text_transactions
 
-    def test_statement_with_a_period_reports_nothing(self, tmp_path, caplog):
+        assert _parse_text_transactions("NOT A STATEMENT", None, "x.pdf") == ([], 0)
+
+    def test_statement_with_a_period_is_dated_by_it(self, tmp_path, caplog):
         path = _make_text_pdf(
             tmp_path / "statement.pdf",
             [
@@ -1138,6 +1151,132 @@ class TestTextStatementWithoutPeriod:
 
         assert [r["date_posted"] for r in rows] == ["2025-12-30"]
         assert _text_warnings(caplog) == []
+
+
+class TestTextSign:
+    """The running balance decides the sign of a text line: the sign under
+    which the amount, applied to the balance before it, gives the line's
+    balance. The credit patterns only sign a line the balance cannot decide,
+    and those are counted (issue #17)."""
+
+    def _parse(self, text: str, credit_patterns=None) -> tuple[list[dict], int]:
+        from expense_tracker.pdf_parser import _parse_text_transactions
+
+        return _parse_text_transactions(
+            text, _year(2026), "statement.pdf", credit_patterns
+        )
+
+    def test_credit_with_an_unlisted_keyword_gets_its_sign_from_the_balance(self):
+        rows, guessed = self._parse(
+            "SALDO INICIAL 1 529.13\n2.06 2.06 TRF MB WAY DE ALICE 20.00 1 549.13"
+        )
+
+        assert [(r["amount_signed"], r["direction"]) for r in rows] == [(20.00, "in")]
+        assert guessed == 0
+
+    def test_listed_keyword_does_not_overrule_the_balance(self):
+        """TRF. P/O was a built-in credit keyword; this one is money out."""
+        rows, guessed = self._parse(
+            "SALDO INICIAL 1 050.00\n2.03 2.03 TRF. P/O EXEMPLO 84.00 966.00",
+            credit_patterns=["TRF. P/O"],
+        )
+
+        assert [r["amount_signed"] for r in rows] == [-84.00]
+        assert guessed == 0
+
+    def test_line_whose_balance_fits_neither_sign_fails(self):
+        with pytest.raises(ValueError) as error:
+            self._parse(
+                "SALDO INICIAL 1 532.13\n"
+                "2.02 2.02 COMPRA KIOSK 3.00 1 529.13\n"
+                "2.03 2.03 COMPRA CAFE 0.40 1 000.00"
+            )
+
+        message = str(error.value)
+        assert "statement.pdf" in message
+        assert "line 3" in message
+        # The amount, and the balances before and after it
+        assert "0.40" in message
+        assert "1529.13" in message and "1000.00" in message
+
+    def test_lines_the_balance_cannot_decide_use_the_patterns_and_are_counted(self):
+        rows, guessed = self._parse(
+            "\n".join(
+                [
+                    # No balance before it
+                    "2.02 2.02 VENDA OLX BICICLETA 50.00 1 050.00",
+                    # No balance on it
+                    "2.03 2.03 >PAGAMENTO CARTAO DE CREDITO 4.68",
+                    "2.04 2.04 COMPRA KIOSK 3.00 1 047.00",
+                ]
+            ),
+            credit_patterns=["VENDA OLX"],
+        )
+
+        assert [r["amount_signed"] for r in rows] == [50.00, -4.68, -3.00]
+        assert guessed == 2
+
+    def test_line_that_cannot_be_read_breaks_the_chain(self, caplog):
+        """The balance after it may include its amount: the next line is
+        signed by the patterns, not failed."""
+        rows, guessed = self._parse(
+            "SALDO INICIAL 1 532.13\n"
+            "2.02 2.02 COMPRA KIOSK 3.00 1 529.13\n"
+            "2.03 2.03 COMPRA LOJA 10,00 1 519,13\n"
+            "2.04 2.04 COMPRA CAFE 0.40 1 518.73"
+        )
+
+        assert [r["amount_signed"] for r in rows] == [-3.00, -0.40]
+        assert guessed == 1
+        assert len([m for m in _text_warnings(caplog) if "not imported" in m]) == 1
+
+    def test_statement_follows_the_balance_chain(self, tmp_path, caplog):
+        """End to end, with a patterns file listing the old built-in TRF. P/O."""
+        patterns = tmp_path / "credit-patterns.csv"
+        patterns.write_text("pattern\nTRF. P/O\n", encoding="utf-8")
+        path = _make_text_pdf(
+            tmp_path / "statement.pdf",
+            [
+                "EXTRATO DE 2026/02/02 A 2026/02/27",
+                "SALDO INICIAL 1 532.13",
+                "2.02 2.02 COMPRA KIOSK 3.00 1 529.13",
+                "2.03 2.03 TRF. P/O EXEMPLO 150.00 1 379.13",
+                "2.06 2.06 TRF MB WAY DE ALICE 20.00 1 399.13",
+                "2.07 2.07 TRANSFERENCIA - VENCIMENTO 2 150.00 3 549.13",
+            ],
+        )
+        rows = parse_pdf_statement(
+            path, cards_path=tmp_path / "none.csv", credit_patterns_path=patterns
+        )
+
+        assert [(r["description_raw"], r["amount_signed"]) for r in rows] == [
+            ("COMPRA KIOSK", -3.00),
+            ("TRF. P/O EXEMPLO", -150.00),
+            ("TRF MB WAY DE ALICE", 20.00),
+            ("TRANSFERENCIA - VENCIMENTO", 2150.00),
+        ]
+        assert _text_warnings(caplog) == []
+
+    def test_read_pdf_statement_counts_the_guessed_signs(self, tmp_path):
+        from expense_tracker.pdf_parser import read_pdf_statement
+
+        path = _make_text_pdf(
+            tmp_path / "statement.pdf",
+            [
+                "EXTRATO DE 2026/02/02 A 2026/02/27",
+                "2.02 2.02 COMPRA KIOSK 3.00 1 529.13",
+                "2.03 2.03 COMPRA CAFE 0.40 1 528.73",
+            ],
+        )
+        statement = read_pdf_statement(path, tmp_path / "none.csv")
+
+        assert [r["amount_signed"] for r in statement.rows] == [-3.00, -0.40]
+        assert statement.signs_guessed == 1
+
+    def test_table_statement_guesses_no_sign(self, pdf_statement, tmp_path):
+        from expense_tracker.pdf_parser import read_pdf_statement
+
+        assert read_pdf_statement(pdf_statement, tmp_path / "x.csv").signs_guessed == 0
 
 
 class TestPdfAccountId:

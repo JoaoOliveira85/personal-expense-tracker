@@ -16,7 +16,7 @@ import logging
 import re
 from datetime import date, datetime
 from pathlib import Path
-from typing import Optional
+from typing import Iterable, NamedTuple, Optional
 
 from .constants import DEFAULT_CARDS, DOW_NAMES, account_type
 from .parser import (
@@ -70,23 +70,19 @@ CARRY_OVER_RE = re.compile(
 # with a leading zero ("050.00") only occurs after another group.
 PRINTED_AMOUNT_RE = re.compile(r"^(?:0|[1-9]\d{0,2}(?:\s\d{3})*)\.\d{2}$")
 
-# Default credit patterns (used if no config file exists)
-DEFAULT_CREDIT_PATTERN_LIST = [
-    "TRF. P/O",  # Transfer TO us (incoming)
-    "TRANSFERENCIA - VENCIMENTO",  # Salary
-    "CRED.",  # Credit/refund to card
-    "DEVOL.",  # Devolution/refund
-    "DEP NUM",  # Cash deposit
-    "DEP ",  # Deposit (generic)
-    "DEPOSITO",
-    "REEMBOLSO",  # Reimbursement
-]
+# The start of a text transaction line: two month.day dates
+TEXT_LINE_START_RE = re.compile(r"^\d{1,2}\.\d{2}\s+\d{1,2}\.\d{2}\s+")
 
 
 def load_credit_patterns(path: Path = DEFAULT_CREDIT_PATTERNS) -> list[str]:
-    """Load credit patterns from CSV file, or return defaults if not found."""
+    """The credit patterns of the CSV file (``pattern`` column).
+
+    They sign only the text lines the running balance cannot decide (see
+    _parse_text_transaction_line). There is no built-in list: no file, or
+    one that cannot be read, means no patterns, and such lines are money out.
+    """
     if not path.exists():
-        return DEFAULT_CREDIT_PATTERN_LIST.copy()
+        return []
 
     patterns = []
     try:
@@ -97,9 +93,17 @@ def load_credit_patterns(path: Path = DEFAULT_CREDIT_PATTERNS) -> list[str]:
                     patterns.append(row["pattern"])
     except Exception as e:
         logger.warning(f"Could not load credit patterns from {path}: {e}")
-        return DEFAULT_CREDIT_PATTERN_LIST.copy()
+        return []
 
-    return patterns if patterns else DEFAULT_CREDIT_PATTERN_LIST.copy()
+    return patterns
+
+
+class PdfStatement(NamedTuple):
+    """The rows of a PDF statement, and how many of their signs came from
+    the credit patterns because the running balance could not decide them."""
+
+    rows: list[dict]
+    signs_guessed: int
 
 
 # Known header labels (case-insensitive) that identify the transaction table
@@ -255,7 +259,18 @@ def parse_pdf_statement(
 
     Returns the same list[dict] format as parse_utf16_csv(). ``cards_path``
     is no longer read: card holders are looked up when transactions are read
-    (db.apply_card_holders).
+    (db.apply_card_holders). See read_pdf_statement() for the errors.
+    """
+    return read_pdf_statement(path, credit_patterns_path).rows
+
+
+def read_pdf_statement(
+    path: Path, credit_patterns_path: Path = DEFAULT_CREDIT_PATTERNS
+) -> PdfStatement:
+    """Parse a PDF bank statement, counting the signs the balance left open.
+
+    Raises ValueError for a statement whose amounts the running balance
+    disproves, and for a text-layout statement that states no period.
     """
     try:
         import pdfplumber
@@ -271,12 +286,9 @@ def parse_pdf_statement(
 
     with pdfplumber.open(path) as pdf:
         full_text = "\n".join(page.extract_text() or "" for page in pdf.pages)
-
-        # First, try to extract the statement year from the date range
-        statement_year = None
         d1, d2 = _extract_text_date_range(full_text)
-        if d1:
-            statement_year = d1.year
+        signs_guessed = 0
+        gaps: set[int] = set()
 
         # Try table-based extraction first
         for page in pdf.pages:
@@ -309,25 +321,38 @@ def parse_pdf_statement(
                     parsed = _parse_table_row(row, col_map, path.name)
                     if parsed:
                         rows.append(parsed)
+                    elif _is_dated_row(row, col_map):
+                        # Reported as not imported: the balance moves by an
+                        # amount no row holds, so the chain breaks here
+                        gaps.add(len(rows))
 
         # If no rows from tables, try text-based extraction
-        if not rows:
-            rows = _parse_text_transactions(
+        from_tables = bool(rows)
+        if not from_tables:
+            rows, signs_guessed = _parse_text_transactions(
                 full_text,
-                statement_year,
+                (d1, d2) if d1 and d2 else None,
                 path.name,
                 credit_patterns,
-                period=(d1, d2) if d1 and d2 else None,
             )
 
     # Validation: check for anomalies
     _validate_parsed_transactions(rows, path.name)
+    if from_tables:
+        # Text lines were checked one by one (_parse_text_transaction_line)
+        _check_table_balances(rows, path.name, gaps)
 
-    return rows
+    return PdfStatement(rows, signs_guessed)
+
+
+def _is_dated_row(row: list[str], col_map: dict[str, int]) -> bool:
+    """Whether a table row has a posting date (it is a transaction)."""
+    idx = col_map.get("date_posted")
+    return idx is not None and idx < len(row) and bool(_parse_date(row[idx] or ""))
 
 
 def _validate_parsed_transactions(rows: list[dict], source_file: str) -> None:
-    """Warn about parsing anomalies: no rows, or amounts the balance disproves."""
+    """Warn about parsing anomalies: no rows, large amounts (debug)."""
     if not rows:
         logger.warning(f"{source_file}: No transactions parsed")
         return
@@ -340,33 +365,45 @@ def _validate_parsed_transactions(rows: list[dict], source_file: str) -> None:
                 f"{source_file}: Large amount {r['amount_signed']:.2f} - {r['description_raw'][:50]}"
             )
 
-    # A wrong sign (text lines are signed by keyword) or a misread amount
-    # shows up as a balance that moved by something else.
-    for row, change in _balance_mismatches(rows):
-        logger.warning(
-            "%s: amount does not match the balance on %s: %s is %+.2f but the "
-            "balance changed by %+.2f",
-            source_file,
-            row["date_posted"],
-            row["description_raw"][:40],
-            row["amount_signed"],
-            change,
+
+def _check_table_balances(
+    rows: list[dict], source_file: str, gaps: Iterable[int] = ()
+) -> None:
+    """Raise ValueError for table rows whose amount the balance disproves.
+
+    A misread amount or sign shows up as a balance that moved by something
+    else: importing it would put a wrong figure in the ledger. ``gaps`` are
+    the indices of rows that follow a row which could not be read.
+    """
+    mismatches = [
+        f"on {row['date_posted']}, {row['description_raw'][:40]} is "
+        f"{row['amount_signed']:+.2f} but the balance changed by {change:+.2f}"
+        for row, change in _balance_mismatches(rows, gaps)
+    ]
+    if mismatches:
+        raise ValueError(
+            f"{source_file}: amounts do not match the running balance: "
+            + "; ".join(mismatches)
         )
 
 
-def _balance_mismatches(rows: list[dict]) -> list[tuple[dict, float]]:
+def _balance_mismatches(
+    rows: list[dict], gaps: Iterable[int] = ()
+) -> list[tuple[dict, float]]:
     """Rows whose amount differs from the change in the running balance.
 
     Statements list transactions oldest first or newest first; the order
     that explains more amounts is used, and the dates decide when both
     explain as many (neighbours of equal amounts). A balance of 0 stands
     for "not printed" (see the row parsers), so only neighbours that both
-    carry a balance are compared.
+    carry a balance are compared, and none across a gap (the index of a
+    row that follows one which could not be read).
     """
+    breaks = set(gaps)
     pairs = [
         (prev, cur)
-        for prev, cur in zip(rows, rows[1:])
-        if prev.get("balance") and cur.get("balance")
+        for i, (prev, cur) in enumerate(zip(rows, rows[1:]), start=1)
+        if prev.get("balance") and cur.get("balance") and i not in breaks
     ]
 
     def explains(row: dict, change: float) -> bool:
@@ -397,44 +434,47 @@ def _balance_mismatches(rows: list[dict]) -> list[tuple[dict, float]]:
 
 def _parse_text_transactions(
     full_text: str,
-    statement_year: Optional[int],
+    period: Optional[tuple[date, date]],
     source_file: str,
-    credit_patterns: list[str] = None,
-    period: Optional[tuple[date, date]] = None,
-) -> list[dict]:
+    credit_patterns: Optional[list[str]] = None,
+) -> tuple[list[dict], int]:
     """
     Parse transactions from text-based PDF format (combined statement).
 
-    Lines carry only month.day; with the statement ``period`` known, each
-    date gets the year that puts it nearest the period (see _nearest_date).
-    With neither a period nor a year, each date gets the latest year that
-    does not put it after today (see _latest_date), and the guess is reported.
+    Returns the rows and how many of their signs came from the credit
+    patterns (see _parse_text_transaction_line).
+
+    Lines carry only month.day: each date gets the year that puts it nearest
+    the statement ``period`` (see _nearest_date). A statement with
+    transaction lines and no period cannot be dated: ValueError. So does a
+    line whose amount the running balance disproves.
 
     Handles lines like:
     "2.02 2.02 COMPRA 1234 TIGER LISBOA 3.00 1 500.00"
     """
     rows: list[dict] = []
-
-    assumed_end: Optional[date] = None
-    if statement_year is None:
-        statement_year = date.today().year
-        if period is None:
-            # Today's year would put a December statement read in January
-            # eleven months into the future
-            assumed_end = date.today()
-
-    if credit_patterns is None:
-        credit_patterns = DEFAULT_CREDIT_PATTERN_LIST
+    signs_guessed = 0
 
     # Split into lines and process each
     lines = full_text.split("\n")
+
+    if period is None:
+        if any(TEXT_LINE_START_RE.match(line.strip()) for line in lines):
+            # Today's date would only be a guess: a December statement read
+            # in January would be dated eleven months into the future
+            raise ValueError(
+                f"{source_file}: no statement period found (a line like "
+                "'EXTRATO DE 2026/02/02 A 2026/02/27'), and its lines carry no "
+                "year: the transactions cannot be dated"
+            )
+        return rows, signs_guessed
 
     current_month = None
     # The balance before the line being read: tells an amount from a number
     # that ends the description (see _settle_amount)
     prev_balance: Optional[float] = None
 
-    for line in lines:
+    for line_no, line in enumerate(lines, start=1):
         line = line.strip()
         if not line:
             continue
@@ -446,33 +486,32 @@ def _parse_text_transactions(
 
         # Try to parse as a transaction line (it reports a line that starts
         # like one and cannot be read)
-        parsed = _parse_text_transaction_line(
-            line,
-            statement_year,
-            current_month,
-            source_file,
-            credit_patterns,
-            period=period,
-            prev_balance=prev_balance,
-            not_after=assumed_end,
-        )
-        if parsed:
-            rows.append(parsed)
-            # Update current month from parsed transaction
-            current_month = int(parsed["date_posted"].split("-")[1])
-            if parsed["balance"]:  # 0 stands for "not printed"
-                prev_balance = parsed["balance"]
+        try:
+            parsed = _parse_text_transaction_line(
+                line,
+                period,
+                current_month,
+                source_file,
+                credit_patterns,
+                prev_balance=prev_balance,
+            )
+        except _SignError as e:
+            raise ValueError(f"{source_file}: line {line_no}: {e}") from None
+        if parsed is None:
+            if TEXT_LINE_START_RE.match(line):
+                # Reported as not imported: the next balance may include its
+                # amount, so it cannot decide the next line's sign
+                prev_balance = None
+            continue
+        row, sign_guessed = parsed
+        rows.append(row)
+        signs_guessed += sign_guessed
+        # Update current month from parsed transaction
+        current_month = int(row["date_posted"].split("-")[1])
+        if row["balance"]:  # 0 stands for "not printed"
+            prev_balance = row["balance"]
 
-    if assumed_end and rows:
-        logger.warning(
-            "%s: no statement period found, and its lines carry no year: "
-            "dated as the 12 months up to %s; check the dates if the "
-            "statement is older than that",
-            source_file,
-            assumed_end.isoformat(),
-        )
-
-    return rows
+    return rows, signs_guessed
 
 
 def _parse_amount_pdf_text(s: str) -> Optional[float]:
@@ -492,19 +531,6 @@ def _parse_amount_pdf_text(s: str) -> Optional[float]:
         return float(cleaned)
     except ValueError:
         return None
-
-
-def _latest_date(not_after: date, month: int, day: int) -> date:
-    """The month/day on its latest occurrence up to ``not_after`` (raises ValueError)."""
-    # Nine years reach the previous 29 February even across 2100
-    for year in range(not_after.year, not_after.year - 9, -1):
-        try:
-            candidate = date(year, month, day)
-        except ValueError:
-            continue
-        if candidate <= not_after:
-            return candidate
-    raise ValueError(f"no such date: month {month}, day {day}")
 
 
 def _settle_amount(
@@ -576,16 +602,18 @@ def _nearest_date(anchor: date, month: int, day: int) -> date:
     return candidate
 
 
+class _SignError(ValueError):
+    """A text line whose amount, under either sign, does not give its balance."""
+
+
 def _parse_text_transaction_line(
     line: str,
-    year: int,
+    period: tuple[date, date],
     current_month: Optional[int],
     source_file: str,
-    credit_patterns: list[str] = None,
-    period: Optional[tuple[date, date]] = None,
+    credit_patterns: Optional[list[str]] = None,
     prev_balance: Optional[float] = None,
-    not_after: Optional[date] = None,
-) -> Optional[dict]:
+) -> Optional[tuple[dict, bool]]:
     """
     Parse a single text line as a transaction.
 
@@ -593,15 +621,22 @@ def _parse_text_transaction_line(
     Where MONTH.DAY is like "2.03" for February 3rd (month 2, day 03)
     Amount format: "3.00" or "1 500.00" (space thousands, dot decimal)
 
+    Returns the row and whether its sign was guessed, or None.
+
+    The sign is the one under which the amount, applied to ``prev_balance``
+    (the balance before the line), gives the line's balance; when neither
+    does, _SignError. Only a line the balance cannot decide (no balance on
+    it, or none before it) is signed by ``credit_patterns``: money in when
+    its description contains one, money out otherwise.
+
     Some edge cases:
     - Lines with only one amount (no balance): ">PAGAMENTO CARTAO DE CREDITO 4.68"
     - Lines with amounts in description: "COMISSAO TRF MBWAY 12.34 APP MB WAY 1.00 1 429.14"
-    - Credit transactions: configurable via credit_patterns parameter
     """
     if credit_patterns is None:
-        credit_patterns = DEFAULT_CREDIT_PATTERN_LIST
+        credit_patterns = []
     # Check if line starts with date pattern - if not, skip
-    if not re.match(r"^\d{1,2}\.\d{2}\s+\d{1,2}\.\d{2}\s+", line):
+    if not TEXT_LINE_START_RE.match(line):
         return None
 
     # Carry-over lines never get here (see CARRY_OVER_RE): a transaction
@@ -660,27 +695,20 @@ def _parse_text_transaction_line(
         day_int = int(month1)  # Second number is day
         month2_int = int(day2)
         day2_int = int(month2)
-        if period is not None:
-            # A statement can span the new year (Dec 29 to Jan 28), and a
-            # value date can fall in the year before its posting date.
-            start, end = period
-            posted = _nearest_date(start + (end - start) / 2, month_int, day_int)
-            value = _nearest_date(posted, month2_int, day2_int)
-        elif not_after is not None:
-            # No period and no year: a statement holds nothing from the future
-            posted = _latest_date(not_after, month_int, day_int)
-            value = _nearest_date(posted, month2_int, day2_int)
-        else:
-            posted = date(year, month_int, day_int)
-            value = date(year, month2_int, day2_int)
+        # A statement can span the new year (Dec 29 to Jan 28), and a
+        # value date can fall in the year before its posting date.
+        start, end = period
+        posted = _nearest_date(start + (end - start) / 2, month_int, day_int)
+        value = _nearest_date(posted, month2_int, day2_int)
     except ValueError:
         return _skip("invalid date")
 
     # Parse amount
+    printed_balance = _parse_amount_pdf_text(balance_s) if two_amounts else None
     desc, amount_s = _settle_amount(
         desc,
         amount_s,
-        _parse_amount_pdf_text(balance_s) if two_amounts else None,
+        printed_balance,
         prev_balance,
         line,
         source_file,
@@ -689,19 +717,29 @@ def _parse_text_transaction_line(
     if amount is None:
         return _skip("invalid amount")
 
-    # Determine if debit or credit based on configurable patterns
-    # Credits are incoming money - they should be positive
-    desc_upper = desc.upper()
-    is_credit = any(p.upper() in desc_upper for p in credit_patterns)
-
-    # Most transactions are expenses (negative), credits are positive
-    if not is_credit:
-        amount = -abs(amount)
+    if printed_balance is not None and prev_balance is not None:
+        # The balance decides (an amount of 0.00 fits both: money out)
+        for signed in (-abs(amount), abs(amount)):
+            if abs(prev_balance + signed - printed_balance) < 0.005:
+                amount = signed
+                break
+        else:
+            raise _SignError(
+                f"neither sign of the amount {amount:.2f} gives the balance "
+                f"{printed_balance:.2f} from the balance {prev_balance:.2f} "
+                f"before it ({prev_balance - amount:.2f} or "
+                f"{prev_balance + amount:.2f}): {line}"
+            )
+        sign_guessed = False
     else:
-        amount = abs(amount)
+        # Nothing to check against: credit patterns mark incoming money
+        desc_upper = desc.upper()
+        is_credit = any(p.upper() in desc_upper for p in credit_patterns)
+        amount = abs(amount) if is_credit else -abs(amount)
+        sign_guessed = True
 
     # Parse balance
-    balance = _parse_amount_pdf_text(balance_s) or 0.0
+    balance = printed_balance or 0.0
 
     # Apply same enrichment as CSV parser
     card_last4 = detect_card(desc)
@@ -709,7 +747,7 @@ def _parse_text_transaction_line(
     description_clean = clean_description(desc)
     direction = "out" if amount < 0 else "in"
 
-    return {
+    row = {
         "date_posted": posted.isoformat(),
         "date_value": value.isoformat(),
         "month": posted.strftime("%Y-%m"),
@@ -727,6 +765,7 @@ def _parse_text_transaction_line(
         "payment_type": payment_type,
         "source_file": source_file,
     }
+    return row, sign_guessed
 
 
 def _parse_table_row(
