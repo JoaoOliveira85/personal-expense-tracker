@@ -12,7 +12,7 @@ from odf.text import P
 
 from expense_tracker.constants import COL_CATEGORY, COL_TRANSACTION_ID
 from expense_tracker.db import migrate_schema
-from expense_tracker.ods import generate_ods, sync_from_ods
+from expense_tracker.ods import SyncConflict, generate_ods, sync_from_ods
 from expense_tracker.rules import categorize_transactions, load_rules
 
 
@@ -87,12 +87,12 @@ class TestSyncFromOds:
         db, ods, notes, tid = report
         _set_ods_category(ods, tid, "Household")
 
-        assert sync_from_ods(db, ods, notes) == 1
+        assert sync_from_ods(db, ods, notes).updated == 1
         assert _category(db, tid) == "Household"
 
     def test_unedited_rows_are_not_synced(self, report):
         db, ods, notes, _ = report
-        assert sync_from_ods(db, ods, notes) == 0
+        assert sync_from_ods(db, ods, notes).updated == 0
 
     def test_stale_spreadsheet_does_not_revert_newer_db_value(self, report):
         """The DB changed after the ODS was written (e.g. rules re-applied from
@@ -101,7 +101,7 @@ class TestSyncFromOds:
         db, ods, notes, tid = report
         _set_db_category(db, tid, "Changed Later")
 
-        assert sync_from_ods(db, ods, notes) == 0
+        assert sync_from_ods(db, ods, notes).updated == 0
         assert _category(db, tid) == "Changed Later"
 
     def test_edit_is_applied_only_once(self, report):
@@ -110,8 +110,123 @@ class TestSyncFromOds:
         sync_from_ods(db, ods, notes)
         _set_db_category(db, tid, "Changed Later")
 
-        assert sync_from_ods(db, ods, notes) == 0
+        assert sync_from_ods(db, ods, notes).updated == 0
         assert _category(db, tid) == "Changed Later"
+
+
+def _tid(db: Path, like: str) -> str:
+    conn = sqlite3.connect(str(db))
+    try:
+        return conn.execute(
+            "SELECT transaction_id FROM transactions WHERE description_raw LIKE ?",
+            (f"%{like}%",),
+        ).fetchone()[0]
+    finally:
+        conn.close()
+
+
+def _set_db_notes(db: Path, tid: str, value: str) -> None:
+    conn = sqlite3.connect(str(db))
+    conn.execute(
+        "UPDATE transactions SET notes = ? WHERE transaction_id = ?", (value, tid)
+    )
+    conn.commit()
+    conn.close()
+
+
+class TestSyncConflicts:
+    """An edited cell is applied only while the database still holds the
+    value the sheet was written with; otherwise it is a conflict, reported
+    with both values and not applied (issue #14)."""
+
+    def test_edit_with_an_unchanged_database_applies(self, report):
+        db, ods, notes, tid = report
+        _set_ods_category(ods, tid, "Household")
+
+        result = sync_from_ods(db, ods, notes)
+
+        assert (result.updated, result.conflicts) == (1, [])
+        assert _category(db, tid) == "Household"
+
+    def test_edit_after_a_rule_changed_the_row_is_reported_not_applied(self, report):
+        db, ods, notes, tid = report
+        _set_db_category(db, tid, "Supermarket")  # a rule run, after the sheet
+        _set_ods_category(ods, tid, "Household")
+
+        result = sync_from_ods(db, ods, notes)
+
+        assert result.updated == 0
+        assert result.conflicts == [
+            SyncConflict(tid, "category", "Household", "Supermarket")
+        ]
+        assert _category(db, tid) == "Supermarket"
+
+    def test_notes_edited_from_another_route_conflict(self, report):
+        from expense_tracker.constants import COL_NOTES
+
+        db, ods, notes, tid = report
+        _set_db_notes(db, tid, "from the GUI")
+        _set_ods_cell(ods, tid, COL_NOTES, "from the sheet")
+
+        result = sync_from_ods(db, ods, notes)
+
+        assert result.conflicts == [
+            SyncConflict(tid, "notes", "from the sheet", "from the GUI")
+        ]
+        assert _note(db, tid) == "from the GUI"
+
+    def test_unedited_cell_next_to_a_conflicting_one_is_not_touched(self, report):
+        db, ods, notes, tid = report
+        _set_db_category(db, tid, "Supermarket")
+        _set_db_notes(db, tid, "newer note")
+        _set_ods_category(ods, tid, "Household")
+
+        sync_from_ods(db, ods, notes)
+
+        assert _category(db, tid) == "Supermarket"
+        assert _note(db, tid) == "newer note"
+
+    def test_other_edits_of_the_row_and_the_sheet_still_apply(self, report):
+        from expense_tracker.constants import COL_NOTES
+
+        db, ods, notes, tid = report
+        other = _tid(db, "FARMACIA")
+        _set_db_category(db, tid, "Supermarket")
+        _set_ods_category(ods, tid, "Household")
+        _set_ods_cell(ods, tid, COL_NOTES, "birthday dinner")
+        _set_ods_category(ods, other, "Pharmacy")
+
+        result = sync_from_ods(db, ods, notes)
+
+        assert result.updated == 2
+        assert [c.transaction_id for c in result.conflicts] == [tid]
+        assert _category(db, tid) == "Supermarket"
+        assert _note(db, tid) == "birthday dinner"
+        assert _category(db, other) == "Pharmacy"
+
+    def test_conflict_is_reported_again_until_resolved(self, report):
+        db, ods, notes, tid = report
+        _set_db_category(db, tid, "Supermarket")
+        _set_ods_category(ods, tid, "Household")
+        sync_from_ods(db, ods, notes)
+
+        again = sync_from_ods(db, ods, notes)
+        assert again.conflicts == [
+            SyncConflict(tid, "category", "Household", "Supermarket")
+        ]
+
+        # The cell set to the database value: nothing left to apply
+        _set_ods_category(ods, tid, "Supermarket")
+        assert sync_from_ods(db, ods, notes) == (0, [])
+        assert sync_from_ods(db, ods, notes) == (0, [])
+        assert _category(db, tid) == "Supermarket"
+
+    def test_conflict_names_the_transaction_and_both_values(self):
+        message = SyncConflict("abc123", "category", "Household", "").describe()
+
+        assert "abc123" in message
+        assert "'Household'" in message
+        assert "(empty)" in message
 
 
 def _source(db: Path, tid: str) -> str | None:
@@ -169,7 +284,9 @@ class TestSyncValidatesCategories:
         _set_ods_category(ods, tid, "Housewares")
 
         with caplog.at_level("WARNING", logger="expense_tracker"):
-            assert sync_from_ods(db, ods, notes, categories=self.CATEGORIES) == 0
+            assert (
+                sync_from_ods(db, ods, notes, categories=self.CATEGORIES).updated == 0
+            )
 
         assert _category(db, tid) == "Groceries"
         assert any(
@@ -181,14 +298,14 @@ class TestSyncValidatesCategories:
         db, ods, notes, tid = report
         _set_ods_category(ods, tid, " household ")
 
-        assert sync_from_ods(db, ods, notes, categories=self.CATEGORIES) == 1
+        assert sync_from_ods(db, ods, notes, categories=self.CATEGORIES).updated == 1
         assert _category(db, tid) == "Household"
 
     def test_clearing_is_still_allowed(self, report):
         db, ods, notes, tid = report
         _set_ods_category(ods, tid, "")
 
-        assert sync_from_ods(db, ods, notes, categories=self.CATEGORIES) == 1
+        assert sync_from_ods(db, ods, notes, categories=self.CATEGORIES).updated == 1
         assert _source(db, tid) is None
 
     def test_other_edits_of_the_row_still_apply(self, report):
@@ -198,7 +315,7 @@ class TestSyncValidatesCategories:
         _set_ods_category(ods, tid, "Housewares")
         _set_ods_cell(ods, tid, COL_NOTES, "kept")
 
-        assert sync_from_ods(db, ods, notes, categories=self.CATEGORIES) == 1
+        assert sync_from_ods(db, ods, notes, categories=self.CATEGORIES).updated == 1
         assert _category(db, tid) == "Groceries"
         conn = sqlite3.connect(str(db))
         note = conn.execute(
@@ -267,7 +384,7 @@ class TestEmptyPlaceholderOds:
         ods = tmp_path / "expense-report.ods"
         ods.touch()
 
-        assert sync_from_ods(populated_db, ods, tmp_path / "notes.csv") == 0
+        assert sync_from_ods(populated_db, ods, tmp_path / "notes.csv").updated == 0
 
     def test_generate_writes_full_report_over_empty_file(
         self, populated_db, rules_csv, tmp_path
@@ -397,7 +514,7 @@ class TestOnlyEditedCellsAreSynced:
         conn.close()
         _set_ods_cell(ods, tid, COL_NOTES, "birthday dinner")
 
-        assert sync_from_ods(db, ods, notes) == 1
+        assert sync_from_ods(db, ods, notes).updated == 1
 
         assert _row_values(db, tid) == (
             "Supermarket",
@@ -416,7 +533,7 @@ class TestOnlyEditedCellsAreSynced:
         conn.close()
         _set_ods_category(ods, tid, "Household")
 
-        assert sync_from_ods(db, ods, notes) == 1
+        assert sync_from_ods(db, ods, notes).updated == 1
 
         category, _, note, source = _row_values(db, tid)
         assert (category, note, source) == ("Household", "kept", "manual")
@@ -429,7 +546,7 @@ class TestOnlyEditedCellsAreSynced:
         _set_ods_cell(ods, tid, COL_NOTES, "birthday dinner")
         sync_from_ods(db, ods, notes)
 
-        assert sync_from_ods(db, ods, notes) == 0
+        assert sync_from_ods(db, ods, notes).updated == 0
         assert _category(db, tid) == "Supermarket"
 
 
@@ -471,7 +588,7 @@ class TestSpreadsheetLayoutChanges:
 
         db, ods, notes, tid = report
         _set_ods_cell(ods, tid, COL_NOTES, "birthday dinner")
-        assert sync_from_ods(db, ods, notes) == 1
+        assert sync_from_ods(db, ods, notes).updated == 1
         return db, ods, notes, tid
 
     def test_inserted_column_does_not_shift_what_is_synced(self, noted):
@@ -484,7 +601,7 @@ class TestSpreadsheetLayoutChanges:
         db, ods, notes, tid = noted
         _edit_data_rows(ods, _insert_column(COL_NOTES, "My column"))
 
-        assert sync_from_ods(db, ods, notes) == 0
+        assert sync_from_ods(db, ods, notes).updated == 0
 
         assert _note(db, tid) == "birthday dinner"
         assert _category(db, tid) == "Groceries"
@@ -499,7 +616,7 @@ class TestSpreadsheetLayoutChanges:
         _set_ods_cell_at(ods, tid, COL_CATEGORY + 1, "Household")
         _set_ods_cell_at(ods, tid, COL_NOTES + 1, "changed")
 
-        assert sync_from_ods(db, ods, notes) == 1
+        assert sync_from_ods(db, ods, notes).updated == 1
 
         assert _category(db, tid) == "Household"
         assert _note(db, tid) == "changed"
@@ -516,7 +633,7 @@ class TestSpreadsheetLayoutChanges:
 
         _edit_data_rows(ods, header_last)
 
-        assert sync_from_ods(db, ods, notes) == 1
+        assert sync_from_ods(db, ods, notes).updated == 1
         assert _category(db, tid) == "Household"
 
     def test_renamed_header_is_read_by_position(self, report):
@@ -535,7 +652,7 @@ class TestSpreadsheetLayoutChanges:
 
         _edit_data_rows(ods, rename)
 
-        assert sync_from_ods(db, ods, notes) == 1
+        assert sync_from_ods(db, ods, notes).updated == 1
         assert _category(db, tid) == "Household"
         assert _load_description_notes(notes) == {}
 
@@ -551,7 +668,7 @@ class TestSpreadsheetLayoutChanges:
 
         _edit_data_rows(ods, reverse)
 
-        assert sync_from_ods(db, ods, notes) == 1
+        assert sync_from_ods(db, ods, notes).updated == 1
         assert _category(db, tid) == "Household"
 
     def test_deleted_row_keeps_its_transaction(self, noted, rules_csv):
@@ -564,18 +681,18 @@ class TestSpreadsheetLayoutChanges:
 
         _edit_data_rows(ods, delete)
 
-        assert sync_from_ods(db, ods, notes) == 0
+        assert sync_from_ods(db, ods, notes).updated == 0
         assert _row_values(db, tid)[:3] == ("Groceries", "", "birthday dinner")
 
         generate_ods(db, rules_csv, ods, notes)
-        assert sync_from_ods(db, ods, notes) == 0
+        assert sync_from_ods(db, ods, notes).updated == 0
         assert _row_values(db, tid)[:3] == ("Groceries", "", "birthday dinner")
 
     def test_text_typed_into_the_amount_cell_is_not_synced(self, report):
         db, ods, notes, tid = report
         _set_ods_cell(ods, tid, 5, "forty-five")  # F: Amount
 
-        assert sync_from_ods(db, ods, notes) == 0
+        assert sync_from_ods(db, ods, notes).updated == 0
 
         conn = sqlite3.connect(str(db))
         amount = conn.execute(
@@ -588,7 +705,7 @@ class TestSpreadsheetLayoutChanges:
         db, ods, notes, tid = report
         _set_ods_category(ods, tid, "Supermercado")
 
-        assert sync_from_ods(db, ods, notes) == 1
+        assert sync_from_ods(db, ods, notes).updated == 1
         assert _row_values(db, tid) == ("Supermercado", "", "", "manual")
 
 

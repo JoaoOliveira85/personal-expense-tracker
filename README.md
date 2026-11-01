@@ -628,6 +628,8 @@ If a transaction isn't caught by the rules (shows as "uncategorized"), you can:
 
 You can also use the **Notes** column (R) to add personal annotations to any transaction (e.g. "birthday dinner", "reimbursed by insurance"). Notes are synced back to the database just like categories.
 
+An edit is only saved if the database still holds the value the sheet was written with. If the value changed in the meantime (a rule run recategorized the row, or the notes were edited in the GUI), the edit is not applied and is reported as a conflict with the transaction id, the sheet's value and the database's value; the rest of the sheet is synced as usual. The conflict is reported on every run until you set the cell to one of the two values, or regenerate the ODS (`--format ods`) and make the edit again.
+
 The **Merchant Note** column (S) works differently: a note here applies to **all** transactions with the same merchant. Write it once, see it everywhere. See the [Merchant Notes](#merchant-notes-description-notescsv) section for details.
 
 For recurring patterns, adding a rule is better. For one-off expenses, editing in the ODS is fine.

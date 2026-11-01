@@ -857,6 +857,28 @@ class TestSyncReportsUnknownCategories:
         assert _category(project.db, "t1") == "Groceries"
 
 
+class TestSyncReportsConflicts:
+    def test_sync_button_reports_and_skips(self, project, tmp_path):
+        from expense_tracker.ods import generate_ods
+
+        from .test_ods_sync import _category, _set_db_category, _set_ods_category
+
+        _insert_expense(project.db, "t1", "CONTINENTE", "Groceries")
+        generate_ods(project.db, project.rules, project.ods, project.notes)
+        _set_db_category(project.db, "t1", "Transport")
+        _set_ods_category(project.ods, "t1", "Health")
+
+        at = _click(_open_page("Tools"), "Sync ODS & Regenerate Report")
+
+        assert not at.exception
+        assert any(
+            "t1" in w.value and "'Health'" in w.value and "'Transport'" in w.value
+            for w in at.warning
+        )
+        assert any("1 edit(s) not applied" in s.value for s in at.success)
+        assert _category(project.db, "t1") == "Transport"
+
+
 class TestImportCoverage:
     """The Import page shows the months imported per account (issue #11)."""
 

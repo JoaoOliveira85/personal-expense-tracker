@@ -259,7 +259,7 @@
 </table>
 
 <div class="tip">
-  <strong>Your edits are safe.</strong> When you change the Category, Subcategory, Notes, or Merchant Note columns in the ODS, they are saved to the database the next time the tracker runs &mdash; they won't be lost. Clearing a category hands that transaction back to the rules.
+  <strong>Your edits are safe.</strong> When you change the Category, Subcategory, Notes, or Merchant Note columns in the ODS, they are saved to the database the next time the tracker runs &mdash; they won't be lost. Clearing a category hands that transaction back to the rules. If the same value changed in the database after the sheet was written (a rule run, or a note edited in the app), your edit is not applied: it is reported as a conflict with both values until you set the cell to one of them, or regenerate the ODS and edit it again.
 </div>
 
 <h3>All the sheets at a glance</h3>

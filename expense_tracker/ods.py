@@ -19,6 +19,7 @@ import os
 import re
 import sqlite3
 from pathlib import Path
+from typing import NamedTuple
 
 from .constants import (
     COL_CATEGORY,
@@ -217,13 +218,46 @@ def _locate_columns(rows: list[list[str]]) -> tuple[int, dict[int, int]]:
     return 0, {col: col for col in _SYNCED_COLUMNS}
 
 
+class SyncConflict(NamedTuple):
+    """A spreadsheet edit of a cell whose database value changed after the
+    sheet was written: not applied, so that neither change is lost."""
+
+    transaction_id: str
+    # "category", "subcategory" or "notes"
+    field: str
+    sheet_value: str
+    db_value: str
+
+    def describe(self) -> str:
+        def shown(value: str) -> str:
+            return f"'{value}'" if value else "(empty)"
+
+        return (
+            f"Transaction {self.transaction_id}: {self.field} "
+            f"{shown(self.sheet_value)} in the spreadsheet was not applied: "
+            f"the database now holds {shown(self.db_value)}, changed after the "
+            "spreadsheet was written. Set the cell to the database value to "
+            "keep it, or regenerate the ODS report and edit the cell again."
+        )
+
+
+class SyncResult(NamedTuple):
+    """What sync_from_ods() did: rows updated, and edits not applied."""
+
+    updated: int
+    conflicts: list[SyncConflict]
+
+
+_SYNCED_FIELDS = ("category", "subcategory", "notes")
+
+
 def sync_from_ods(
     db_path: Path,
     ods_path: Path,
     desc_notes_path: Path = DEFAULT_DESC_NOTES,
     *,
     categories: list[str] | None = None,
-) -> int:
+) -> SyncResult:
     """
     Read the Data sheet from an existing ODS file and sync:
     1. category/subcategory/notes edits back into SQLite (per-transaction)
@@ -239,16 +273,25 @@ def sync_from_ods(
     edits still apply) and reported with logger.warning(). The CLI and the
     GUI always pass the list.
 
-    Returns the number of transactions updated in SQLite.
+    An edited cell is applied only if the database still holds the value
+    the sheet was written with. If it holds another one (a rule run
+    recategorised the row, the notes were edited elsewhere), the cell is a
+    SyncConflict: not applied, and its baseline is kept so that it is
+    reported again on the next sync until the cell is set back to either
+    value or the ODS is regenerated. The row's other cells and the other
+    rows are synced as usual.
+
+    Returns the number of transactions updated in SQLite and the conflicts.
     """
+    nothing = SyncResult(0, [])
     if _is_missing_or_empty(ods_path):
-        return 0
+        return nothing
 
     try:
         from odf.opendocument import load as load_ods
         from odf.table import Table, TableRow
     except ImportError:
-        return 0
+        return nothing
 
     doc = load_ods(str(ods_path))
 
@@ -259,11 +302,11 @@ def sync_from_ods(
             data_sheet = sheet
             break
     if data_sheet is None:
-        return 0
+        return nothing
 
     rows = [_row_texts(row) for row in data_sheet.getElementsByType(TableRow)]
     if len(rows) < 2:
-        return 0
+        return nothing
 
     header_row, col = _locate_columns(rows)
 
@@ -306,11 +349,12 @@ def sync_from_ods(
         _save_description_notes(existing_notes, desc_notes_path)
 
     if not edits:
-        return 0
+        return nothing
 
     # Write per-transaction edits back to SQLite
     conn = sqlite3.connect(str(db_path))
     updated = 0
+    conflicts: list[SyncConflict] = []
     try:
         migrate_schema(conn)
         baseline = _load_baseline(conn)
@@ -334,13 +378,18 @@ def sync_from_ods(
 
             if shown is not None:
                 # Only the cells that differ from what the ODS was written
-                # with were edited: the others must not undo the DB
-                if category == shown[0]:
-                    category = existing_cat
-                if subcategory == shown[1]:
-                    subcategory = existing_subcat
-                if notes == shown[2]:
-                    notes = existing_notes
+                # with were edited: the others must not undo the DB. An
+                # edited cell whose DB value moved on since is a conflict.
+                current = (existing_cat, existing_subcat, existing_notes)
+                merged = []
+                for field, sheet, was, now in zip(
+                    _SYNCED_FIELDS, (category, subcategory, notes), shown, current
+                ):
+                    edited, moved_on = sheet != was, now != was
+                    if edited and moved_on and sheet != now:
+                        conflicts.append(SyncConflict(tx_id, field, sheet, now))
+                    merged.append(sheet if edited and not moved_on else now)
+                category, subcategory, notes = merged
 
             if categories is not None and category and category != existing_cat:
                 listed = find_category(categories, category)
@@ -376,11 +425,20 @@ def sync_from_ods(
                 updated += 1
 
         conn.commit()
-        _save_baseline(conn, edits)
+        # A conflicting row keeps the values it was written with as its
+        # baseline: the edit is still pending and is reported next time
+        conflicting = {c.transaction_id for c in conflicts}
+        _save_baseline(
+            conn,
+            [
+                (tid, *baseline[tid]) if tid in conflicting else (tid, cat, sub, note)
+                for tid, cat, sub, note in edits
+            ],
+        )
     finally:
         conn.close()
 
-    return updated
+    return SyncResult(updated, conflicts)
 
 
 def generate_ods(
