@@ -144,7 +144,7 @@ Rule and card-holder management, plus the categorization engine.
 ODS report orchestration and sync-back. Uses `odfpy` to create/update OpenDocument Spreadsheets. Sheet builders have been extracted to `ods_sheets.py` for maintainability.
 
 **Key functions:**
-- `generate_ods(db_path, rules_path, ods_path, desc_notes_path)` — Main entry point. On first run, generates all sheets. On subsequent runs, replaces only Intro/Data/Rules and preserves everything else.
+- `generate_ods(db_path, rules_path, ods_path, desc_notes_path, currency=None)` — Main entry point. Writes the rows of one currency (`db.resolve_currency()`: `currency`, else the ledger's only one) to the Data sheet and the baseline, so the formulas over it never add currencies; sync-back works by transaction id, so a sheet of one currency syncs only its rows. On first run, generates all sheets. On subsequent runs, replaces only Intro/Data/Rules and preserves everything else.
 - `sync_from_ods(db_path, ods_path, desc_notes_path, categories=None)` — Reads manual edits from the ODS Data sheet back into the DB (category, subcategory, notes) and into `description-notes.csv` (merchant notes). A cell only counts as an edit if it differs from the `ods_baseline` value recorded when the ODS was last generated or synced, so a stale ODS never overwrites newer DB changes. With `categories` (the CLI and GUI always pass the list), an edited category not in it is skipped and reported with `logger.warning()`; the GUI shows those warnings. An edited cell is applied only if the DB still holds the baseline value; otherwise it is a `SyncConflict(transaction_id, field, sheet_value, db_value)` (`describe()` gives the message), not applied, and the row keeps its old baseline so that the next sync reports it again. Returns `SyncResult(updated, conflicts)`; `cli._sync_ods_edits()` prints the conflicts even with `--quiet`, and the GUI's `_sync_ods()` shows them with the skipped-category warnings.
 
 ### `expense_tracker/ods_sheets.py`
@@ -174,7 +174,7 @@ This means users can customize the analysis sheets (change formulas, add charts,
 The default report: an Excel workbook (`expense-report.xlsx`) built with `openpyxl`, which also opens in Apple Numbers, Google Sheets and LibreOffice. It writes the same sheets as the ODS report with working Excel formulas.
 
 **Key functions:**
-- `generate_xlsx(db_path, rules_path, xlsx_path, desc_notes_path)` — Main entry point. Rewrites the whole workbook on every run; unlike the ODS, it keeps no custom sheets and its edits are not synced back.
+- `generate_xlsx(db_path, rules_path, xlsx_path, desc_notes_path, currency=None)` — Main entry point. Like the ODS, the Data sheet holds the rows of one currency (`db.resolve_currency()`). Rewrites the whole workbook on every run; unlike the ODS, it keeps no custom sheets and its edits are not synced back.
 
 Statement text is always written as a cell value, never as a formula, and merchant/category names are matched literally inside formulas, so a description can't inject a formula.
 
@@ -183,7 +183,7 @@ Statement text is always written as a cell value, never as a formula, and mercha
 Builds prompts for LLM-based financial advice and keeps a context file (`data/advisor/context.json`) of goals, insights and past responses, so each month's prompt builds on the last. It never calls an LLM: the user pastes the prompt and saves the reply.
 
 **Key functions:**
-- `generate_prompt(db_path, context_path, target_month)` — Summarizes the month's spending (via `fetch_expense_data()`, using the shared `SPEND_SQL`/`REFUND_SQL`/`INCOME_SQL` rules) together with the context into one prompt. The first prompt adds discovery questions.
+- `generate_prompt(db_path, context_path, target_month, currency=None)` — Summarizes the month's spending in one currency (via `fetch_expense_data()`, which resolves it with `db.resolve_currency()` and filters every query with `db.currency_sql()`; amounts print as `€1,234.00`, or `1,234.00 USD` for a currency without a symbol; using the shared `SPEND_SQL`/`REFUND_SQL`/`INCOME_SQL` rules) together with the context into one prompt. The first prompt adds discovery questions.
 - `save_prompt()` / `get_response_path()` — Where each month's prompt and response live in `data/advisor/`.
 - `ingest_response(response_path, context_path, target_month)` — Records a saved response in the context.
 - `find_months_without_responses()` / `find_next_catchup_month()` — Drive `advisor status` and `advisor catchup`.
@@ -191,14 +191,14 @@ Builds prompts for LLM-based financial advice and keeps a context file (`data/ad
 
 ### `expense_tracker/export.py`
 
-Simple CSV export — reads all transactions from the DB and writes a UTF-8 CSV using `DATA_COLUMNS`/`DATA_HEADERS` from constants.
+Simple CSV export — `export_csv(db_path, out_path, currency=None)` reads the transactions of one currency (`db.resolve_currency()`; the CSV has no currency column) from the DB and writes a UTF-8 CSV using `DATA_COLUMNS`/`DATA_HEADERS` from constants.
 
 ### `expense_tracker/pdf_report.py`
 
 Monthly PDF report generator using `fpdf2`. Produces a single-page A4 summary for a given month.
 
 **Key functions:**
-- `generate_monthly_pdf(db_path, month, output_path, desc_notes_path)` — Main entry point. Fetches transactions for the given month, computes stats, and renders a PDF.
+- `generate_monthly_pdf(db_path, month, output_path, desc_notes_path, currency=None)` — Main entry point. Resolves the currency (`db.resolve_currency()`), fetches that currency's transactions for the given month, its category history and its months (each `_fetch_*` takes `currency`, filtered with `db.currency_sql()`), computes stats, and renders a PDF; amounts print with the currency code (`_fmt_amount()`). `generate_missing_monthly_pdfs(..., currency=None)` passes it on.
 - `_compute_stats(transactions, merchant_notes)` — Computes all summary statistics: income/expenses, category breakdown, top merchants, tag totals, uncategorized count. Refunds (`db.is_refund`: incoming money in a category outside `NON_SPENDING_CATEGORIES` and `NEUTRAL_CATEGORIES`) are subtracted from their category and from expenses, not added to income. `NEUTRAL_CATEGORIES` transactions (`Savings`, `Ignored`) count as neither spending nor income (`db.is_neutral`, `counts_as_spending`, `is_income`); `Ignored` rows (`db.is_ignored`) are also left out of the Tags and Recurring Merchants sheets. The same rules are implemented as `SPEND_SQL`/`REFUND_SQL`/`INCOME_SQL`/`NOT_NEUTRAL_SQL` (advisor, PDF history), `_spend()`/`_income()` formula builders in `xlsx.py` and `ods_sheets.py`, and the `spend` field added by `fetch_all_transactions()` (GUI).
 - `_category_averages(historical, ledger_months, month, categories)` — The "vs Avg" baseline: each category's spending summed over the latest `AVERAGE_MONTHS` (12) months before `month` that have any transaction (`_fetch_ledger_months()`) and divided by their number, so a month without the category counts 0; empty (every "vs Avg" is `-`) when there is no earlier month. `xlsx.py`/`ods_sheets.py` "Avg / Month" divide by the months of their period instead.
 - `previous_month_label()` — Returns the YYYY-MM label for the previous month.
@@ -235,7 +235,7 @@ A curated collection of ~200 categorization rules tailored for Portuguese mercha
 Analyzes transaction data to detect patterns and suggest categorization rules. Uses frequency analysis, text similarity (via `difflib.SequenceMatcher`), and temporal analysis to find uncategorized merchants that could benefit from rules.
 
 **Key functions:**
-- `analyze_patterns(db_path, min_months_recurring, similarity_threshold, min_count_frequent)` — Main entry point. Returns a dict with three lists: `recurring`, `similar`, and `frequent`.
+- `analyze_patterns(db_path, min_months_recurring, similarity_threshold, min_count_frequent, currency=None)` — Main entry point. Analyzes the uncategorized rows of one currency (`db.resolve_currency()`); the `detect_*` functions take `currency` for the amounts in their reasons (`12.99€`, `15.99 USD`). Returns a dict with three lists: `recurring`, `similar`, and `frequent`.
 - `detect_recurring(transactions, min_months)` — Finds uncategorized merchants appearing in N+ distinct months.
 - `detect_similar_merchants(transactions, threshold)` — Clusters merchant descriptions by text similarity to spot variants of the same merchant.
 - `detect_frequent_merchants(transactions, min_count)` — Finds uncategorized merchants by raw transaction count.
@@ -299,6 +299,7 @@ A Streamlit-based web interface that provides graphical access to the expense tr
 
 **Key implementation details:**
 - Uses `@st.cache_data(ttl=5)` for data loading to balance freshness with performance.
+- One currency at a time: a **Currency** select box in the sidebar appears only when the ledger holds several (`db.ledger_currencies()`), otherwise `resolve_currency()` picks the only one. `_load_transactions(db_path, currency)` loads that currency's rows for every page; amounts are labelled `currency_symbol()`; the ODS, PDF and CSV the GUI writes are of that currency (after an import, `_report_currency()` reads the ledger again).
 - Calls existing backend functions (`fetch_all_transactions`, `ingest`, `add_rule`, `remove_rule`, `categorize_transactions`) — no business logic is duplicated.
 - The `cmd_gui` function in `cli.py` launches Streamlit via `subprocess.run`.
 
@@ -309,6 +310,8 @@ A Streamlit-based web interface that provides graphical access to the expense tr
 **Pre-flight checks:** `_check_setup()` verifies that `odfpy` is installed and the `data/` directory exists, providing friendly error messages that point to `install.sh`.
 
 **Automatic backups:** The `auto` command creates a monthly backup for the previous month if one doesn't exist. The `report --fresh` and `reclean` commands create timestamped backups before destructive operations.
+
+**Currency:** `auto`, `report`, `reclean`, `pdf`, `export`, `suggest` and `advisor` (generate/catchup) take `--currency` (`_add_currency_option()`); `_report_currency(args)` resolves it with `db.resolve_currency()` and, when the ledger holds several currencies and none is given (or one it holds no row in), prints the currencies and exits 1. `auto` resolves it after the import, so the imported files are kept.
 
 **Output control:** Global `-q`/`--quiet` and `-v`/`--verbose` flags control verbosity. The `_info()` and `_detail()` helpers respect the verbosity level. Dry-run mode (`--dry-run` on `auto` and `ingest`) previews actions without making changes: it skips the rename step and calls `ingest(..., dry_run=True)`, so the per-file counts and errors are those of a real import.
 
@@ -349,6 +352,7 @@ tests/
 ├── test_account_type.py         #   4 tests: configurable account label
 ├── test_gui.py                  #  19 tests: GUI data loading, uploads, module structure
 ├── test_export.py               #   4 tests: CSV export
+├── test_currency.py             # account currencies: one currency per report, CLI --currency
 ├── test_backup.py               #  17 tests: zip creation, monthly checks, formatting
 └── test_integration.py          #   4 tests: end-to-end workflows
 ```

@@ -932,6 +932,12 @@ SPEND_SQL = (
 )
 
 
+def currency_sql(currency: str | None) -> tuple[str, tuple]:
+    """A condition to AND into a query, with its parameters: the rows in
+    ``currency``, or every row for ``None``."""
+    return ("currency = ?", (currency,)) if currency else ("1 = 1", ())
+
+
 # ---------------------------------------------------------------------------
 # Queries
 # ---------------------------------------------------------------------------

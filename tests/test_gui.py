@@ -191,6 +191,100 @@ class TestDashboardTotals:
         assert metrics["Net"] == "1,500.00 €"
 
 
+class TestCurrencySelector:
+    """One currency at a time: a selector appears once there are several."""
+
+    def _ledger(self, tmp_path, monkeypatch, with_usd: bool):
+        import expense_tracker.constants as constants
+
+        db_path = tmp_path / "ledger.sqlite"
+        conn = sqlite3.connect(str(db_path))
+        ensure_schema(conn)
+        migrate_schema(conn)
+        rows = [
+            ("salary", "in", 2000.0, "Income", "EUR"),
+            ("groceries", "out", 500.0, "Groceries", "EUR"),
+        ]
+        if with_usd:
+            rows += [
+                ("us-salary", "in", 1000.0, "Income", "USD"),
+                ("us-groceries", "out", 70.0, "Groceries", "USD"),
+            ]
+        for tid, direction, amount, category, currency in rows:
+            conn.execute(
+                """
+                INSERT INTO transactions (
+                    transaction_id, date_posted, date_value, month, day_of_week,
+                    description_raw, description_clean,
+                    amount_signed, amount_abs, direction, tx_type, balance,
+                    currency, account, source_file, imported_at, category
+                ) VALUES (?, '2026-01-10', '2026-01-10', '2026-01', 'Sat', ?, ?,
+                          ?, ?, ?, '', 0, ?, ?, 't.csv', '2026-01-15T10:00:00', ?)
+                """,
+                (
+                    tid,
+                    tid,
+                    tid,
+                    amount if direction == "in" else -amount,
+                    amount,
+                    direction,
+                    currency,
+                    "checkings_account" if currency == "EUR" else "usd_account",
+                    category,
+                ),
+            )
+        conn.commit()
+        conn.close()
+        monkeypatch.setattr(constants, "DEFAULT_DB", db_path)
+        monkeypatch.chdir(tmp_path)
+
+    def _run(self, page: str = "Dashboard", currency: str | None = None):
+        from streamlit.testing.v1 import AppTest
+
+        at = AppTest.from_file(str(GUI_PATH), default_timeout=30).run()
+        at.sidebar.radio[0].set_value(page).run()
+        if currency:
+            self._selector(at).set_value(currency).run()
+        return at
+
+    @staticmethod
+    def _selector(at):
+        found = [s for s in at.sidebar.selectbox if s.label == "Currency"]
+        return found[0] if found else None
+
+    def test_no_selector_with_one_currency(self, tmp_path, monkeypatch):
+        self._ledger(tmp_path, monkeypatch, with_usd=False)
+
+        at = self._run()
+
+        assert self._selector(at) is None
+        assert {m.label: m.value for m in at.metric}["Net"] == "1,500.00 €"
+
+    def test_each_currency_has_its_own_totals(self, tmp_path, monkeypatch):
+        self._ledger(tmp_path, monkeypatch, with_usd=True)
+
+        at = self._run()
+        assert self._selector(at).options == ["EUR", "USD"]
+        metrics = {m.label: m.value for m in at.metric}
+        assert metrics["Total Expenses"] == "500.00 €"
+        assert metrics["Transactions"] == "2"
+
+        self._selector(at).set_value("USD").run()
+
+        metrics = {m.label: m.value for m in at.metric}
+        assert metrics["Total Expenses"] == "70.00 USD"
+        assert metrics["Total Income"] == "1,000.00 USD"
+        assert metrics["Net"] == "930.00 USD"
+        assert metrics["Transactions"] == "2"
+
+    def test_transactions_page_lists_the_chosen_currency(self, tmp_path, monkeypatch):
+        self._ledger(tmp_path, monkeypatch, with_usd=True)
+
+        at = self._run("Transactions", "USD")
+
+        assert sorted(at.dataframe[0].value["amount_abs"]) == [70.0, 1000.0]
+
+
 # ---------------------------------------------------------------------------
 # Pages that write files: run them against a throw-away project directory
 # ---------------------------------------------------------------------------

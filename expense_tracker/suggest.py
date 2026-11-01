@@ -13,7 +13,8 @@ from collections import Counter
 from difflib import SequenceMatcher
 from pathlib import Path
 
-from .constants import DEFAULT_DB
+from .constants import DEFAULT_CURRENCY, DEFAULT_DB, currency_symbol
+from .db import currency_sql, resolve_currency
 from .rules import add_rule
 
 # ---------------------------------------------------------------------------
@@ -21,16 +22,24 @@ from .rules import add_rule
 # ---------------------------------------------------------------------------
 
 
-def _fetch_uncategorized(conn: sqlite3.Connection) -> list[dict]:
-    """Fetch all uncategorized outgoing transactions."""
-    rows = conn.execute("""
+def _fetch_uncategorized(
+    conn: sqlite3.Connection, currency: str | None = None
+) -> list[dict]:
+    """Fetch all uncategorized outgoing transactions (with ``currency``,
+    those in that currency)."""
+    in_currency, params = currency_sql(currency)
+    rows = conn.execute(
+        f"""
         SELECT description_clean, description_raw, amount_abs, date_posted,
                payment_type
         FROM transactions
         WHERE direction = 'out'
           AND (category IS NULL OR category = '')
+          AND {in_currency}
         ORDER BY date_posted
-        """).fetchall()
+        """,
+        params,
+    ).fetchall()
     return [
         {
             "description_clean": r[0] or "",
@@ -171,10 +180,17 @@ def _extract_common_prefix(names: list[str], min_len: int = 3) -> str:
 # ---------------------------------------------------------------------------
 
 
+def _unit(currency: str) -> str:
+    """What follows an amount: the symbol (12.99€), or a spaced code."""
+    symbol = currency_symbol(currency)
+    return symbol if symbol != currency else f" {currency}"
+
+
 def detect_recurring(
     merchants: dict[str, dict],
     min_months: int = 3,
     max_amount_stddev_pct: float = 0.15,
+    currency: str = DEFAULT_CURRENCY,
 ) -> list[dict]:
     """
     Detect recurring/subscription-like merchants.
@@ -197,7 +213,7 @@ def detect_recurring(
                     "suggested_category": "Subscriptions",
                     "reason": (
                         f"Appears in {stats['months_count']} months with "
-                        f"consistent amount (~{stats['avg']:.2f}€)"
+                        f"consistent amount (~{stats['avg']:.2f}{_unit(currency)})"
                     ),
                     "confidence": "high",
                     "count": stats["count"],
@@ -211,6 +227,7 @@ def detect_similar_merchants(
     merchants: dict[str, dict],
     threshold: float = 0.65,
     min_cluster_size: int = 2,
+    currency: str = DEFAULT_CURRENCY,
 ) -> list[dict]:
     """
     Detect groups of similar merchants that likely belong to the same category.
@@ -236,7 +253,8 @@ def detect_similar_merchants(
                 "suggested_category": None,  # User needs to name this
                 "reason": (
                     f"{len(cluster)} similar merchants "
-                    f"({total_count} transactions, {total_amount:.2f}€ total)"
+                    f"({total_count} transactions, "
+                    f"{total_amount:.2f}{_unit(currency)} total)"
                 ),
                 "confidence": "medium",
                 "count": total_count,
@@ -250,6 +268,7 @@ def detect_similar_merchants(
 def detect_frequent_merchants(
     merchants: dict[str, dict],
     min_count: int = 5,
+    currency: str = DEFAULT_CURRENCY,
 ) -> list[dict]:
     """Detect frequently-occurring merchants that should probably have a rule."""
     suggestions = []
@@ -260,7 +279,10 @@ def detect_frequent_merchants(
                     "merchants": [name],
                     "pattern": name,
                     "suggested_category": None,
-                    "reason": f"{stats['count']} transactions totaling {stats['total']:.2f}€",
+                    "reason": (
+                        f"{stats['count']} transactions totaling "
+                        f"{stats['total']:.2f}{_unit(currency)}"
+                    ),
                     "confidence": "low",
                     "count": stats["count"],
                     "total": stats["total"],
@@ -279,6 +301,7 @@ def analyze_patterns(
     min_months_recurring: int = 3,
     similarity_threshold: float = 0.65,
     min_count_frequent: int = 5,
+    currency: str | None = None,
 ) -> dict:
     """
     Analyze the transaction database and return pattern-based suggestions.
@@ -288,10 +311,14 @@ def analyze_patterns(
     - 'similar': merchant name clusters
     - 'frequent': high-frequency uncategorized merchants
     - 'stats': summary statistics
+
+    Amounts are those of one currency: ``currency``, which may be left out
+    when the ledger holds one (db.resolve_currency).
     """
     conn = sqlite3.connect(str(db_path))
     try:
-        uncategorized = _fetch_uncategorized(conn)
+        currency = resolve_currency(conn, currency)
+        uncategorized = _fetch_uncategorized(conn, currency)
     finally:
         conn.close()
 
@@ -308,9 +335,15 @@ def analyze_patterns(
 
     merchants = _merchant_stats(uncategorized)
 
-    recurring = detect_recurring(merchants, min_months=min_months_recurring)
-    similar = detect_similar_merchants(merchants, threshold=similarity_threshold)
-    frequent = detect_frequent_merchants(merchants, min_count=min_count_frequent)
+    recurring = detect_recurring(
+        merchants, min_months=min_months_recurring, currency=currency
+    )
+    similar = detect_similar_merchants(
+        merchants, threshold=similarity_threshold, currency=currency
+    )
+    frequent = detect_frequent_merchants(
+        merchants, min_count=min_count_frequent, currency=currency
+    )
 
     # Filter out merchants already covered by recurring/similar suggestions
     covered = set()

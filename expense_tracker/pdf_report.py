@@ -18,6 +18,7 @@ from typing import Iterable
 
 from .constants import (
     DEFAULT_ADVISOR_DIR,
+    DEFAULT_CURRENCY,
     DEFAULT_DB,
     DEFAULT_DESC_NOTES,
     DEFAULT_REPORTS,
@@ -27,8 +28,10 @@ from .db import (
     REFUND_SQL,
     SPEND_SQL,
     apply_card_holders,
+    currency_sql,
     is_neutral,
     is_refund,
+    resolve_currency,
 )
 
 # ---------------------------------------------------------------------------
@@ -51,20 +54,23 @@ ESSENTIAL_CATEGORIES = [
 def _fetch_month_transactions(
     conn: sqlite3.Connection,
     month: str,
+    currency: str | None = None,
 ) -> list[dict]:
     """Fetch all transactions for a given month (YYYY-MM), ``who`` looked up
-    from the card-holder file (db.apply_card_holders)."""
+    from the card-holder file (db.apply_card_holders). With ``currency``,
+    only those in that currency."""
+    in_currency, params = currency_sql(currency)
     conn.row_factory = sqlite3.Row
     rows = conn.execute(
-        """
+        f"""
         SELECT
             date_posted, description_clean, amount_signed, amount_abs,
             direction, category, subcategory, payment_type, card_last4, notes
         FROM transactions
-        WHERE month = ?
+        WHERE month = ? AND {in_currency}
         ORDER BY date_posted ASC
         """,
-        (month,),
+        (month, *params),
     ).fetchall()
     conn.row_factory = None
     result = [dict(r) for r in rows]
@@ -74,19 +80,24 @@ def _fetch_month_transactions(
 
 def _fetch_historical_category_totals(
     conn: sqlite3.Connection,
+    currency: str | None = None,
 ) -> dict[str, dict[str, float]]:
-    """Fetch per-month, per-category spending totals for all history.
+    """Fetch per-month, per-category spending totals for all history (with
+    ``currency``, of the transactions in that currency).
 
     Returns: { month: { category: total_amount } }
     """
+    in_currency, params = currency_sql(currency)
     rows = conn.execute(
         f"""
         SELECT month, category, SUM({SPEND_SQL}) as total
         FROM transactions
         WHERE category IS NOT NULL AND category != ''
           AND (direction = 'out' OR {REFUND_SQL}) AND {NOT_NEUTRAL_SQL}
+          AND {in_currency}
         GROUP BY month, category
         """,
+        params,
     ).fetchall()
 
     result: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
@@ -95,10 +106,15 @@ def _fetch_historical_category_totals(
     return dict(result)
 
 
-def _fetch_ledger_months(conn: sqlite3.Connection) -> list[str]:
-    """The months (YYYY-MM) that have any transaction, oldest first."""
+def _fetch_ledger_months(
+    conn: sqlite3.Connection, currency: str | None = None
+) -> list[str]:
+    """The months (YYYY-MM) that have any transaction (with ``currency``,
+    any in that currency), oldest first."""
+    in_currency, params = currency_sql(currency)
     rows = conn.execute(
-        "SELECT DISTINCT month FROM transactions ORDER BY month"
+        f"SELECT DISTINCT month FROM transactions WHERE {in_currency} ORDER BY month",
+        params,
     ).fetchall()
     return [month for (month,) in rows]
 
@@ -359,8 +375,10 @@ def generate_missing_monthly_pdfs(
     reports_dir: Path = DEFAULT_REPORTS,
     through_month: str | None = None,
     desc_notes_path: Path = DEFAULT_DESC_NOTES,
+    currency: str | None = None,
 ) -> list[Path]:
-    """Generate PDF reports for all missing months up to through_month."""
+    """Generate PDF reports for all missing months up to through_month, of
+    one currency (see generate_monthly_pdf)."""
     generated: list[Path] = []
     for month in months_to_generate(reports_dir, through_month):
         generated.append(
@@ -369,6 +387,7 @@ def generate_missing_monthly_pdfs(
                 month=month,
                 output_path=reports_dir / f"report-{month}.pdf",
                 desc_notes_path=desc_notes_path,
+                currency=currency,
             )
         )
     return generated
@@ -406,9 +425,9 @@ _CLR_RED = (220, 38, 38)  # negative / expenses
 _CLR_WHITE = (255, 255, 255)
 
 
-def _fmt_eur(amount: float) -> str:
-    """Format a euro amount with thousands separator."""
-    return f"{amount:,.2f} EUR"
+def _fmt_amount(amount: float, currency: str = DEFAULT_CURRENCY) -> str:
+    """Format an amount with thousands separator and its currency code."""
+    return f"{amount:,.2f} {currency}"
 
 
 def _setup_fonts(pdf) -> None:
@@ -481,6 +500,7 @@ def generate_monthly_pdf(
     month: str | None = None,
     output_path: Path | None = None,
     desc_notes_path: Path = DEFAULT_DESC_NOTES,
+    currency: str | None = None,
 ) -> Path:
     """Generate a single-page monthly PDF report.
 
@@ -489,6 +509,8 @@ def generate_monthly_pdf(
         month: The month to report on (YYYY-MM). Defaults to previous month.
         output_path: Where to save the PDF. Defaults to report-YYYY-MM.pdf.
         desc_notes_path: Path to the merchant notes CSV.
+        currency: The currency to report on; may be left out when the ledger
+            holds one (db.resolve_currency raises CurrencyError otherwise).
 
     Returns:
         The path to the generated PDF file.
@@ -504,9 +526,10 @@ def generate_monthly_pdf(
     # Fetch data
     conn = sqlite3.connect(str(db_path))
     try:
-        transactions = _fetch_month_transactions(conn, month)
-        historical = _fetch_historical_category_totals(conn)
-        ledger_months = _fetch_ledger_months(conn)
+        currency = resolve_currency(conn, currency)
+        transactions = _fetch_month_transactions(conn, month, currency)
+        historical = _fetch_historical_category_totals(conn, currency)
+        ledger_months = _fetch_ledger_months(conn, currency)
     finally:
         conn.close()
 
@@ -598,7 +621,13 @@ def generate_monthly_pdf(
         pdf.set_font(f, "B", 14)
         pdf.set_text_color(*color)
         pdf.set_xy(x + 4, y + 8)
-        pdf.cell(box_w - 8, 8, _fmt_eur(amount), new_x=XPos.RIGHT, new_y=YPos.TOP)
+        pdf.cell(
+            box_w - 8,
+            8,
+            _fmt_amount(amount, currency),
+            new_x=XPos.RIGHT,
+            new_y=YPos.TOP,
+        )
 
     y += box_h + 6
 
@@ -654,7 +683,7 @@ def generate_monthly_pdf(
 
         row_data = [
             (cat[:24], "L", _CLR_RED if is_uncat else _CLR_DARK),
-            (_fmt_eur(amt), "R", _CLR_RED if is_uncat else _CLR_DARK),
+            (_fmt_amount(amt, currency), "R", _CLR_RED if is_uncat else _CLR_DARK),
             (f"{pct:.1f}%", "R", _CLR_RED if is_uncat else _CLR_DARK),
             (
                 _fmt_diff(prev_diff),
@@ -761,7 +790,7 @@ def generate_monthly_pdf(
 
         row_data = [
             (merch[:22], "L"),
-            (_fmt_eur(amt), "R"),
+            (_fmt_amount(amt, currency), "R"),
             (str(count), "R"),
         ]
         for i, ((text, align), w) in enumerate(zip(row_data, merch_col_w)):
@@ -805,7 +834,7 @@ def generate_monthly_pdf(
 
             row_data = [
                 (tag, "L"),
-                (_fmt_eur(amt), "R"),
+                (_fmt_amount(amt, currency), "R"),
                 (str(count), "R"),
             ]
             for i, ((text, align), w) in enumerate(zip(row_data, tag_col_w)):
@@ -845,7 +874,11 @@ def generate_monthly_pdf(
             pdf.set_text_color(*_CLR_DARK)
             pdf.set_xy(x + 3, bottom_y + 6)
             pdf.cell(
-                box_w_ess - 6, 6, _fmt_eur(total), new_x=XPos.RIGHT, new_y=YPos.TOP
+                box_w_ess - 6,
+                6,
+                _fmt_amount(total, currency),
+                new_x=XPos.RIGHT,
+                new_y=YPos.TOP,
             )
 
     # --- Footer ---
