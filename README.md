@@ -375,7 +375,7 @@ python bank_ingest.py pdf --out ~/Desktop/jan.pdf  # custom output path
 
 The PDF includes:
 - **Summary**: total income, expenses, and net balance
-- **Spending by category**: amounts, percentages, variation vs previous month, and variation vs category average
+- **Spending by category**: amounts, percentages, variation vs previous month, and variation vs category average ("vs Avg": the category's average over up to the 12 months before, counting only months with any transaction in the ledger and 0 for a month without spending in the category, so a bill paid once a year averages a twelfth of it; `-` for the first month of data). The spreadsheets' "Avg / Month" stays the category's total divided by the months of the period they cover
 - **Top 10 merchants**: who you spent the most with
 - **#Tag summary**: totals for any tags used in Notes or Merchant Notes
 - **Essential spending**: quick totals for Housing, Utilities, Subscriptions, Insurance, Health, Childcare, and Transport

@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from expense_tracker.pdf_report import (
+    _category_averages,
     _compute_stats,
     _extract_tags,
     _fetch_historical_category_totals,
@@ -591,6 +592,91 @@ class TestCategoryAverages:
         row = self._report_row(test_db, tmp_path, "2026-01", "Groceries")
 
         assert row == "Groceries 100.00 EUR 100.0% - -"
+
+    def test_annual_bill_is_averaged_over_every_month(self, test_db, tmp_path):
+        """Issue #7: 1 200 paid once in the 12 earlier months averages 100."""
+        from .conftest import add_transaction
+
+        add_transaction(test_db, "2025-02-10", "INSURER", 1200.0, category="Insurance")
+        for month in [f"2025-{m:02d}" for m in range(2, 13)] + ["2026-01"]:
+            add_transaction(test_db, f"{month}-05", "SHOP", 50.0, category="Groceries")
+        add_transaction(test_db, "2026-02-10", "INSURER", 1200.0, category="Insurance")
+
+        row = self._report_row(test_db, tmp_path, "2026-02", "Insurance")
+
+        # Not in January: no previous-month figure
+        assert row == "Insurance 1,200.00 EUR 100.0% - +1,100"
+
+    def test_month_without_the_category_counts_as_zero(self, test_db, tmp_path):
+        from .conftest import add_transaction
+
+        add_transaction(test_db, "2026-01-10", "SHOP", 100.0, category="Groceries")
+        add_transaction(test_db, "2026-02-10", "PHARMACY", 10.0, category="Health")
+        add_transaction(test_db, "2026-03-10", "SHOP", 200.0, category="Groceries")
+        add_transaction(test_db, "2026-03-11", "CINEMA", 20.0, category="Leisure")
+
+        groceries = self._report_row(test_db, tmp_path, "2026-03", "Groceries")
+        leisure = self._report_row(test_db, tmp_path, "2026-03", "Leisure")
+
+        # (100 + 0) / 2 = 50; a category new this month averages 0
+        assert groceries.endswith(" - +150")
+        assert leisure.endswith(" - +20")
+
+
+class TestCategoryAveragesHelper:
+    """_category_averages(): up to 12 earlier months with any transaction,
+    a month without the category counting 0 (issue #7)."""
+
+    def test_annual_bill(self):
+        months = [f"2025-{m:02d}" for m in range(1, 13)]
+        historical = {m: {"Groceries": 100.0} for m in months}
+        historical["2025-03"]["Insurance"] = 1200.0
+
+        averages = _category_averages(historical, months, "2026-01")
+
+        assert averages == {"Groceries": 100.0, "Insurance": 100.0}
+
+    def test_single_prior_month(self):
+        averages = _category_averages(
+            {"2026-01": {"Groceries": 80.0}}, ["2026-01", "2026-02"], "2026-02"
+        )
+
+        assert averages == {"Groceries": 80.0}
+
+    def test_no_prior_month_gives_no_average(self):
+        assert _category_averages({}, ["2026-01"], "2026-01", ["Groceries"]) == {}
+
+    def test_only_the_latest_twelve_months_count(self):
+        months = [f"2025-{m:02d}" for m in range(1, 13)] + ["2026-01"]
+        historical = {"2025-01": {"Travel": 1300.0}, "2026-01": {"Travel": 120.0}}
+
+        averages = _category_averages(historical, months, "2026-02")
+
+        assert averages == {"Travel": 10.0}
+
+    def test_months_with_transactions_but_no_spending_count(self):
+        """Only income in February: still a month of data."""
+        averages = _category_averages(
+            {"2026-01": {"Groceries": 100.0}}, ["2026-01", "2026-02"], "2026-03"
+        )
+
+        assert averages == {"Groceries": 50.0}
+
+    def test_later_months_do_not_count(self):
+        averages = _category_averages(
+            {"2026-01": {"Groceries": 100.0}, "2026-03": {"Groceries": 900.0}},
+            ["2026-01", "2026-03"],
+            "2026-02",
+        )
+
+        assert averages == {"Groceries": 100.0}
+
+    def test_category_without_earlier_spending_averages_zero(self):
+        averages = _category_averages(
+            {"2026-01": {"Groceries": 100.0}}, ["2026-01"], "2026-02", ["Leisure"]
+        )
+
+        assert averages == {"Groceries": 100.0, "Leisure": 0.0}
 
 
 class TestBuiltInFont:

@@ -416,7 +416,7 @@ python bank_ingest.py cards add 5678 Bob</code></pre>
 python bank_ingest.py pdf --month 2026-01      # specific month
 python bank_ingest.py pdf --all                # one PDF per month with data</code></pre>
 
-<p>The PDF shows at a glance: total income vs expenses, spending by category (with variation vs last month and vs average), your top merchants, any #tag totals, essential spending, and how many transactions still need a category.</p>
+<p>The PDF shows at a glance: total income vs expenses, spending by category (with variation vs last month and vs its average over up to 12 earlier months, a month without spending in the category counting as 0), your top merchants, any #tag totals, essential spending, and how many transactions still need a category.</p>
 
 <div class="tip">
   <strong>Output:</strong> The PDF is saved to <code>reports/report-YYYY-MM.pdf</code>. Use <code>--out path/to/file.pdf</code> to save it somewhere else.
