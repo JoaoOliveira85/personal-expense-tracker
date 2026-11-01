@@ -963,3 +963,46 @@ class TestSuspectedDuplicates:
         assert not at.exception
         assert self._flagged(project.db) == 3
         assert _transaction_count(project.db) == 10
+
+
+class TestAccountMismatch:
+    """A statement of another account is refused on the Import page unless
+    its checkbox is ticked (issue #12)."""
+
+    def _statement(self, tmp_path: Path, name: str, identifier: str, rows) -> bytes:
+        text = _statement(tmp_path, name, rows).decode("utf-16-le")
+        return text.replace("Conta:;123456789", f"Conta:;{identifier}").encode(
+            "utf-16-le"
+        )
+
+    def test_refused_then_forced(self, project, tmp_path, monkeypatch):
+        from expense_tracker.db import ingest
+
+        from .conftest import SAMPLE_ROWS
+
+        monkeypatch.setenv("EXPENSE_TRACKER_ACCOUNT_TYPE", "checkings_account")
+        jan = tmp_path / "jan.csv"
+        jan.write_bytes(self._statement(tmp_path, "jan.csv", "111", SAMPLE_ROWS))
+        ingest(project.db, [jan])
+        feb = self._statement(tmp_path, "feb.csv", "999", FEBRUARY_ROWS)
+
+        at = _open_page("Import")
+        at.file_uploader[0].upload("feb.csv", feb, "text/csv").run()
+        at = _click(at, "Ingest uploaded files")
+
+        assert not at.exception
+        assert len(at.error) == 1
+        assert "another account" in at.error[0].value
+        assert "999" not in at.error[0].value
+        assert _transaction_count(project.db) == 5
+
+        next(
+            c
+            for c in at.checkbox
+            if c.label == "Import even if the account does not match"
+        ).check().run()
+        at = _click(at, "Ingest uploaded files")
+
+        assert not at.exception
+        assert not at.error
+        assert _transaction_count(project.db) == 6

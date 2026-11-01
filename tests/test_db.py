@@ -815,6 +815,190 @@ class TestSuspectedDuplicates:
         assert all(r[2] is None for r in rows if r[0] in flagged[:2])
 
 
+ACCOUNT_A = "PT50 0002 0123 1234 5678 9015 4"
+ACCOUNT_B = "PT50 0035 0999 8888 7777 6666 1"
+
+
+def _account_statement(path, identifier: str | None, rows=None, **kwargs):
+    """A UTF-16 statement whose header names ``identifier`` (or no account)."""
+    make_utf16_csv(path, rows or SAMPLE_ROWS, **kwargs)
+    text = path.read_bytes().decode("utf-16-le")
+    line = f"Conta:;{identifier}\n" if identifier is not None else ""
+    path.write_bytes(text.replace("Conta:;123456789\n", line).encode("utf-16-le"))
+    return path
+
+
+FEBRUARY = [("03-02-2026", "03-02-2026", "COMPRA LOJA", "-1,00", "Compra", "9,00")]
+
+
+class TestAccountFingerprint:
+    """A statement's account identifier is checked against the account
+    label it is imported into; only a salted fingerprint is kept (#12)."""
+
+    @pytest.fixture(autouse=True)
+    def _setup(self, noise_words, cleaning_patterns, monkeypatch):
+        monkeypatch.setenv("EXPENSE_TRACKER_ACCOUNT_TYPE", "checkings_account")
+        reset_cleaning_cache()
+        _get_cleaning_patterns(noise_words, cleaning_patterns)
+        yield
+        reset_cleaning_cache()
+
+    def _fingerprints(self, db_path) -> dict[str, str]:
+        conn = sqlite3.connect(str(db_path))
+        try:
+            return dict(
+                conn.execute("SELECT account, fingerprint FROM account_fingerprints")
+            )
+        finally:
+            conn.close()
+
+    def _count(self, db_path) -> int:
+        conn = sqlite3.connect(str(db_path))
+        try:
+            return conn.execute("SELECT COUNT(*) FROM transactions").fetchone()[0]
+        finally:
+            conn.close()
+
+    def _feb(self, tmp_path, identifier):
+        return _account_statement(
+            tmp_path / "feb.csv",
+            identifier,
+            FEBRUARY,
+            date_from="01-02-2026",
+            date_to="28-02-2026",
+        )
+
+    def test_first_import_records_a_fingerprint(self, test_db, tmp_path, cards_csv):
+        jan = _account_statement(tmp_path / "jan.csv", ACCOUNT_A)
+
+        ingest(test_db, [jan], cards_path=cards_csv)
+
+        fingerprint = self._fingerprints(test_db)["checkings_account"]
+        assert len(fingerprint) == 64
+        assert int(fingerprint, 16) >= 0  # hex
+
+    def test_same_identifier_matches(self, test_db, tmp_path, cards_csv):
+        ingest(
+            test_db, [_account_statement(tmp_path / "jan.csv", ACCOUNT_A)], cards_csv
+        )
+        # Spacing and case are not part of the identifier
+        feb = self._feb(tmp_path, ACCOUNT_A.replace(" ", "").lower())
+
+        ingest(test_db, [feb], cards_path=cards_csv)
+
+        assert self._count(test_db) == 6
+
+    def test_other_identifier_is_refused(self, test_db, tmp_path, cards_csv):
+        ingest(
+            test_db, [_account_statement(tmp_path / "jan.csv", ACCOUNT_A)], cards_csv
+        )
+        before = self._fingerprints(test_db)
+
+        with pytest.raises(IngestError) as error:
+            ingest(test_db, [self._feb(tmp_path, ACCOUNT_B)], cards_path=cards_csv)
+
+        message = str(error.value)
+        assert "feb.csv" in message
+        assert "'checkings_account'" in message
+        assert "--force" in message
+        assert self._count(test_db) == 5
+        assert self._fingerprints(test_db) == before
+
+    def test_force_imports_and_keeps_the_fingerprint(
+        self, test_db, tmp_path, cards_csv
+    ):
+        ingest(
+            test_db, [_account_statement(tmp_path / "jan.csv", ACCOUNT_A)], cards_csv
+        )
+        before = self._fingerprints(test_db)
+
+        ingest(
+            test_db, [self._feb(tmp_path, ACCOUNT_B)], cards_path=cards_csv, force=True
+        )
+
+        assert self._count(test_db) == 6
+        assert self._fingerprints(test_db) == before
+
+    def test_statement_without_an_identifier_skips_the_check(
+        self, test_db, tmp_path, cards_csv
+    ):
+        ingest(
+            test_db, [_account_statement(tmp_path / "jan.csv", ACCOUNT_A)], cards_csv
+        )
+
+        ingest(test_db, [self._feb(tmp_path, None)], cards_path=cards_csv)
+
+        assert self._count(test_db) == 6
+
+    def test_each_label_has_its_own_fingerprint(
+        self, test_db, tmp_path, cards_csv, monkeypatch
+    ):
+        ingest(
+            test_db, [_account_statement(tmp_path / "jan.csv", ACCOUNT_A)], cards_csv
+        )
+        monkeypatch.setenv("EXPENSE_TRACKER_ACCOUNT_TYPE", "savings_account")
+
+        ingest(test_db, [self._feb(tmp_path, ACCOUNT_B)], cards_path=cards_csv)
+
+        fingerprints = self._fingerprints(test_db)
+        assert set(fingerprints) == {"checkings_account", "savings_account"}
+        assert len(set(fingerprints.values())) == 2
+
+    def test_dry_run_refuses_like_the_real_run(
+        self, test_db, tmp_path, cards_csv, capsys
+    ):
+        ingest(
+            test_db, [_account_statement(tmp_path / "jan.csv", ACCOUNT_A)], cards_csv
+        )
+        feb = self._feb(tmp_path, ACCOUNT_B)
+        capsys.readouterr()
+
+        with pytest.raises(IngestError) as dry:
+            ingest(test_db, [feb], cards_path=cards_csv, dry_run=True)
+        dry_out = capsys.readouterr().out
+        with pytest.raises(IngestError) as real:
+            ingest(test_db, [feb], cards_path=cards_csv)
+        real_out = capsys.readouterr().out
+
+        assert str(dry.value) == str(real.value)
+        error_line = next(x for x in real_out.splitlines() if "Error:" in x)
+        assert error_line in dry_out
+
+    def test_identifier_is_never_stored_printed_or_logged(
+        self, test_db, tmp_path, cards_csv, capsys, caplog
+    ):
+        import logging
+
+        caplog.set_level(logging.DEBUG)
+        jan = _account_statement(tmp_path / "jan.csv", ACCOUNT_A)
+        feb = self._feb(tmp_path, ACCOUNT_B)
+        ingest(test_db, [jan], cards_path=cards_csv)
+        ingest(test_db, [jan], cards_path=cards_csv, dry_run=True)
+        for dry_run in (True, False):
+            with pytest.raises(IngestError):
+                ingest(test_db, [feb], cards_path=cards_csv, dry_run=dry_run)
+        ingest(test_db, [feb], cards_path=cards_csv, force=True)
+
+        captured = capsys.readouterr()
+        logged = "\n".join(
+            r.getMessage() + (caplog.text if r.exc_info else "") for r in caplog.records
+        )
+        texts = {
+            "stdout": captured.out,
+            "stderr": captured.err,
+            "log": logged + caplog.text,
+        }
+        database = test_db.read_bytes()
+        for identifier in (ACCOUNT_A, ACCOUNT_B):
+            compact = identifier.replace(" ", "")
+            forms = {identifier, compact, compact.lower(), compact[4:]}
+            for form in forms:
+                for name, text in texts.items():
+                    assert form not in text, f"{form!r} in {name}"
+                for encoding in ("utf-8", "utf-16-le", "utf-16-be"):
+                    assert form.encode(encoding) not in database, form
+
+
 class TestCoverage:
     """Months covered by imported statements, and the gaps between them."""
 

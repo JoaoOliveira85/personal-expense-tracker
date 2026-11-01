@@ -306,6 +306,45 @@ class TestParseStatement:
             parse_statement(path, cards_path=cards_csv)
 
 
+class TestStatementAccountId:
+    """Each parser reads the account identifier from its header lines, if
+    the statement has one (issue #12)."""
+
+    def test_utf16_header(self, tmp_path):
+        path = _make_utf16_csv(tmp_path / "test.csv")
+        assert Utf16CsvParser().extract_account_id(path) == "123456789"
+
+    def test_utf8_header(self, tmp_path):
+        path = _make_utf8_csv(tmp_path / "test.csv")
+        assert Utf8CsvParser().extract_account_id(path) == "987654321"
+
+    def test_utf16_without_the_line(self, tmp_path):
+        from tests.conftest import SAMPLE_ROWS, make_utf16_csv
+
+        path = make_utf16_csv(tmp_path / "test.csv", SAMPLE_ROWS)
+        text = path.read_bytes().decode("utf-16-le").replace("Conta:;123456789\n", "")
+        path.write_bytes(text.encode("utf-16-le"))
+        assert Utf16CsvParser().extract_account_id(path) is None
+
+    def test_utf8_without_the_line(self, tmp_path):
+        path = tmp_path / "test.csv"
+        path.write_text(
+            "Data Mov.;Data Valor;Descrição;Débito;Crédito;Saldo\n"
+            "15-01-2026;15-01-2026;COMPRA LOJA;1,00;;\n",
+            encoding="utf-8",
+        )
+        assert Utf8CsvParser().extract_account_id(path) is None
+
+    def test_a_transaction_is_not_a_header_line(self, tmp_path):
+        path = tmp_path / "test.csv"
+        path.write_text(
+            "Data Mov.;Data Valor;Descrição;Débito;Crédito;Saldo\n"
+            "Conta: 555;15-01-2026;COMPRA LOJA;1,00;;\n",
+            encoding="utf-8",
+        )
+        assert Utf8CsvParser().extract_account_id(path) is None
+
+
 class TestUtf8Amounts:
     @pytest.mark.parametrize(
         "debit, balance, expected_amount, expected_balance",

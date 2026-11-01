@@ -32,6 +32,9 @@ HEADER_PREFIX = "Data lançamento;Data valor;Descrição;Montante;Tipo;Saldo"
 ROW_RE = re.compile(r"^\d{2}-\d{2}-\d{4};\d{2}-\d{2}-\d{4};")
 DATE_FROM_RE = re.compile(r"^Data de:\s*;?\s*(\d{2}-\d{2}-\d{4})")
 DATE_TO_RE = re.compile(r"^Data até:\s*;?\s*(\d{2}-\d{2}-\d{4})")
+# The account the statement belongs to, in a header line before the table.
+# Only compared as a fingerprint (see db.py): never stored or printed.
+ACCOUNT_ID_RE = re.compile(r"^Conta:\s*;?\s*([^;\s][^;]*?)\s*;*$")
 
 # ---------------------------------------------------------------------------
 # Payment-type detection patterns (checked in order)
@@ -281,6 +284,21 @@ def extract_date_range(path: Path) -> tuple[date, date]:
         raise ValueError(f"Could not find date range in {path.name}")
 
     return date_from, date_to
+
+
+def extract_account_id(path: Path) -> Optional[str]:
+    """The account identifier in the header of a UTF-16 CSV, or None.
+
+    Only the lines before the transaction table are read. The result must
+    never be logged, printed or stored (see db.py: only a fingerprint is).
+    """
+    for ln in _decode_utf16(path):
+        if ln.startswith(HEADER_PREFIX):
+            break
+        m = ACCOUNT_ID_RE.match(ln)
+        if m:
+            return m.group(1)
+    return None
 
 
 def _set_aside(path: Path) -> Path:

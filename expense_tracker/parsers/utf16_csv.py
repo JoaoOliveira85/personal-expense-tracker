@@ -9,11 +9,13 @@ from __future__ import annotations
 
 from datetime import date
 from pathlib import Path
+from typing import Optional
 
 from ..constants import DEFAULT_CARDS
 from ..parser import (
     HEADER_PREFIX,
     _decode_utf16,
+    extract_account_id,
     extract_date_range,
     parse_utf16_csv,
 )
@@ -51,3 +53,7 @@ class Utf16CsvParser:
     def extract_date_range(self, path: Path) -> tuple[date, date]:
         """Extract the statement date range from the UTF-16 CSV header."""
         return extract_date_range(path)
+
+    def extract_account_id(self, path: Path) -> Optional[str]:
+        """The account identifier in the header (``Conta:``), or None."""
+        return extract_account_id(path)

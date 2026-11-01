@@ -55,6 +55,13 @@ class BankParser(Protocol):
         """Extract the statement date range from the file."""
         ...
 
+    # Optional: ``extract_account_id(path) -> str | None`` returns the
+    # account identifier from the statement's header lines (a regular
+    # expression next to the parser's header markers). ingest() compares
+    # its fingerprint with the one recorded for the account label; without
+    # the method, or when it returns None, the check is skipped. It is not
+    # part of the Protocol so that parsers without it still conform.
+
 
 # ---------------------------------------------------------------------------
 # Parser registry
