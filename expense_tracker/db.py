@@ -13,7 +13,7 @@ from typing import Iterable
 
 from .constants import IGNORED_CATEGORIES, NEUTRAL_CATEGORIES, NON_SPENDING_CATEGORIES
 from .parser import parse_utf16_csv
-from .parsers import parse_statement
+from .parsers import resolve_parser
 
 logger = logging.getLogger(__name__)
 
@@ -81,7 +81,9 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
             category_source   TEXT,
             notes             TEXT,
             source_file       TEXT NOT NULL,
-            imported_at       TEXT NOT NULL
+            imported_at       TEXT NOT NULL,
+            source_format     TEXT,
+            suspected_of      TEXT
         );
         """)
     conn.commit()
@@ -101,6 +103,12 @@ def migrate_schema(conn: sqlite3.Connection) -> None:
         ("notes", "TEXT"),
         # 'rule' | 'manual' | NULL (uncategorized); see categorize_transactions
         ("category_source", "TEXT"),
+        # The parser that read the row (bank_id, or 'pdf'); NULL before it
+        # was recorded, and such rows are never matched by _flag_suspected
+        ("source_format", "TEXT"),
+        # transaction_id of the row, imported from another format, this one
+        # looks like; NULL when not suspected or cleared by the user
+        ("suspected_of", "TEXT"),
     ]
     for col, typedef in migrations:
         if col not in existing:
@@ -156,8 +164,17 @@ def migrate_schema(conn: sqlite3.Connection) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _parse_file(path: Path, cards_path: Path, bank_id: str | None = None) -> list[dict]:
+PDF_FORMAT = "pdf"
+UTF16_FORMAT = "utf16"
+
+
+def _parse_file(
+    path: Path, cards_path: Path, bank_id: str | None = None
+) -> tuple[list[dict], str]:
     """Parse one statement with the parser its extension and bank_id call for.
+
+    Returns the rows and the format that read them: the parser's bank_id,
+    or ``pdf``.
 
     An error from that parser is the answer: it is not retried with the
     UTF-16 parser, which would hide an unknown or mistaken bank_id and report
@@ -167,12 +184,13 @@ def _parse_file(path: Path, cards_path: Path, bank_id: str | None = None) -> lis
     if suffix == ".pdf":
         from .pdf_parser import parse_pdf_statement
 
-        return parse_pdf_statement(path, cards_path=cards_path)
+        return parse_pdf_statement(path, cards_path=cards_path), PDF_FORMAT
     if bank_id is None and suffix != ".csv":
         # The registered parsers only claim .csv files: a UTF-16 export saved
         # under another extension still goes to the legacy UTF-16 parser.
-        return parse_utf16_csv(path, cards_path=cards_path)
-    return parse_statement(path, cards_path=cards_path, bank_id=bank_id)
+        return parse_utf16_csv(path, cards_path=cards_path), UTF16_FORMAT
+    parser = resolve_parser(path, bank_id)
+    return parser.parse(path, cards_path=cards_path), parser.bank_id
 
 
 @dataclass
@@ -189,6 +207,7 @@ class FileImport:
     inserted: int = 0
     period_from: str | None = None
     period_to: str | None = None
+    suspected: int = 0
     error: Exception | None = None
 
     @property
@@ -204,6 +223,8 @@ class FileImport:
         )
         if self.period_from:
             line += f", {self.period_from} to {self.period_to}"
+        if self.suspected:
+            line += f", {self.suspected} suspected duplicate(s)"
         return line
 
 
@@ -234,6 +255,10 @@ class IngestResult:
     @property
     def already_present(self) -> int:
         return sum(f.already_present for f in self.files)
+
+    @property
+    def suspected(self) -> int:
+        return sum(f.suspected for f in self.files)
 
 
 class IngestError(Exception):
@@ -314,14 +339,14 @@ def _insert_rows(
                 amount_signed, amount_abs, direction, tx_type, balance,
                 currency, account, card_last4, payment_type, who,
                 category, subcategory,
-                source_file, imported_at
+                source_file, imported_at, source_format
             ) VALUES (
                 :transaction_id, :date_posted, :date_value, :month, :day_of_week,
                 :description_raw, :description_clean,
                 :amount_signed, :amount_abs, :direction, :tx_type, :balance,
                 :currency, :account, :card_last4, :payment_type, :who,
                 NULL, NULL,
-                :source_file, :imported_at
+                :source_file, :imported_at, :source_format
             )
             """,
             r,
@@ -329,6 +354,52 @@ def _insert_rows(
         if cur.rowcount > 0:
             inserted.append(r)
     return inserted
+
+
+def _flag_suspected(conn: sqlite3.Connection, inserted: list[dict]) -> int:
+    """Flag each new row that looks like one stored from another format.
+
+    The CSV export and the PDF statement of a month print the same
+    transaction differently, so their ids never match. A new row with the
+    account, posting date and amount of a row read by another parser gets
+    that row's id (the earliest stored) in ``suspected_of``. It is kept and
+    counted as usual: the user decides. Returns how many were flagged.
+    """
+    flagged = 0
+    for r in inserted:
+        match = conn.execute(
+            """
+            SELECT transaction_id FROM transactions
+            WHERE account = ? AND date_posted = ?
+              AND ROUND(amount_signed, 2) = ROUND(?, 2)
+              AND source_format IS NOT NULL AND source_format <> ?
+            ORDER BY imported_at, rowid
+            LIMIT 1
+            """,
+            (r["account"], r["date_posted"], r["amount_signed"], r["source_format"]),
+        ).fetchone()
+        if match:
+            conn.execute(
+                "UPDATE transactions SET suspected_of = ? WHERE transaction_id = ?",
+                (match[0], r["transaction_id"]),
+            )
+            flagged += 1
+    return flagged
+
+
+def clear_suspected(conn: sqlite3.Connection, transaction_ids: Iterable[str]) -> int:
+    """Clear the suspected-duplicate flag of these rows; return how many
+    were flagged. The rows themselves are kept."""
+    cleared = 0
+    for tid in transaction_ids:
+        cur = conn.execute(
+            "UPDATE transactions SET suspected_of = NULL "
+            "WHERE transaction_id = ? AND suspected_of IS NOT NULL",
+            (tid,),
+        )
+        cleared += cur.rowcount
+    conn.commit()
+    return cleared
 
 
 def _record_import(
@@ -409,8 +480,11 @@ def ingest(
             # One transaction per file: a file that cannot be read must not
             # undo, or block, the import of the files around it.
             try:
-                rows = _parse_file(p, cards_path, bank_id)
+                rows, source_format = _parse_file(p, cards_path, bank_id)
+                for r in rows:
+                    r["source_format"] = source_format
                 inserted = _insert_rows(conn, rows, now)
+                suspected = _flag_suspected(conn, inserted)
                 _record_import(conn, rows, inserted, now)
                 conn.commit()
             except Exception as e:
@@ -421,6 +495,7 @@ def ingest(
                 continue
             outcome.parsed = len(rows)
             outcome.inserted = len(inserted)
+            outcome.suspected = suspected
             if rows:
                 dates = [r["date_posted"] for r in rows]
                 outcome.period_from, outcome.period_to = min(dates), max(dates)
@@ -439,6 +514,12 @@ def ingest(
             )
         else:
             print(f"Inserted {result.inserted} new transactions into {db_path}.")
+        if result.suspected:
+            print(
+                f"{prefix}{result.suspected} suspected duplicate(s) of rows from "
+                "another format: they are kept and counted; review them on the "
+                "GUI's Transactions page."
+            )
         if warnings.count:
             print(f"{warnings.count} warning(s) while parsing: see the lines above.")
         if result.failures:
@@ -636,7 +717,8 @@ def fetch_all_transactions(conn: sqlite3.Connection) -> list[dict]:
             description_raw, description_clean,
             amount_signed, amount_abs, direction, tx_type, balance,
             currency, account, card_last4, payment_type, who,
-            category, subcategory, notes, source_file, imported_at
+            category, subcategory, notes, source_file, imported_at,
+            source_format, suspected_of
         FROM transactions
         ORDER BY date_posted DESC, rowid DESC
         """).fetchall()

@@ -897,3 +897,69 @@ class TestImportCoverage:
         at = _open_page("Import")
 
         assert "No statements imported yet." in [c.value for c in at.caption]
+
+
+class TestSuspectedDuplicates:
+    """Rows that look like a transaction imported from another format are
+    shown, filtered and cleared on the Transactions page (issue #15)."""
+
+    @pytest.fixture
+    def both_formats(self, project, tmp_path, monkeypatch):
+        """January from the UTF-16 CSV, then from a PDF without balances."""
+        from expense_tracker.db import ingest
+
+        from .conftest import SAMPLE_ROWS, make_utf16_csv
+        from .test_pdf_parser import SAMPLE_PDF_ROWS, _make_pdf_statement
+
+        monkeypatch.setenv("EXPENSE_TRACKER_ACCOUNT_TYPE", "checkings_account")
+        ingest(project.db, [make_utf16_csv(tmp_path / "jan.csv", SAMPLE_ROWS)])
+        pdf = _make_pdf_statement(
+            tmp_path / "jan.pdf", [r[:5] + ("",) for r in SAMPLE_PDF_ROWS]
+        )
+        return pdf
+
+    def _flagged(self, db: Path) -> int:
+        conn = sqlite3.connect(str(db))
+        try:
+            return conn.execute(
+                "SELECT COUNT(*) FROM transactions WHERE suspected_of IS NOT NULL"
+            ).fetchone()[0]
+        finally:
+            conn.close()
+
+    def test_import_reports_the_count(self, project, both_formats):
+        at = _open_page("Import")
+        at.file_uploader[0].upload(
+            "jan.pdf", both_formats.read_bytes(), "application/pdf"
+        ).run()
+
+        at = _click(at, "Ingest uploaded files")
+
+        assert not at.exception
+        assert any(
+            "5 suspected duplicate(s) of rows from another format" in w.value
+            for w in at.warning
+        )
+        assert _transaction_count(project.db) == 10
+
+    def test_flag_is_shown_filtered_and_cleared(self, project, both_formats):
+        from expense_tracker.db import ingest
+
+        ingest(project.db, [both_formats])
+        at = _open_page("Transactions")
+
+        table = at.dataframe[0].value
+        assert int(table["suspected"].sum()) == 5
+        next(c for c in at.checkbox if c.label == "Suspected duplicates only").check()
+        at.run()
+        assert "Showing 5 of 10 transactions" in [c.value for c in at.caption]
+
+        picker = next(
+            m for m in at.multiselect if m.label == "Suspected duplicates to clear"
+        )
+        picker.set_value(picker.options[:2]).run()
+        at = _click(at, "Not a duplicate: clear the flag")
+
+        assert not at.exception
+        assert self._flagged(project.db) == 3
+        assert _transaction_count(project.db) == 10

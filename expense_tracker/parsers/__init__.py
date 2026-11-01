@@ -102,6 +102,32 @@ def detect_parser(path: Path) -> Optional[BankParser]:
     return None
 
 
+def resolve_parser(path: Path, bank_id: str | None = None) -> BankParser:
+    """The parser for ``path``: the one ``bank_id`` names, else the detected one.
+
+    Raises:
+        ValueError: If ``bank_id`` is unknown or no parser can handle the file.
+    """
+    if bank_id:
+        parser = get_parser_by_id(bank_id)
+        if parser is None:
+            available = ", ".join(p.bank_id for p in _registry)
+            raise ValueError(
+                f"Unknown bank '{bank_id}'. Available: {available or 'none'}"
+            )
+    else:
+        parser = detect_parser(path)
+
+    if parser is None:
+        available = ", ".join(p.bank_id for p in _registry)
+        raise ValueError(
+            f"Could not detect bank format for {path.name}. "
+            f"Available parsers: {available or 'none'}. "
+            f"Use --bank to specify explicitly."
+        )
+    return parser
+
+
 def parse_statement(
     path: Path,
     cards_path: Path = DEFAULT_CARDS,
@@ -121,25 +147,7 @@ def parse_statement(
     Raises:
         ValueError: If no parser can handle the file.
     """
-    if bank_id:
-        parser = get_parser_by_id(bank_id)
-        if parser is None:
-            available = ", ".join(p.bank_id for p in _registry)
-            raise ValueError(
-                f"Unknown bank '{bank_id}'. Available: {available or 'none'}"
-            )
-    else:
-        parser = detect_parser(path)
-
-    if parser is None:
-        available = ", ".join(p.bank_id for p in _registry)
-        raise ValueError(
-            f"Could not detect bank format for {path.name}. "
-            f"Available parsers: {available or 'none'}. "
-            f"Use --bank to specify explicitly."
-        )
-
-    return parser.parse(path, cards_path=cards_path)
+    return resolve_parser(path, bank_id).parse(path, cards_path=cards_path)
 
 
 # ---------------------------------------------------------------------------

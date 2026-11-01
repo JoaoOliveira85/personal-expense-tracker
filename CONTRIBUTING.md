@@ -66,7 +66,8 @@ Defines the core framework: the `BankParser` protocol, the parser registry, and 
 - `register_parser(parser)` — Register a `BankParser` instance in the global registry.
 - `get_registered_parsers()` — Returns all registered parsers as a dict of `{bank_id: parser}`.
 - `detect_parser(path)` — Auto-detects which parser can handle a file by calling `can_parse()` on each registered parser.
-- `parse_statement(path, cards_path, bank_id)` — Unified entry point. If `bank_id` is given, uses that parser; otherwise auto-detects. Raises `ValueError` if no parser matches.
+- `resolve_parser(path, bank_id)` — The parser `bank_id` names, or the detected one; raises `ValueError` for an unknown `bank_id` or when no parser matches. `ingest()` uses it to know which format read a file.
+- `parse_statement(path, cards_path, bank_id)` — Unified entry point: `resolve_parser(path, bank_id).parse(path, cards_path)`.
 
 #### `expense_tracker/parsers/utf16_csv.py`
 
@@ -110,10 +111,11 @@ SQLite storage layer. Handles schema creation, migrations, ingestion, and querie
 - `ensure_schema(conn)` — Creates the `transactions` table if it doesn't exist.
 - `migrate_schema(conn)` — Adds columns that may be missing from an older schema (for forward compatibility), the `ods_baseline` table used by ODS sync-back, and the `imports` table. When it creates `imports` it seeds it from the transactions already stored: one pseudo-import per `source_file` and account, spanning its earliest to latest `date_posted`.
 - `ingest(db_path, paths, cards_path, bank_id)` — Parses files using the multi-bank parser framework (auto-detection or explicit `bank_id`) and inserts rows with `INSERT OR IGNORE` for deduplication. PDFs go to the PDF parser; a file that is neither `.csv` nor `.pdf` goes to the legacy UTF-16 parser when no `bank_id` is given. Each file is imported in its own transaction: a file that fails is reported and skipped, and `IngestError` is raised once the others are in (its `result` holds the run's outcome). Returns an `IngestResult`: one `FileImport` per file, in order (`parsed`, `inserted`, `already_present`, `period_from`/`period_to` = earliest/latest `date_posted`, `error`), with run-wide totals and the parser `warnings` count; `FileImport.summary()` is the per-file line printed in the summary. With `dry_run=True` the same run happens against an in-memory copy of the ledger (`sqlite3` `backup()` from a read-only connection), so the counts are exact and the file, schema migrations included, is untouched; a missing ledger is not created.
+- Suspected duplicates — `ingest()` stores each row's `source_format` (the parser's `bank_id`, or `pdf`). The CSV and the PDF of one month print the same transaction differently, so their ids never match: `_flag_suspected()` gives each newly inserted row with the `account`, `date_posted` and `amount_signed` of a row stored from another (non-NULL) format that row's id (the earliest stored) in `suspected_of`. Flagged rows are kept and counted in every figure; `FileImport.suspected` / `IngestResult.suspected` count them and the summary prints them. `clear_suspected(conn, ids)` sets `suspected_of` back to `NULL` (the GUI's Transactions page). Rows from before `source_format` existed have it `NULL` and are never matched.
 - `imports` table — one row per account per file import that inserted at least one row (`source_file`, `account`, `period_from`/`period_to` = earliest/latest `date_posted` of the file's parsed rows, `imported_at`, `rows_parsed`, `rows_inserted`), written by `ingest()` in the file's own transaction, so a failed import records nothing and a re-import that adds nothing records nothing.
 - `coverage(conn)` — Per account (sorted), an `AccountCoverage`: `covered` as merged runs of consecutive `YYYY-MM` months (`ranges()` gives them as text) and the `missing` months between the first and last run. Each import covers every month from `period_from` to `period_to`; a month covered only in part is not flagged. Used by the `coverage` command and the GUI's Import page.
 - `reclean_descriptions(db_path)` — Re-runs `clean_description()` on all rows and updates only those that changed.
-- `fetch_all_transactions(conn)` — Returns all transactions as a list of dicts, sorted by date descending. Adds a computed `status` field.
+- `fetch_all_transactions(conn)` — Returns all transactions as a list of dicts, sorted by date descending, `source_format` and `suspected_of` included. Adds a computed `status` field.
 
 **Schema migration approach:** Simple `ALTER TABLE ADD COLUMN` for each missing column. No migration versioning — the code checks which columns exist and adds any that are missing. A new table is created when `sqlite_master` does not list it, and filled from the existing rows at that moment when it needs history (`imports`). This is sufficient for a personal project but would need a proper migration system at scale.
 
@@ -280,7 +282,7 @@ A Streamlit-based web interface that provides graphical access to the expense tr
 
 **Pages:**
 - **Dashboard** — Overview charts: spending by category (pie), monthly trend (bar), key figures (total income/expenses/net, uncategorized count).
-- **Transactions** — Full transaction table with filters for date range, category, subcategory, payment type, and amount range. Supports search by description.
+- **Transactions** — Full transaction table with filters for date range, category, subcategory, payment type, and amount range. Supports search by description. A Suspected duplicate column and filter show rows `ingest()` flagged (see `db.py`); the Suspected Duplicates section clears the flag of the rows picked.
 - **Categorize** — Bulk categorization workflow: groups uncategorized transactions by merchant, lets you assign a category to all at once, and optionally creates a rule for future imports.
 - **Rules** — View all categorization rules in a table, add new rules, or remove existing ones; the Categories section lists, adds and removes categories. Every category choice (here and on Categorize) is a select box over the category list ending in **Add category...**.
 - **Import** — File uploader for CSV/PDF files. Uploads are saved to `raw/` and ingested into the database. The Statement Coverage table shows `coverage()` per account.
