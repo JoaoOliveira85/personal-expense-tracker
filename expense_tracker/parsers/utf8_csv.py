@@ -42,6 +42,10 @@ UTF8_HEADERS = [
 
 UTF8_HEADER_KEYWORDS = {"data mov", "débito", "crédito", "saldo"}
 
+# The account the statement belongs to, in a header line before the table.
+# Only compared as a fingerprint (see db.py): never stored or printed.
+ACCOUNT_ID_RE = re.compile(r"^Conta\s*:\s*;?\s*([^;\s][^;]*?)\s*;*$")
+
 ROW_RE = re.compile(r"^\d{2}[-/]\d{2}[-/]\d{4};")
 DATE_RANGE_RE = re.compile(
     r"(?:Período|Periodo|De)\s*:?\s*(\d{2}[-/]\d{2}[-/]\d{4})\s*(?:a|até|-)\s*(\d{2}[-/]\d{2}[-/]\d{4})"
@@ -192,6 +196,20 @@ class Utf8CsvParser:
             raise ValueError(f"Could not find date range in {path.name}")
         dates = [datetime.fromisoformat(r["date_posted"]).date() for r in rows]
         return min(dates), max(dates)
+
+    def extract_account_id(self, path: Path) -> Optional[str]:
+        """The account identifier in the header (``Conta:``), or None.
+
+        Only the lines before the table header are read. The result must
+        never be logged, printed or stored (see db.py).
+        """
+        for ln in _decode_utf8(path):
+            if _is_utf8_header(ln):
+                break
+            m = ACCOUNT_ID_RE.match(ln)
+            if m:
+                return m.group(1)
+        return None
 
     def _map_columns(self, header_parts: list[str]) -> dict[str, int]:
         """Map column names to indices."""

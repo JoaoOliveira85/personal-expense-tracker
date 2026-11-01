@@ -14,6 +14,7 @@ from expense_tracker.pdf_parser import (
     _is_header_row,
     _parse_amount,
     _parse_date,
+    extract_pdf_account_id,
     extract_pdf_date_range,
     parse_pdf_statement,
 )
@@ -1130,3 +1131,28 @@ class TestTextStatementWithoutPeriod:
 
         assert [r["date_posted"] for r in rows] == ["2025-12-30"]
         assert _text_warnings(caplog) == []
+
+
+class TestPdfAccountId:
+    """The account identifier of a PDF statement (issue #12)."""
+
+    def test_table_statement(self, tmp_path):
+        path = _make_pdf_statement(tmp_path / "s.pdf", SAMPLE_PDF_ROWS)
+        assert extract_pdf_account_id(path) == "123456789"
+
+    def test_text_statement_without_the_line(self, tmp_path):
+        path = _make_text_pdf(
+            tmp_path / "s.pdf",
+            [
+                "EXTRATO DE 2026/02/02 A 2026/02/27",
+                "2.02 2.02 COMPRA KIOSK 3.00 1 529.13",
+            ],
+        )
+        assert extract_pdf_account_id(path) is None
+
+    def test_spaced_identifier_is_read_whole(self, tmp_path):
+        path = _make_text_pdf(
+            tmp_path / "s.pdf",
+            ["EXTRATO DE 2026/02/02 A 2026/02/27", "Conta: 0002 0123 4567"],
+        )
+        assert extract_pdf_account_id(path) == "0002 0123 4567"

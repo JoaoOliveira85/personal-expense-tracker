@@ -819,3 +819,80 @@ class TestCoverageCommand:
 
         assert "No statements imported yet." in capsys.readouterr().out
         assert not db.exists()
+
+
+class TestAccountMismatch:
+    """A statement of another account stops ingest and auto unless --force
+    (issue #12)."""
+
+    @pytest.fixture(autouse=True)
+    def _account(self, monkeypatch):
+        monkeypatch.setenv("EXPENSE_TRACKER_ACCOUNT_TYPE", "checkings_account")
+
+    def _statement(self, path: Path, identifier: str, rows) -> Path:
+        make_utf16_csv(path, rows)
+        text = path.read_bytes().decode("utf-16-le")
+        text = text.replace("Conta:;123456789", f"Conta:;{identifier}")
+        path.write_bytes(text.encode("utf-16-le"))
+        return path
+
+    def _setup(self, workspace: Path) -> Path:
+        raw = workspace / "raw"
+        first = self._statement(raw / "a.csv", "111 222 333", FIRST_HALF)
+        ingest(workspace / "data" / "ledger.sqlite", [first], cards_path=raw / "x")
+        return self._statement(raw / "b.csv", "999 888 777", SECOND_HALF)
+
+    def test_ingest_refuses_then_force_imports(self, workspace: Path, capsys):
+        other = self._setup(workspace)
+        args = _ingest_args(workspace, [other])
+        args.no_rename = True
+
+        with pytest.raises(SystemExit) as exit_info:
+            cli.cmd_ingest(args)
+        out = capsys.readouterr().out
+        assert exit_info.value.code == 1
+        assert "b.csv" in out and "'checkings_account'" in out
+        assert len(_dates(args.db)) == 2
+
+        args.force = True
+        cli.cmd_ingest(args)
+        out += capsys.readouterr().out
+        assert len(_dates(args.db)) == 4
+        for identifier in ("111 222 333", "999 888 777"):
+            assert identifier not in out
+            assert identifier.replace(" ", "") not in out
+
+    def test_ingest_dry_run_refuses_too(self, workspace: Path, capsys):
+        other = self._setup(workspace)
+        args = _ingest_args(workspace, [other])
+        args.dry_run = True
+
+        with pytest.raises(SystemExit) as exit_info:
+            cli.cmd_ingest(args)
+
+        assert exit_info.value.code == 1
+        assert "another account" in capsys.readouterr().out
+
+    def test_auto_refuses_then_force_imports(self, workspace: Path, capsys):
+        self._setup(workspace)
+        args = _auto_args(workspace)
+
+        with pytest.raises(SystemExit) as exit_info:
+            cli.cmd_auto(args)
+        assert exit_info.value.code == 1
+        assert "another account" in capsys.readouterr().out
+        assert len(_dates(args.db)) == 2
+
+        args.force = True
+        cli.cmd_auto(args)
+        assert len(_dates(args.db)) == 4
+
+    def test_force_flag_is_parsed(self, monkeypatch):
+        seen = {}
+        monkeypatch.setattr(cli, "cmd_ingest", lambda a: seen.update(i=a.force))
+        monkeypatch.setattr(cli, "cmd_auto", lambda a: seen.update(a=a.force))
+        monkeypatch.setattr("sys.argv", ["x", "ingest", "--force", "f.csv"])
+        cli.main()
+        monkeypatch.setattr("sys.argv", ["x", "auto", "--force"])
+        cli.main()
+        assert seen == {"i": True, "a": True}

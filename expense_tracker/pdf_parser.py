@@ -120,6 +120,10 @@ TABLE_HEADERS = {
     "saldo",
 }
 
+# The account the statement belongs to: a "Conta:" line of the page text.
+# Only compared as a fingerprint (see db.py): never stored or printed.
+ACCOUNT_ID_RE = re.compile(r"^Conta\s*:\s*(\S.*?)\s*$", re.MULTILINE)
+
 
 # ---------------------------------------------------------------------------
 # Internal helpers
@@ -827,6 +831,25 @@ def _parse_table_row(
         "who": who,
         "source_file": source_file,
     }
+
+
+def extract_pdf_account_id(path: Path) -> Optional[str]:
+    """The account identifier printed on a PDF statement, or None.
+
+    The result must never be logged, printed or stored (see db.py).
+    """
+    try:
+        import pdfplumber
+    except ImportError:
+        raise ImportError(
+            "pdfplumber is required for PDF parsing. "
+            "Install it with: pip install pdfplumber"
+        )
+
+    with pdfplumber.open(path) as pdf:
+        full_text = "\n".join(page.extract_text() or "" for page in pdf.pages)
+    m = ACCOUNT_ID_RE.search(full_text)
+    return m.group(1) if m else None
 
 
 def extract_pdf_date_range(path: Path) -> tuple[date, date]:

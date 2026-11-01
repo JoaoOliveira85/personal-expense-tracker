@@ -254,7 +254,7 @@ class _ParserWarnings(logging.Handler):
         self.messages.append(record.getMessage())
 
 
-def _ingest_files(paths: list[Path]) -> dict:
+def _ingest_files(paths: list[Path], force: bool = False) -> dict:
     """Run ingest() and return what it only prints to the server console.
 
     ingest() imports the files it can, reports rows it had to skip and
@@ -267,7 +267,7 @@ def _ingest_files(paths: list[Path]) -> dict:
     error = ""
     suspected = 0
     try:
-        suspected = ingest(DEFAULT_DB, paths).suspected
+        suspected = ingest(DEFAULT_DB, paths, force=force).suspected
     except IngestError as e:
         error = str(e)
         if e.result is not None:
@@ -803,10 +803,16 @@ elif page == "Import":
             saved_files.append(dest)
             st.caption(f"Saved: {dest.name}")
 
+        force = st.checkbox(
+            "Import even if the account does not match",
+            help="A statement that prints its account number is refused when "
+            "another account's statements are already imported under the same "
+            "account label. Tick this to import it anyway.",
+        )
         if st.button("Ingest uploaded files"):
             rules = _load_rules()
             with st.spinner("Importing..."):
-                import_result = _ingest_files(saved_files)
+                import_result = _ingest_files(saved_files, force=force)
                 # Save unsynced ODS edits before the report is regenerated
                 import_result["sync_warnings"] = _sync_ods()[1]
                 conn = _get_connection(db_path)

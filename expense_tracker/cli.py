@@ -237,6 +237,7 @@ def cmd_auto(args):
     _check_setup()
     _set_verbosity(args)
     dry = getattr(args, "dry_run", False)
+    force = getattr(args, "force", False)
     # Before anything changes: an unreadable rules file stops the command
     rules = load_rules(args.rules)
 
@@ -267,7 +268,7 @@ def cmd_auto(args):
                 "(listed under their current names):"
             )
             try:
-                ingest(args.db, new_files, dry_run=True)
+                ingest(args.db, new_files, dry_run=True, force=force)
             except IngestError as e:
                 ingest_error = e
                 print(f"Error: {e}")
@@ -292,7 +293,7 @@ def cmd_auto(args):
             f"Found {len(new_files)} new file(s): {', '.join(f.name for f in new_files)}"
         )
         try:
-            ingest(args.db, new_files)
+            ingest(args.db, new_files, force=force)
         except IngestError as e:
             # The other files are in: still update the report, then fail
             ingest_error = e
@@ -350,6 +351,7 @@ def cmd_ingest(args):
     """Handle the 'ingest' subcommand."""
     _check_setup()
     dry = getattr(args, "dry_run", False)
+    force = getattr(args, "force", False)
     files = list(args.files)
 
     # PDFs never reach the parser registry, so a mistyped --bank would be
@@ -368,7 +370,7 @@ def cmd_ingest(args):
                 "(listed under their current names)."
             )
         try:
-            ingest(args.db, files, bank_id=bank_id, dry_run=True)
+            ingest(args.db, files, bank_id=bank_id, dry_run=True, force=force)
         except IngestError as e:
             print(f"Error: {e}")
             sys.exit(1)
@@ -381,7 +383,7 @@ def cmd_ingest(args):
 
     if files:
         try:
-            ingest(args.db, files, bank_id=bank_id)
+            ingest(args.db, files, bank_id=bank_id, force=force)
         except IngestError as e:
             print(f"Error: {e}")
             sys.exit(1)
@@ -1221,6 +1223,14 @@ def main() -> None:
             "are new or already imported, without changing anything"
         ),
     )
+    ap_auto.add_argument(
+        "--force",
+        action="store_true",
+        help=(
+            "Import a statement even if the account number it prints differs "
+            "from the one recorded for the account label"
+        ),
+    )
     ap_auto.set_defaults(func=cmd_auto)
 
     # -- ingest --
@@ -1251,6 +1261,14 @@ def main() -> None:
         help=(
             "Parse the files and show, per file, how many transactions are "
             "new or already imported, without renaming or writing anything"
+        ),
+    )
+    ap_ingest.add_argument(
+        "--force",
+        action="store_true",
+        help=(
+            "Import a statement even if the account number it prints differs "
+            "from the one recorded for the account label"
         ),
     )
     ap_ingest.add_argument(

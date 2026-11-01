@@ -4,15 +4,17 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import re
+import secrets
 import sqlite3
 from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, NamedTuple
 
 from .constants import IGNORED_CATEGORIES, NEUTRAL_CATEGORIES, NON_SPENDING_CATEGORIES
-from .parser import parse_utf16_csv
+from .parser import extract_account_id, parse_utf16_csv
 from .parsers import resolve_parser
 
 logger = logging.getLogger(__name__)
@@ -156,6 +158,32 @@ def migrate_schema(conn: sqlite3.Connection) -> None:
             GROUP BY source_file, account
             ORDER BY MIN(imported_at), source_file, account
             """)
+
+    # The salt of the account fingerprints (see _account_fingerprint): one
+    # random value per installation, created with the table.
+    has_settings = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'settings'"
+    ).fetchone()
+    if not has_settings:
+        conn.execute("""
+            CREATE TABLE settings (
+                key   TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            )
+            """)
+        conn.execute(
+            "INSERT INTO settings (key, value) VALUES ('fingerprint_salt', ?)",
+            (secrets.token_hex(32),),
+        )
+    # Per account label, the fingerprint of the account identifier of the
+    # first statement imported into it that printed one.
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS account_fingerprints (
+            account     TEXT PRIMARY KEY,
+            fingerprint TEXT NOT NULL,
+            recorded_at TEXT NOT NULL
+        )
+        """)
     conn.commit()
 
 
@@ -168,13 +196,21 @@ PDF_FORMAT = "pdf"
 UTF16_FORMAT = "utf16"
 
 
+class _ParsedFile(NamedTuple):
+    rows: list[dict]
+    # The parser's bank_id, or 'pdf'
+    source_format: str
+    # From the statement's header; never stored, printed or logged
+    account_id: str | None
+
+
 def _parse_file(
     path: Path, cards_path: Path, bank_id: str | None = None
-) -> tuple[list[dict], str]:
+) -> _ParsedFile:
     """Parse one statement with the parser its extension and bank_id call for.
 
-    Returns the rows and the format that read them: the parser's bank_id,
-    or ``pdf``.
+    Returns the rows, the format that read them (the parser's bank_id, or
+    ``pdf``) and the account identifier the statement prints, if any.
 
     An error from that parser is the answer: it is not retried with the
     UTF-16 parser, which would hide an unknown or mistaken bank_id and report
@@ -182,15 +218,19 @@ def _parse_file(
     """
     suffix = path.suffix.lower()
     if suffix == ".pdf":
-        from .pdf_parser import parse_pdf_statement
+        from .pdf_parser import extract_pdf_account_id, parse_pdf_statement
 
-        return parse_pdf_statement(path, cards_path=cards_path), PDF_FORMAT
+        rows = parse_pdf_statement(path, cards_path=cards_path)
+        return _ParsedFile(rows, PDF_FORMAT, extract_pdf_account_id(path))
     if bank_id is None and suffix != ".csv":
         # The registered parsers only claim .csv files: a UTF-16 export saved
         # under another extension still goes to the legacy UTF-16 parser.
-        return parse_utf16_csv(path, cards_path=cards_path), UTF16_FORMAT
+        rows = parse_utf16_csv(path, cards_path=cards_path)
+        return _ParsedFile(rows, UTF16_FORMAT, extract_account_id(path))
     parser = resolve_parser(path, bank_id)
-    return parser.parse(path, cards_path=cards_path), parser.bank_id
+    rows = parser.parse(path, cards_path=cards_path)
+    extract = getattr(parser, "extract_account_id", None)
+    return _ParsedFile(rows, parser.bank_id, extract(path) if extract else None)
 
 
 @dataclass
@@ -280,6 +320,68 @@ class IngestError(Exception):
         super().__init__(
             f"{len(failures)} of {total} file(s) could not be imported ({details})"
         )
+
+
+class AccountMismatchError(ValueError):
+    """A statement's account identifier differs from the one recorded for
+    the account label it is being imported into. The message names the
+    label and the file, never the identifier."""
+
+    def __init__(self, account: str, file_name: str) -> None:
+        self.account = account
+        super().__init__(
+            f"the statement is for another account than the one imported as "
+            f"'{account}' (its account number differs). Check the account "
+            f"label (EXPENSE_TRACKER_ACCOUNT_TYPE), or import {file_name} with "
+            "--force (in the GUI: 'Import even if the account does not match') "
+            "to import it anyway"
+        )
+
+
+def _account_fingerprint(conn: sqlite3.Connection, identifier: str) -> str:
+    """SHA-256 of the installation's salt and the identifier, spaces removed
+    and upper-cased: the only form in which an identifier is kept."""
+    (salt,) = conn.execute(
+        "SELECT value FROM settings WHERE key = 'fingerprint_salt'"
+    ).fetchone()
+    normalized = re.sub(r"\s+", "", identifier).upper()
+    return hashlib.sha256(f"{salt}:{normalized}".encode("utf-8")).hexdigest()
+
+
+def _check_account(
+    conn: sqlite3.Connection,
+    rows: list[dict],
+    identifier: str,
+    path: Path,
+    force: bool,
+    now: str,
+) -> None:
+    """Compare the statement's account with the one each label holds.
+
+    The first statement with an identifier imported into a label records
+    its fingerprint; later ones must match it. A mismatch raises
+    AccountMismatchError unless ``force``, which imports anyway and keeps
+    the recorded fingerprint.
+    """
+    fingerprint = _account_fingerprint(conn, identifier)
+    for account in sorted({r["account"] for r in rows}):
+        stored = conn.execute(
+            "SELECT fingerprint FROM account_fingerprints WHERE account = ?",
+            (account,),
+        ).fetchone()
+        if stored is None:
+            conn.execute(
+                "INSERT INTO account_fingerprints (account, fingerprint, "
+                "recorded_at) VALUES (?, ?, ?)",
+                (account, fingerprint, now),
+            )
+        elif stored[0] != fingerprint:
+            if not force:
+                raise AccountMismatchError(account, path.name)
+            print(
+                f"  Note: {path.name} is for another account than '{account}'; "
+                "imported anyway (--force)."
+            )
 
 
 def _describe(error: Exception) -> str:
@@ -443,6 +545,7 @@ def ingest(
     cards_path: Path | None = None,
     bank_id: str | None = None,
     dry_run: bool = False,
+    force: bool = False,
 ) -> IngestResult:
     """Parse bank statement files (CSV or PDF) and insert into SQLite with deduplication.
 
@@ -455,6 +558,10 @@ def ingest(
     With ``dry_run`` the same run happens against an in-memory copy of the
     ledger: the counts and errors are those a real import would give, and
     the ledger file is not touched.
+
+    A statement that prints its account identifier is checked against the
+    account label it is imported into (see _check_account); ``force``
+    imports one that does not match.
     """
     from .constants import DEFAULT_CARDS
 
@@ -480,7 +587,9 @@ def ingest(
             # One transaction per file: a file that cannot be read must not
             # undo, or block, the import of the files around it.
             try:
-                rows, source_format = _parse_file(p, cards_path, bank_id)
+                rows, source_format, account_id = _parse_file(p, cards_path, bank_id)
+                if account_id is not None:
+                    _check_account(conn, rows, account_id, p, force, now)
                 for r in rows:
                     r["source_format"] = source_format
                 inserted = _insert_rows(conn, rows, now)

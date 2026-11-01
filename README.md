@@ -172,6 +172,8 @@ What it does:
 
 Imported rows are labelled `checkings_account` in the `account` column. Set `EXPENSE_TRACKER_ACCOUNT_TYPE` (for example to `savings_account`) to use another label; the Docker and cron setups need it in their environment too.
 
+When a statement prints its account number (a `Conta:` line in its header), the first import under a label remembers that account, and a later statement of another account is refused with an error naming the label and the file, so a savings statement can't end up under `checkings_account` by mistake. Set the right label and import it again, or pass `--force` to `ingest`/`auto` (in the GUI: **Import even if the account does not match**) to import it anyway; the remembered account stays the same. The account number itself is never stored or printed: the database keeps only a fingerprint of it (a salted SHA-256 hash). Statements without such a line are not checked.
+
 ---
 
 ## Python CLI Reference
@@ -196,13 +198,14 @@ python bank_ingest.py auto --format ods   # write the ODS report (or: both)
 python bank_ingest.py auto --raw path/to/csvs
 python bank_ingest.py auto --no-backup    # skip automatic monthly backup
 python bank_ingest.py auto --dry-run      # show what would happen, change nothing
+python bank_ingest.py auto --force        # import statements of another account too
 ```
 
 The report is written as `expense-report.xlsx` unless you pass `--format ods` (writes `expense-report.ods`, the report described in [The ODS Report](#the-ods-report-expense-reportods)) or `--format both`. Whatever the format, edits made in an existing `expense-report.ods` are synced back to the database first; the ODS itself is only regenerated with `ods` or `both`.
 
 The `auto` command automatically creates a monthly backup (e.g. `backups/backup-2026-01.zip`) for the previous month if one doesn't already exist. Use `--no-backup` to skip this.
 
-Use `--dry-run` to preview an import without making any changes: the new files are parsed exactly as a real run would parse them, and each is listed with its transaction count, how many are new and how many are already imported, and its first and last date. A file that would fail is reported with the same error (and the command exits 1). Nothing is renamed, written or backed up.
+Use `--dry-run` to preview an import without making any changes: the new files are parsed exactly as a real run would parse them, and each is listed with its transaction count, how many are new and how many are already imported, and its first and last date. A file that would fail, a statement of another account included, is reported with the same error (and the command exits 1). Nothing is renamed, written or backed up.
 
 ### `ingest`
 
@@ -222,6 +225,7 @@ python bank_ingest.py ingest --dry-run raw/EXPORT_0_1022026.csv  # preview only
 | `--bank` | *(auto-detect)* | Bank format to use: `utf16`, `utf8`, etc. Run `banks` to see all options. |
 | `--no-rename` | — | Skip auto-renaming files based on date range |
 | `--dry-run` | — | Parse the files and show per file how many transactions are new or already imported; rename and write nothing |
+| `--force` | — | Import a statement even if its account number differs from the one remembered for the account label (`EXPENSE_TRACKER_ACCOUNT_TYPE`) |
 
 The `ingest` command auto-renames files based on the date range inside the CSV or PDF (e.g. `EXPORT_0_1022026.csv` → `2026-01.csv`). Use `--no-rename` to skip this. Only UTF-16 CSV statements are renamed: a CSV from another bank keeps its name. When a CSV with a wider date range takes the name of an existing `YYYY-MM.csv`, the file it replaces is kept beside it as `YYYY-MM.csv.replaced`.
 
@@ -444,7 +448,7 @@ The GUI opens in your browser and provides seven pages:
 | **Transactions** | Filterable/searchable transaction table with date range, category, and amount filters; the Suspected Duplicates section lists rows that look like a transaction imported from another format and clears their flag (see [`ingest`](#ingest)) |
 | **Categorize** | Bulk categorization by merchant — select a category for all transactions from the same merchant, optionally create a rule. Categories are picked from the [category list](#categories); **Add category...** adds a new one on the spot |
 | **Rules** | View, add, and remove categorization rules, and manage the category list |
-| **Import** | Upload CSV/PDF files directly through the browser and ingest them; the Statement Coverage table shows which months of each account are imported and which are missing (see [`coverage`](#coverage)) |
+| **Import** | Upload CSV/PDF files directly through the browser and ingest them; the Statement Coverage table shows which months of each account are imported and which are missing (see [`coverage`](#coverage)). A statement of another account than the one its label holds is refused unless **Import even if the account does not match** is ticked |
 | **Tools** | Email configuration, fetch from email, sync ODS, download reports (ODS & PDF), create backups, export CSV, import starter rules |
 | **Manual** | Full project documentation (User Guide, Deployment Guide, Developer Guide) with section search |
 
