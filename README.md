@@ -7,7 +7,7 @@ A personal expense tracking pipeline for Portuguese bank statements. It reads st
 I built this to track my own finances, and as a hands-on way to learn AI-assisted development and how coding agents work. The code was written by AI agents under my direction; I'm sharing it because it may be useful to others. Commits made with an agent carry a `Co-Authored-By` trailer naming the model.
 
 - **Tools** — started in [Cursor](https://cursor.com) with Claude 4.6 Opus; now [Claude Code](https://claude.com/claude-code), using models from Claude Sonnet (rule writing and matching) up to Claude Fable 5.1 (code review).
-- **Guard rails** — 644 tests on synthetic fixtures, CI running the tests plus `black` and `ruff` on every push, and small single-purpose commits.
+- **Guard rails** — 941 tests on synthetic fixtures, CI running the tests plus `black` and `ruff` on every push, and small single-purpose commits.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for architecture details and developer documentation.
 
@@ -84,7 +84,7 @@ personal-expense-tracker/
 ├── backups/                # Backup archives (auto + manual)
 ├── cron/                   # Automation scripts for Docker/server deployment
 │   └── daily-sync.sh       # Scheduled fetch + ingest + report generation
-├── tests/                  # Test suite (644 tests on synthetic fixtures)
+├── tests/                  # Test suite (941 tests on synthetic fixtures)
 │   └── conftest.py         # Shared fixtures + synthetic CSV builder
 ├── .github/workflows/ci.yml # CI: tests on Python 3.10 and 3.12, black, ruff
 ├── install.sh              # First-time setup script (supports --branch)
@@ -932,7 +932,7 @@ pip install -r requirements-dev.txt   # once
 python -m pytest tests/ -v
 ```
 
-644 tests covering the CSV parser, PDF parser, multi-bank parsers, database, rules engine, starter rules, pattern detection, email fetch, ODS and xlsx reports, ODS sync-back, advisor, CLI, cron script, GUI, export, backup, PDF report, and end-to-end workflows. They use synthetic fixtures (no real bank data needed) and run in well under a minute. CI runs them on Python 3.10 and 3.12, plus `black --check` and `ruff check`, on every push.
+941 tests covering the CSV parser, PDF parser, multi-bank parsers, database, rules engine, starter rules, pattern detection, email fetch, ODS and xlsx reports, ODS sync-back, advisor, CLI, cron script, GUI, export, backup, PDF report, and end-to-end workflows. They use synthetic fixtures (no real bank data needed) and run in well under a minute. CI runs them on Python 3.10 and 3.12, plus `black --check` and `ruff check`, on every push.
 
 ---
 
