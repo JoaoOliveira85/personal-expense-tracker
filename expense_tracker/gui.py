@@ -49,6 +49,7 @@ from expense_tracker.constants import (
 )
 from expense_tracker.db import (
     IngestError,
+    clear_suspected,
     coverage,
     ensure_schema,
     fetch_all_transactions,
@@ -264,13 +265,21 @@ def _ingest_files(paths: list[Path]) -> dict:
     package_logger = logging.getLogger("expense_tracker")
     package_logger.addHandler(collected)
     error = ""
+    suspected = 0
     try:
-        ingest(DEFAULT_DB, paths)
+        suspected = ingest(DEFAULT_DB, paths).suspected
     except IngestError as e:
         error = str(e)
+        if e.result is not None:
+            suspected = e.result.suspected
     finally:
         package_logger.removeHandler(collected)
-    return {"files": len(paths), "error": error, "warnings": collected.messages}
+    return {
+        "files": len(paths),
+        "error": error,
+        "warnings": collected.messages,
+        "suspected": suspected,
+    }
 
 
 def _sync_ods() -> tuple[int, list[str]]:
@@ -305,6 +314,13 @@ def _show_import_result(result: dict) -> None:
         )
         for message in result["warnings"]:
             st.text(message)
+    if result.get("suspected"):
+        st.warning(
+            f"{result['suspected']} suspected duplicate(s) of rows from another "
+            "format: the same transactions may have been imported from a CSV "
+            "and a PDF. They are kept and counted; review them on the "
+            "Transactions page."
+        )
     if not result["error"] and not result["warnings"]:
         st.success(f"Imported {result['files']} file(s) and regenerated report.")
     _show_sync_warnings(result.get("sync_warnings", []))
@@ -429,6 +445,8 @@ elif page == "Transactions":
         st.info("No transactions found.")
         st.stop()
 
+    df["suspected"] = df["suspected_of"].notna()
+
     # Filters
     with st.expander("Filters", expanded=True):
         col1, col2, col3 = st.columns(3)
@@ -448,6 +466,12 @@ elif page == "Transactions":
             categories = ["All", "Uncategorized"] + categories
             category = st.selectbox("Category", categories)
 
+        suspected_only = st.checkbox(
+            "Suspected duplicates only",
+            help="Rows that look like a transaction imported from another "
+            "format (the CSV and the PDF of the same month).",
+        )
+
     # Apply filters
     filtered = df.copy()
     if selected_months:
@@ -460,6 +484,8 @@ elif page == "Transactions":
         filtered = filtered[filtered["category"].isna() | (filtered["category"] == "")]
     elif category != "All":
         filtered = filtered[filtered["category"] == category]
+    if suspected_only:
+        filtered = filtered[filtered["suspected"]]
 
     # Search
     search = st.text_input("Search descriptions", "")
@@ -481,6 +507,7 @@ elif page == "Transactions":
         "subcategory",
         "payment_type",
         "who",
+        "suspected",
     ]
     available = [c for c in display_cols if c in filtered.columns]
     st.dataframe(
@@ -496,8 +523,36 @@ elif page == "Transactions":
             "subcategory": "Subcategory",
             "payment_type": "Payment",
             "who": "Who",
+            "suspected": st.column_config.CheckboxColumn("Suspected duplicate"),
         },
     )
+
+    suspected_rows = df[df["suspected"]]
+    if not suspected_rows.empty:
+        st.subheader("Suspected Duplicates")
+        st.caption(
+            f"{len(suspected_rows)} row(s) look like a transaction imported from "
+            "another format: same account, date and amount. They are kept and "
+            "counted: clear the flag of those that are separate transactions, "
+            "and give a real duplicate the Ignored category to leave it out of "
+            "the figures."
+        )
+        labels = {
+            f"{r.date_posted:%Y-%m-%d}  {r.amount_signed:.2f} €  "
+            f"{r.description_raw}  [{r.source_format}, {r.transaction_id}]": (
+                r.transaction_id
+            )
+            for r in suspected_rows.itertuples()
+        }
+        to_clear = st.multiselect("Suspected duplicates to clear", list(labels))
+        if to_clear and st.button("Not a duplicate: clear the flag"):
+            conn = _get_connection(db_path)
+            try:
+                clear_suspected(conn, [labels[label] for label in to_clear])
+            finally:
+                conn.close()
+            _load_transactions.clear()
+            st.rerun()
 
 
 # ---------------------------------------------------------------------------

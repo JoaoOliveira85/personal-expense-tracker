@@ -152,6 +152,8 @@ class TestSchema:
         assert "payment_type" in cols
         assert "who" in cols
         assert "notes" in cols
+        assert "source_format" in cols
+        assert "suspected_of" in cols
         conn.close()
 
     def test_migrate_schema_idempotent(self, test_db):
@@ -687,6 +689,130 @@ class TestImportsTable:
             (utf16_csv.name, "checkings_account", "2026-01-10", "2026-01-15", 5, 5),
             ("feb.csv", "checkings_account", "2026-02-03", "2026-02-17", 2, 2),
         ]
+
+
+class TestSuspectedDuplicates:
+    """A month imported from a CSV and from a PDF: the second format's rows
+    are flagged for review, never dropped (issue #15)."""
+
+    @pytest.fixture(autouse=True)
+    def _setup(self, noise_words, cleaning_patterns, monkeypatch):
+        monkeypatch.setenv("EXPENSE_TRACKER_ACCOUNT_TYPE", "checkings_account")
+        reset_cleaning_cache()
+        _get_cleaning_patterns(noise_words, cleaning_patterns)
+        yield
+        reset_cleaning_cache()
+
+    def _pdf(self, tmp_path):
+        """January again, as a PDF that prints no balance: no id matches."""
+        from tests.test_pdf_parser import SAMPLE_PDF_ROWS, _make_pdf_statement
+
+        rows = [r[:5] + ("",) for r in SAMPLE_PDF_ROWS]
+        return _make_pdf_statement(tmp_path / "january.pdf", rows)
+
+    def _rows(self, db_path) -> list[tuple]:
+        conn = sqlite3.connect(str(db_path))
+        try:
+            return conn.execute(
+                "SELECT transaction_id, source_format, suspected_of, date_posted, "
+                "amount_signed FROM transactions ORDER BY rowid"
+            ).fetchall()
+        finally:
+            conn.close()
+
+    def test_rows_store_their_format(self, test_db, utf16_csv, cards_csv, tmp_path):
+        ingest(test_db, [utf16_csv, self._pdf(tmp_path)], cards_path=cards_csv)
+
+        formats = [r[1] for r in self._rows(test_db)]
+        assert formats == ["utf16"] * 5 + ["pdf"] * 5
+
+    def test_same_month_from_a_pdf_is_flagged(
+        self, test_db, utf16_csv, cards_csv, tmp_path, capsys
+    ):
+        ingest(test_db, [utf16_csv], cards_path=cards_csv)
+        capsys.readouterr()
+
+        result = ingest(test_db, [self._pdf(tmp_path)], cards_path=cards_csv)
+
+        rows = self._rows(test_db)
+        csv_rows, pdf_rows = rows[:5], rows[5:]
+        assert len(rows) == 10  # nothing dropped or merged
+        assert all(r[2] is None for r in csv_rows)
+        csv_id = {(r[3], r[4]): r[0] for r in csv_rows}
+        assert [r[2] for r in pdf_rows] == [csv_id[(r[3], r[4])] for r in pdf_rows]
+        assert result.suspected == 5
+        assert result.files[0].suspected == 5
+        out = capsys.readouterr().out
+        assert "5 suspected duplicate(s) of rows from another format" in out
+
+    def test_flag_leaves_totals_unchanged(
+        self, test_db, utf16_csv, cards_csv, tmp_path
+    ):
+        ingest(test_db, [utf16_csv, self._pdf(tmp_path)], cards_path=cards_csv)
+
+        conn = sqlite3.connect(str(test_db))
+        txs = fetch_all_transactions(conn)
+        conn.close()
+        assert len(txs) == 10
+        assert sum(t["spend"] for t in txs) == pytest.approx(2 * 244.29)
+
+    def test_same_format_twice_is_not_flagged(self, test_db, tmp_path, cards_csv):
+        first = make_utf16_csv(tmp_path / "first.csv", SAMPLE_ROWS[:1])
+        # Same day and amount, another purchase: the same format lists both
+        other = (
+            SAMPLE_ROWS[0][:2] + ("COMPRA 1234 LIDL",) + SAMPLE_ROWS[0][3:5] + ("1,00",)
+        )
+        second = make_utf16_csv(tmp_path / "second.csv", [other])
+
+        result = ingest(test_db, [first, second], cards_path=cards_csv)
+
+        assert [r[2] for r in self._rows(test_db)] == [None, None]
+        assert result.suspected == 0
+
+    def test_rows_from_before_the_format_column_are_not_matched(
+        self, test_db, tmp_path, cards_csv
+    ):
+        from tests.conftest import add_transaction
+
+        add_transaction(test_db, "2026-01-15", "COMPRA 1234 CONTINENTE", 45.50)
+
+        result = ingest(test_db, [self._pdf(tmp_path)], cards_path=cards_csv)
+
+        assert result.suspected == 0
+
+    def test_dry_run_reports_the_same_count(
+        self, test_db, utf16_csv, cards_csv, tmp_path, capsys
+    ):
+        ingest(test_db, [utf16_csv], cards_path=cards_csv)
+        capsys.readouterr()
+
+        result = ingest(
+            test_db, [self._pdf(tmp_path)], cards_path=cards_csv, dry_run=True
+        )
+
+        assert result.suspected == 5
+        out = capsys.readouterr().out
+        assert "[dry-run] 5 suspected duplicate(s) of rows from another format" in out
+        assert all(r[2] is None for r in self._rows(test_db))
+
+    def test_clearing_the_flag_keeps_the_row(
+        self, test_db, utf16_csv, cards_csv, tmp_path
+    ):
+        from expense_tracker.db import clear_suspected
+
+        ingest(test_db, [utf16_csv, self._pdf(tmp_path)], cards_path=cards_csv)
+        flagged = [r[0] for r in self._rows(test_db) if r[2]]
+
+        conn = sqlite3.connect(str(test_db))
+        try:
+            assert clear_suspected(conn, flagged[:2]) == 2
+        finally:
+            conn.close()
+
+        rows = self._rows(test_db)
+        assert len(rows) == 10
+        assert sum(1 for r in rows if r[2]) == 3
+        assert all(r[2] is None for r in rows if r[0] in flagged[:2])
 
 
 class TestCoverage:

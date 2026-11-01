@@ -233,6 +233,8 @@ Every import lists each file with the same counts, for example:
 
 Importing a file again adds only the transactions that are not in the database yet, so re-importing a statement, or a wider one that overlaps it, is safe. Two identical transactions in one statement (same day, description and amount, on a statement that prints no balance, e.g. two coffees) are both kept. Imports made before this was fixed kept only the first of each such pair: run `ingest` on those statements again to add the missing ones.
 
+The CSV export and the PDF statement of the same month print each transaction differently (the PDF may leave out the balance and shortens descriptions), so importing both would count the month twice. A new transaction with the same account, date and amount as one imported from another format is still imported, but flagged as a *suspected duplicate*, and the summary says how many were flagged (`3 suspected duplicate(s) of rows from another format`). Flagged rows are never dropped and still count in every total: review them on the GUI's **Transactions** page, clear the flag of those that are separate transactions, and give a real duplicate the `Ignored` category. Transactions imported before formats were recorded are not compared.
+
 ### `report`
 
 Apply rules and regenerate the report (without importing new data).
@@ -439,7 +441,7 @@ The GUI opens in your browser and provides seven pages:
 | Page | What it does |
 |------|-------------|
 | **Dashboard** | Overview with spending charts, category breakdown, monthly trends |
-| **Transactions** | Filterable/searchable transaction table with date range, category, and amount filters |
+| **Transactions** | Filterable/searchable transaction table with date range, category, and amount filters; the Suspected Duplicates section lists rows that look like a transaction imported from another format and clears their flag (see [`ingest`](#ingest)) |
 | **Categorize** | Bulk categorization by merchant — select a category for all transactions from the same merchant, optionally create a rule. Categories are picked from the [category list](#categories); **Add category...** adds a new one on the spot |
 | **Rules** | View, add, and remove categorization rules, and manage the category list |
 | **Import** | Upload CSV/PDF files directly through the browser and ingest them; the Statement Coverage table shows which months of each account are imported and which are missing (see [`coverage`](#coverage)) |
