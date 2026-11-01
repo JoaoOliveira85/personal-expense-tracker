@@ -899,6 +899,33 @@ class TestImportCoverage:
         assert "No statements imported yet." in [c.value for c in at.caption]
 
 
+class TestGuessedSigns:
+    """PDF text lines the running balance cannot sign get their sign from
+    the credit patterns, and the import says how many (issue #17)."""
+
+    def test_import_reports_the_count(self, project, tmp_path):
+        from .test_pdf_parser import _make_text_pdf
+
+        pdf = _make_text_pdf(
+            tmp_path / "feb.pdf",
+            [
+                "EXTRATO DE 2026/02/02 A 2026/02/27",
+                "2.02 2.02 COMPRA KIOSK 3.00 1 529.13",
+                "2.03 2.03 COMPRA CAFE 0.40 1 528.73",
+            ],
+        )
+        at = _open_page("Import")
+        at.file_uploader[0].upload("feb.pdf", pdf.read_bytes(), "application/pdf").run()
+
+        at = _click(at, "Ingest uploaded files")
+
+        assert not at.exception
+        assert any(
+            "1 amount sign(s) could not be read from the running balance" in w.value
+            for w in at.warning
+        )
+
+
 class TestSuspectedDuplicates:
     """Rows that look like a transaction imported from another format are
     shown, filtered and cleared on the Transactions page (issue #15)."""

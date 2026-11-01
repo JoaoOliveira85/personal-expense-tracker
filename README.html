@@ -596,6 +596,10 @@ LISBOA</code></pre>
 
 <p><strong>Important:</strong> If your regex pattern contains commas (e.g. <code>{8,12}</code>), wrap the entire row in quotes.</p>
 
+<h3><code>data/credit-patterns.csv</code> &mdash; Incoming money in PDF statements</h3>
+
+<p>PDF statements printed as text lines show amounts without a sign. The running balance decides it: money in when the balance went up by the amount, money out when it went down by it; a line that fits neither stops the import of that file. Only a line the balance cannot decide (the first one when there is no opening balance, or one without a balance) is read as money in when its description contains a pattern from this file (one per row under a <code>pattern</code> header), and as money out otherwise. There is no built-in list, and the import says how many signs came from this file so you can check them. The year of each line comes from the statement period: a text statement without its period line is not imported.</p>
+
 <hr>
 
 <!-- Architecture -->
@@ -683,6 +687,16 @@ python -m pytest tests/ -v</code></pre>
 <div class="warning">
   <strong>"No parser found for file"</strong><br>
   The format couldn't be detected. Run <code>python bank_ingest.py banks</code> to see the supported formats, then use <code>ingest --bank &lt;id&gt;</code>.
+</div>
+
+<div class="warning">
+  <strong>"no statement period found"</strong><br>
+  A PDF statement printed as text lines has no year on its lines, so it needs its period line (<code>EXTRATO DE ... A ...</code>). Download the full statement from the bank.
+</div>
+
+<div class="warning">
+  <strong>"neither sign of the amount ... gives the balance"</strong> or <strong>"amounts do not match the running balance"</strong><br>
+  An amount of a PDF statement was misread, or a line between two balances could not be read (see the warnings before the error). The file is not imported; check the line it names against the statement.
 </div>
 
 <div class="warning">

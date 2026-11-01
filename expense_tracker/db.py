@@ -255,6 +255,9 @@ class _ParsedFile(NamedTuple):
     source_format: str
     # From the statement's header; never stored, printed or logged
     account_id: str | None
+    # Signs the running balance could not decide (PDF text lines): set
+    # from the credit patterns
+    signs_guessed: int = 0
 
 
 def _parse_file(
@@ -271,10 +274,12 @@ def _parse_file(
     """
     suffix = path.suffix.lower()
     if suffix == ".pdf":
-        from .pdf_parser import extract_pdf_account_id, parse_pdf_statement
+        from .pdf_parser import extract_pdf_account_id, read_pdf_statement
 
-        rows = parse_pdf_statement(path, cards_path=cards_path)
-        return _ParsedFile(rows, PDF_FORMAT, extract_pdf_account_id(path))
+        rows, signs_guessed = read_pdf_statement(path)
+        return _ParsedFile(
+            rows, PDF_FORMAT, extract_pdf_account_id(path), signs_guessed
+        )
     if bank_id is None and suffix != ".csv":
         # The registered parsers only claim .csv files: a UTF-16 export saved
         # under another extension still goes to the legacy UTF-16 parser.
@@ -293,6 +298,8 @@ class FileImport:
     ``period_from``/``period_to`` are the earliest and latest ``date_posted``
     of the parsed rows (``None`` for a file with no rows). ``error`` is set
     for a file that could not be imported; its counts are then 0.
+    ``signs_guessed`` counts the rows whose sign came from the credit
+    patterns because no running balance could decide it (PDF text lines).
     """
 
     path: Path
@@ -301,6 +308,7 @@ class FileImport:
     period_from: str | None = None
     period_to: str | None = None
     suspected: int = 0
+    signs_guessed: int = 0
     error: Exception | None = None
 
     @property
@@ -318,6 +326,8 @@ class FileImport:
             line += f", {self.period_from} to {self.period_to}"
         if self.suspected:
             line += f", {self.suspected} suspected duplicate(s)"
+        if self.signs_guessed:
+            line += f", {self.signs_guessed} sign(s) from credit patterns"
         return line
 
 
@@ -352,6 +362,10 @@ class IngestResult:
     @property
     def suspected(self) -> int:
         return sum(f.suspected for f in self.files)
+
+    @property
+    def signs_guessed(self) -> int:
+        return sum(f.signs_guessed for f in self.files)
 
 
 class IngestError(Exception):
@@ -643,7 +657,8 @@ def ingest(
             # One transaction per file: a file that cannot be read must not
             # undo, or block, the import of the files around it.
             try:
-                rows, source_format, account_id = _parse_file(p, cards_path, bank_id)
+                parsed = _parse_file(p, cards_path, bank_id)
+                rows, source_format, account_id = parsed[:3]
                 if account_id is not None:
                     _check_account(conn, rows, account_id, p, force, now)
                 for r in rows:
@@ -661,6 +676,7 @@ def ingest(
             outcome.parsed = len(rows)
             outcome.inserted = len(inserted)
             outcome.suspected = suspected
+            outcome.signs_guessed = parsed.signs_guessed
             if rows:
                 dates = [r["date_posted"] for r in rows]
                 outcome.period_from, outcome.period_to = min(dates), max(dates)
@@ -684,6 +700,13 @@ def ingest(
                 f"{prefix}{result.suspected} suspected duplicate(s) of rows from "
                 "another format: they are kept and counted; review them on the "
                 "GUI's Transactions page."
+            )
+        if result.signs_guessed:
+            print(
+                f"{prefix}{result.signs_guessed} amount sign(s) could not be read "
+                "from the running balance (no balance on the line or before it) "
+                "and were set from data/credit-patterns.csv: check them against "
+                "the statement."
             )
         if warnings.count:
             print(f"{warnings.count} warning(s) while parsing: see the lines above.")

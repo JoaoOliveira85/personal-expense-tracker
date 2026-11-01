@@ -53,6 +53,7 @@ personal-expense-tracker/
 │   ├── account-holders.csv # Card-to-owner mappings (editable)
 │   ├── noise-words.txt     # Words to strip from descriptions (editable)
 │   ├── cleaning-patterns.csv # Regex patterns for description cleaning
+│   ├── credit-patterns.csv # Incoming-money keywords for PDF lines without a balance (optional)
 │   └── description-notes.csv # Merchant notes (editable, per-merchant)
 ├── reports/                # Monthly PDF summaries
 ├── expense-report.xlsx     # Generated report (default format)
@@ -238,6 +239,13 @@ Every import lists each file with the same counts, for example:
 Importing a file again adds only the transactions that are not in the database yet, so re-importing a statement, or a wider one that overlaps it, is safe. Two identical transactions in one statement (same day, description and amount, on a statement that prints no balance, e.g. two coffees) are both kept. Imports made before this was fixed kept only the first of each such pair: run `ingest` on those statements again to add the missing ones.
 
 The CSV export and the PDF statement of the same month print each transaction differently (the PDF may leave out the balance and shortens descriptions), so importing both would count the month twice. A new transaction with the same account, date and amount as one imported from another format is still imported, but flagged as a *suspected duplicate*, and the summary says how many were flagged (`3 suspected duplicate(s) of rows from another format`). Flagged rows are never dropped and still count in every total: review them on the GUI's **Transactions** page, clear the flag of those that are separate transactions, and give a real duplicate the `Ignored` category. Transactions imported before formats were recorded are not compared.
+
+PDF statements printed as text lines (`2.03 2.03 COMPRA KIOSK 3.00 1 529.13`) show each amount without a sign and each date without a year:
+
+- **Sign.** The running balance decides it: an amount is money in when adding it to the previous balance gives the line's balance, money out when subtracting it does. If neither does, the file is not imported and the error names the line, its amount and both balances. A line the balance cannot decide (the first line when the statement prints no opening balance, or a line without a balance) is money in only if its description contains a pattern from [`data/credit-patterns.csv`](#datacredit-patternscsv--incoming-money-keywords-for-pdf-statements), otherwise money out, and the summary counts them (`2 sign(s) from credit patterns`) so you can check them against the statement.
+- **Year.** It comes from the statement period (`EXTRATO DE 2026/02/02 A 2026/02/27`). A text statement without one is not imported: the error says the period is missing.
+
+A table-layout PDF whose amounts do not match its balance column is not imported either.
 
 ### `report`
 
@@ -734,6 +742,17 @@ A CSV file for power users who need finer control over how descriptions are clea
 
 You normally won't need to edit this file unless you're seeing unexpected cleaning results.
 
+### `data/credit-patterns.csv` — Incoming-money keywords for PDF statements
+
+Only read for the lines of a text PDF statement whose sign the running balance cannot decide (see [`ingest`](#ingest)): such a line is money in when its description contains one of the patterns (case-insensitive), money out otherwise. There is no built-in list: without the file, every such line is money out. One pattern per row under a `pattern` header:
+
+```
+pattern
+TRANSFERENCIA - VENCIMENTO
+DEPOSITO
+REEMBOLSO
+```
+
 ---
 
 ## Backups
@@ -909,6 +928,10 @@ The system creates automatic and manual backups in `backups/` (see the [Backups]
 **"Could not find date range"** — The CSV/PDF file doesn't have a recognized bank header format. Use `ingest --no-rename` to import it with its original filename, or use `--bank <id>` to specify the parser explicitly.
 
 **"No parser found for file"** — The auto-detection couldn't identify the bank format. Run `python bank_ingest.py banks` to see supported formats, then use `ingest --bank <id>` to specify the parser.
+
+**"no statement period found"** — A PDF statement printed as text lines carries no year on its lines, so it needs its period line (`EXTRATO DE ... A ...`). Download the full statement from the bank; a page cut out of it may have lost the line.
+
+**"neither sign of the amount ... gives the balance"** / **"amounts do not match the running balance"** — An amount of a PDF statement was misread, or a line between two balances was not imported (see the warnings above the error). The file is not imported; check the line it names against the statement.
 
 **"File already exists with range..."** — You're trying to import a CSV for a month that's already been imported with the same or wider date range. If you need to re-import, delete the existing file from `raw/` first.
 
