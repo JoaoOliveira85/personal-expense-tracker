@@ -333,31 +333,31 @@ python -m pytest tests/ -v
 tests/
 ├── conftest.py                  # Shared fixtures and UTF-16 CSV builder
 ├── test_parser.py               #  99 tests: cleaning, detection, parsing, renaming
-├── test_pdf_parser.py           # 108 tests: PDF parsing, date/amount helpers, running-balance checks
-├── test_parsers.py              #  37 tests: parser registry, auto-detection, UTF-16 + UTF-8 parsing
-├── test_db.py                   #  50 tests: schema, ingestion, dedup, reclean, queries
-├── test_rules.py                #  43 tests: CRUD, loading, word-boundary matching, longest-pattern wins
-├── test_starter_rules.py        #  20 tests: starter rules data integrity + import logic
+├── test_pdf_parser.py           # 123 tests: PDF parsing, date/amount helpers, running-balance checks
+├── test_parsers.py              #  42 tests: parser registry, auto-detection, UTF-16 + UTF-8 parsing
+├── test_db.py                   # 133 tests: schema, ingestion, dedup, reclean, queries
+├── test_rules.py                #  93 tests: CRUD, loading, word-boundary matching, longest-pattern wins
+├── test_starter_rules.py        #  27 tests: starter rules data integrity + import logic
 ├── test_suggest.py              #  28 tests: pattern detection, clustering, suggestions
 ├── test_ods_sheets.py           #  32 tests: ODS sheet builders and formulas
-├── test_ods_sync.py             #  23 tests: ODS sync-back and baselines
+├── test_ods_sync.py             #  37 tests: ODS sync-back and baselines
 ├── test_spreadsheet_text.py     #  25 tests: statement text stays text in xlsx/ODS (no formula injection)
-├── test_spreadsheet_refunds.py  #   9 tests: refunds and savings in the spreadsheet formulas
+├── test_spreadsheet_refunds.py  #  18 tests: refunds and savings in the spreadsheet formulas
 ├── test_top_categories.py       #   2 tests: Top Categories ordering
-├── test_pdf_report.py           #  49 tests: stats computation, tag extraction, PDF generation
-├── test_advisor.py              #   6 tests: advisor prompt and context file
+├── test_pdf_report.py           #  61 tests: stats computation, tag extraction, PDF generation
+├── test_advisor.py              #   8 tests: advisor prompt and context file
 ├── test_email_fetch.py          #  35 tests: email config, IMAP fetch, attachment filtering
-├── test_cli.py                  #  22 tests: CLI commands and exit codes
+├── test_cli.py                  #  54 tests: CLI commands and exit codes
 ├── test_cron.py                 #   8 tests: daily sync script
 ├── test_account_type.py         #   4 tests: configurable account label
-├── test_gui.py                  #  19 tests: GUI data loading, uploads, module structure
+├── test_gui.py                  #  50 tests: GUI data loading, uploads, module structure
 ├── test_export.py               #   4 tests: CSV export
-├── test_currency.py             # account currencies: one currency per report, CLI --currency
+├── test_currency.py             #  37 tests: account currencies: one currency per report, CLI --currency
 ├── test_backup.py               #  17 tests: zip creation, monthly checks, formatting
 └── test_integration.py          #   4 tests: end-to-end workflows
 ```
 
-**Total: 644 tests** (about 20 seconds). CI (`.github/workflows/ci.yml`) runs them on Python 3.10 and 3.12, plus `black --check .` and `ruff check .` (settings in `pyproject.toml`).
+**Total: 941 tests** (about 50 seconds). CI (`.github/workflows/ci.yml`) runs them on Python 3.10 and 3.12, plus `black --check .` and `ruff check .` (settings in `pyproject.toml`).
 
 ### Test design principles
 
@@ -473,26 +473,26 @@ The parser will automatically work with `ingest` (auto-detected or via `--bank n
 | `bank_ingest.py` | 16 | Entry point wrapper — imports and runs `cli.main()` |
 | `expense_tracker/__init__.py` | 1 | Package marker |
 | `expense_tracker/__main__.py` | 5 | Allows `python -m expense_tracker` |
-| `expense_tracker/constants.py` | 112 | Default paths, column definitions, column indices, refund/savings categories |
-| `expense_tracker/parsers/__init__.py` | 159 | BankParser protocol, registry, auto-detection, unified parse_statement |
-| `expense_tracker/parsers/utf16_csv.py` | 53 | BankParser implementation for UTF-16 CSV (wraps parser.py) |
-| `expense_tracker/parsers/utf8_csv.py` | 302 | BankParser implementation for UTF-8 CSV |
-| `expense_tracker/parser.py` | 465 | (legacy) UTF-16 CSV parser, description cleaning, card/payment detection |
-| `expense_tracker/pdf_parser.py` | 861 | PDF statement parser using pdfplumber |
-| `expense_tracker/db.py` | 386 | SQLite schema, ingestion, dedup, reclean, queries, shared spend/income SQL |
-| `expense_tracker/rules.py` | 288 | Rule/card CRUD, rule loading, categorization engine |
-| `expense_tracker/ods.py` | 477 | ODS orchestration (generate/update), sync-back, description notes |
-| `expense_tracker/ods_sheets.py` | 1236 | ODS sheet builders: styles, cell helpers, 10 sheet generators |
-| `expense_tracker/xlsx.py` | 861 | xlsx report (default format) using openpyxl |
-| `expense_tracker/export.py` | 29 | Simple CSV export |
+| `expense_tracker/constants.py` | 152 | Default paths, column definitions, column indices, built-in and neutral categories, default currency |
+| `expense_tracker/parsers/__init__.py` | 174 | BankParser protocol, registry, auto-detection, unified parse_statement |
+| `expense_tracker/parsers/utf16_csv.py` | 59 | BankParser implementation for UTF-16 CSV (wraps parser.py) |
+| `expense_tracker/parsers/utf8_csv.py` | 315 | BankParser implementation for UTF-8 CSV |
+| `expense_tracker/parser.py` | 484 | (legacy) UTF-16 CSV parser, description cleaning, card/payment detection |
+| `expense_tracker/pdf_parser.py` | 904 | PDF statement parser using pdfplumber |
+| `expense_tracker/db.py` | 1096 | SQLite schema, ingestion, dedup, import log and coverage, accounts and currencies, reclean, queries, shared spend/income SQL |
+| `expense_tracker/rules.py` | 528 | Rule/card CRUD, rule loading, categorization engine |
+| `expense_tracker/ods.py` | 571 | ODS orchestration (generate/update), sync-back, description notes |
+| `expense_tracker/ods_sheets.py` | 1291 | ODS sheet builders: styles, cell helpers, 10 sheet generators |
+| `expense_tracker/xlsx.py` | 877 | xlsx report (default format) using openpyxl |
+| `expense_tracker/export.py` | 34 | Simple CSV export |
 | `expense_tracker/backup.py` | 132 | Backup utilities — zip creation, monthly checks, size formatting |
-| `expense_tracker/pdf_report.py` | 984 | Monthly PDF report using fpdf2 |
-| `expense_tracker/starter_rules.py` | 374 | Curated Portuguese starter rules (~200 rules) + import logic |
-| `expense_tracker/suggest.py` | 401 | Pattern detection: recurring, similar, frequent merchants |
+| `expense_tracker/pdf_report.py` | 1060 | Monthly PDF report using fpdf2 |
+| `expense_tracker/starter_rules.py` | 402 | Curated Portuguese starter rules (~200 rules) + import logic |
+| `expense_tracker/suggest.py` | 434 | Pattern detection: recurring, similar, frequent merchants |
 | `expense_tracker/email_fetch.py` | 312 | Email statement fetcher (IMAP, attachment download) |
-| `expense_tracker/advisor.py` | 729 | LLM advisor prompts and context file |
-| `expense_tracker/gui.py` | 1043 | Streamlit web interface (7 pages: Dashboard, Transactions, Categorize, Rules, Import, Tools, Manual) |
-| `expense_tracker/cli.py` | 1549 | argparse CLI with 16 subcommands |
+| `expense_tracker/advisor.py` | 766 | LLM advisor prompts and context file |
+| `expense_tracker/gui.py` | 1370 | Streamlit web interface (7 pages: Dashboard, Transactions, Categorize, Rules, Import, Tools, Manual) |
+| `expense_tracker/cli.py` | 1896 | argparse CLI with 18 subcommands |
 | `Dockerfile` | 29 | Docker image definition (Python 3.12 slim, deps, GUI entrypoint) |
 | `docker-compose.yml` | 38 | Orchestrates GUI + cron services with bind mounts |
 | `cron/daily-sync.sh` | 104 | Automated daily fetch + ingest + report generation script |
@@ -501,12 +501,12 @@ The parser will automatically work with `ingest` (auto-detected or via `--bank n
 | `run.sh` | 17 | Everyday script — activates venv, launches GUI (or forwards CLI commands) |
 | `update.sh` | 123 | Merge code from the upstream dev repo + re-run install if needed |
 | `DEPLOYMENT.md` | 577 | Docker & home server (NUC) deployment guide |
-| `SECURITY.md` | 21 | Vulnerability reporting and what sensitive data the tool holds |
+| `SECURITY.md` | 26 | Vulnerability reporting and what sensitive data the tool holds |
 | `.github/workflows/ci.yml` | 36 | CI: tests on Python 3.10/3.12, black, ruff |
 | `pyproject.toml` | 23 | Project metadata (version) + black and ruff settings |
 | `requirements-dev.txt` | 2 | Test dependencies (pytest) on top of `requirements.txt` |
 | `pytest.ini` | 3 | pytest configuration |
-| `tests/conftest.py` | 228 | Shared fixtures and synthetic UTF-16 CSV builder |
+| `tests/conftest.py` | 236 | Shared fixtures and synthetic UTF-16 CSV builder |
 
 Test files are listed with their counts under [Test structure](#test-structure).
 
