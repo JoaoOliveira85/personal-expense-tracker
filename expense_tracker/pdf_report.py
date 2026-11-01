@@ -21,7 +21,14 @@ from .constants import (
     DEFAULT_DESC_NOTES,
     DEFAULT_REPORTS,
 )
-from .db import NOT_NEUTRAL_SQL, REFUND_SQL, SPEND_SQL, is_neutral, is_refund
+from .db import (
+    NOT_NEUTRAL_SQL,
+    REFUND_SQL,
+    SPEND_SQL,
+    apply_card_holders,
+    is_neutral,
+    is_refund,
+)
 
 # ---------------------------------------------------------------------------
 # Data extraction helpers
@@ -44,13 +51,14 @@ def _fetch_month_transactions(
     conn: sqlite3.Connection,
     month: str,
 ) -> list[dict]:
-    """Fetch all transactions for a given month (YYYY-MM)."""
+    """Fetch all transactions for a given month (YYYY-MM), ``who`` looked up
+    from the card-holder file (db.apply_card_holders)."""
     conn.row_factory = sqlite3.Row
     rows = conn.execute(
         """
         SELECT
             date_posted, description_clean, amount_signed, amount_abs,
-            direction, category, subcategory, payment_type, who, notes
+            direction, category, subcategory, payment_type, card_last4, notes
         FROM transactions
         WHERE month = ?
         ORDER BY date_posted ASC
@@ -58,7 +66,9 @@ def _fetch_month_transactions(
         (month,),
     ).fetchall()
     conn.row_factory = None
-    return [dict(r) for r in rows]
+    result = [dict(r) for r in rows]
+    apply_card_holders(result)
+    return result
 
 
 def _fetch_historical_category_totals(

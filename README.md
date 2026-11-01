@@ -268,7 +268,7 @@ python bank_ingest.py cards add 5678 Bob             # add another
 python bank_ingest.py cards remove 1234              # remove a card
 ```
 
-Card mappings are stored in `data/account-holders.csv` and are used to populate the "Who" column when transactions are imported. See the [Account Holders](#account-holders-dataaccount-holderscsv) section below.
+Card mappings are stored in `data/account-holders.csv` and are used to fill the "Who" column whenever transactions are shown (GUI, reports, export), so a change applies to transactions imported earlier too. See the [Account Holders](#account-holders-dataaccount-holderscsv) section below.
 
 ### `rules`
 
@@ -577,7 +577,7 @@ python bank_ingest.py cards remove 1234
 python bank_ingest.py cards               # list all
 ```
 
-Transactions made with a card not in this file will show "Joint" as the owner.
+Transactions made with a card not in this file will show "Joint" as the owner. The card's digits (the first four-digit group of the description) are stored with every transaction, and the name is looked up from this file each time transactions are read: adding, renaming or removing a card changes the "Who" of past transactions too, without importing again. The first time an existing database is opened by this version, the digits of transactions imported while their card was not in the file are recovered from their descriptions.
 
 ---
 

@@ -259,7 +259,6 @@ class TestUtf8CsvParser:
             "account",
             "card_last4",
             "payment_type",
-            "who",
             "source_file",
         }
         for r in rows:

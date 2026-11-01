@@ -999,6 +999,150 @@ class TestAccountFingerprint:
                     assert form.encode(encoding) not in database, form
 
 
+class TestCardHolders:
+    """``who`` is looked up from the card-holder file when transactions are
+    read, so a mapping changed later applies to old rows too (issue #4)."""
+
+    @pytest.fixture(autouse=True)
+    def _setup(self, noise_words, cleaning_patterns):
+        reset_cleaning_cache()
+        _get_cleaning_patterns(noise_words, cleaning_patterns)
+        yield
+        reset_cleaning_cache()
+
+    def _who(self, db_path, cards_path) -> dict[str, str]:
+        conn = sqlite3.connect(str(db_path))
+        try:
+            txs = fetch_all_transactions(conn, cards_path=cards_path)
+        finally:
+            conn.close()
+        return {t["description_raw"]: t["who"] for t in txs}
+
+    def test_mapping_changes_apply_to_imported_rows(self, test_db, utf16_csv, tmp_path):
+        from expense_tracker.rules import add_card, remove_card
+
+        cards = tmp_path / "holders.csv"
+        continente = "COMPRA 1234 CONTINENTE PORTO"
+        ingest(test_db, [utf16_csv], cards_path=cards)  # no holder known yet
+        assert self._who(test_db, cards)[continente] == "Joint"
+
+        add_card(cards, "1234", "Alice")
+        assert self._who(test_db, cards)[continente] == "Alice"
+
+        cards.write_text("card_last4,name\n1234,Alicia\n", encoding="utf-8")
+        assert self._who(test_db, cards)[continente] == "Alicia"
+
+        remove_card(cards, "1234")
+        who = self._who(test_db, cards)
+        assert who[continente] == "Joint"
+        assert set(who.values()) == {"Joint"}
+
+    def test_card_without_a_holder_is_stored(self, test_db, utf16_csv, tmp_path):
+        ingest(test_db, [utf16_csv], cards_path=tmp_path / "none.csv")
+
+        conn = sqlite3.connect(str(test_db))
+        cards = dict(
+            conn.execute("SELECT description_raw, card_last4 FROM transactions")
+        )
+        conn.close()
+        assert cards["COMPRA 1234 CONTINENTE PORTO"] == "1234"
+        assert cards["TRANSFERENCIA - SALARIO"] is None
+
+    def test_old_rows_get_their_card_once(self, test_db, tmp_path):
+        from tests.conftest import add_transaction
+
+        cards = tmp_path / "holders.csv"
+        cards.write_text("card_last4,name\n4321,Bob\n", encoding="utf-8")
+        add_transaction(test_db, "2026-01-15", "COMPRA 4321 LOJA", 5.0)
+        add_transaction(test_db, "2026-01-16", "TRANSFERENCIA SALARIO", 9.0)
+        conn = sqlite3.connect(str(test_db))
+        # A ledger from before the backfill: unknown cards were stored as NULL
+        conn.execute("DELETE FROM settings WHERE key = 'card_last4_backfilled'")
+        conn.execute("UPDATE transactions SET who = 'Joint', card_last4 = NULL")
+        conn.commit()
+
+        def cards_stored() -> dict:
+            return dict(
+                conn.execute("SELECT description_raw, card_last4 FROM transactions")
+            )
+
+        migrate_schema(conn)
+        assert cards_stored() == {
+            "COMPRA 4321 LOJA": "4321",
+            "TRANSFERENCIA SALARIO": None,
+        }
+        assert self._who(test_db, cards)["COMPRA 4321 LOJA"] == "Bob"
+
+        # Once only: a later migration leaves the column alone
+        conn.execute("UPDATE transactions SET card_last4 = NULL")
+        conn.commit()
+        migrate_schema(conn)
+        assert set(cards_stored().values()) == {None}
+        conn.close()
+
+
+class TestCardHoldersInReports:
+    """The workbook, the CSV export and the PDF report's data read ``who``
+    from the card-holder file as it is now (issue #4)."""
+
+    @pytest.fixture
+    def ledger(self, test_db, utf16_csv, tmp_path, noise_words, cleaning_patterns):
+        reset_cleaning_cache()
+        _get_cleaning_patterns(noise_words, cleaning_patterns)
+        ingest(test_db, [utf16_csv], cards_path=tmp_path / "none.csv")
+        yield test_db
+        reset_cleaning_cache()
+
+    @pytest.fixture
+    def holders(self, tmp_path, monkeypatch):
+        """DEFAULT_CARDS, mapping 1234 to Alicia: added after the import."""
+        import expense_tracker.constants as constants
+
+        cards = tmp_path / "holders.csv"
+        cards.write_text("card_last4,name\n1234,Alicia\n", encoding="utf-8")
+        monkeypatch.setattr(constants, "DEFAULT_CARDS", cards)
+        return cards
+
+    def test_workbook(self, ledger, holders, tmp_path):
+        from openpyxl import load_workbook
+
+        from expense_tracker.xlsx import generate_xlsx
+
+        path = tmp_path / "report.xlsx"
+        generate_xlsx(ledger, tmp_path / "rules.csv", path, tmp_path / "notes.csv")
+
+        sheet = load_workbook(path)["Data"]
+        header = [c.value for c in sheet[1]]
+        who = header.index("Who")
+        desc = header.index("Description (raw)")
+        values = {r[desc]: r[who] for r in sheet.iter_rows(min_row=2, values_only=True)}
+        assert values["COMPRA 1234 CONTINENTE PORTO"] == "Alicia"
+        assert values["COMPRA 5678 FARMACIA DA GARE 1000-001 LISBOA"] == "Joint"
+
+    def test_csv_export(self, ledger, holders, tmp_path):
+        import csv
+
+        from expense_tracker.export import export_csv
+
+        out = tmp_path / "export.csv"
+        export_csv(ledger, out)
+
+        with out.open(encoding="utf-8") as f:
+            rows = list(csv.DictReader(f))
+        who = {r["Description (raw)"]: r["Who"] for r in rows}
+        assert who["COMPRA 1234 CONTINENTE PORTO"] == "Alicia"
+
+    def test_pdf_report_data(self, ledger, holders):
+        from expense_tracker.pdf_report import _fetch_month_transactions
+
+        conn = sqlite3.connect(str(ledger))
+        try:
+            txs = _fetch_month_transactions(conn, "2026-01")
+        finally:
+            conn.close()
+        assert sorted(t["who"] for t in txs) == ["Alicia"] + ["Joint"] * 4
+
+
 class TestCoverage:
     """Months covered by imported statements, and the gaps between them."""
 

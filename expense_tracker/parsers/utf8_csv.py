@@ -23,7 +23,6 @@ from ..parser import (
     clean_description,
     detect_card,
     detect_payment_type,
-    load_card_holders,
     parse_amount,
 )
 
@@ -129,10 +128,11 @@ class Utf8CsvParser:
             return False
 
     def parse(self, path: Path, cards_path: Path = DEFAULT_CARDS) -> list[dict]:
-        """Parse a UTF8 CSV export into transaction dicts."""
-        card_owners = load_card_holders(cards_path)
-        known_cards = set(card_owners.keys())
+        """Parse a UTF8 CSV export into transaction dicts.
 
+        ``cards_path`` is no longer read: card holders are looked up when
+        transactions are read (db.apply_card_holders).
+        """
         lines = _decode_utf8(path)
 
         # Find header line
@@ -170,9 +170,7 @@ class Utf8CsvParser:
                 continue
 
             parts = next(csv.reader([ln], delimiter=";"))
-            tx = self._parse_row(
-                parts, col_map, known_cards, card_owners, path.name, line_no
-            )
+            tx = self._parse_row(parts, col_map, path.name, line_no)
             if tx:
                 rows.append(tx)
 
@@ -233,8 +231,6 @@ class Utf8CsvParser:
         self,
         parts: list[str],
         col_map: dict[str, int],
-        known_cards: set[str],
-        card_owners: dict[str, str],
         source_file: str,
         line_no: int = 0,
     ) -> Optional[dict]:
@@ -293,11 +289,10 @@ class Utf8CsvParser:
         balance = _parse_amount(balance_s) if balance_s else 0.0
 
         # Enrichment (shared logic)
-        card_last4 = detect_card(desc, known_cards)
+        card_last4 = detect_card(desc)
         payment_type = detect_payment_type(desc)
         description_clean = clean_description(desc)
         direction = "out" if amount < 0 else "in"
-        who = card_owners.get(card_last4, "Joint") if card_last4 else "Joint"
 
         return {
             "date_posted": posted.isoformat(),
@@ -315,6 +310,5 @@ class Utf8CsvParser:
             "account": account_type(),
             "card_last4": card_last4,
             "payment_type": payment_type,
-            "who": who,
             "source_file": source_file,
         }

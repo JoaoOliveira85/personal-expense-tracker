@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Iterable, NamedTuple
 
 from .constants import IGNORED_CATEGORIES, NEUTRAL_CATEGORIES, NON_SPENDING_CATEGORIES
-from .parser import extract_account_id, parse_utf16_csv
+from .parser import CARD_RE, extract_account_id, load_card_holders, parse_utf16_csv
 from .parsers import resolve_parser
 
 logger = logging.getLogger(__name__)
@@ -77,7 +77,7 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
             account           TEXT NOT NULL,
             card_last4        TEXT,
             payment_type      TEXT,
-            who               TEXT,
+            who               TEXT, -- unused: see apply_card_holders()
             category          TEXT,
             subcategory       TEXT,
             category_source   TEXT,
@@ -101,6 +101,7 @@ def migrate_schema(conn: sqlite3.Connection) -> None:
         ("day_of_week", "TEXT NOT NULL DEFAULT ''"),
         ("description_clean", "TEXT"),
         ("payment_type", "TEXT"),
+        # Written by imports before issue #4; never read (apply_card_holders)
         ("who", "TEXT"),
         ("notes", "TEXT"),
         # 'rule' | 'manual' | NULL (uncategorized); see categorize_transactions
@@ -175,6 +176,7 @@ def migrate_schema(conn: sqlite3.Connection) -> None:
             "INSERT INTO settings (key, value) VALUES ('fingerprint_salt', ?)",
             (secrets.token_hex(32),),
         )
+    _backfill_card_last4(conn)
     # Per account label, the fingerprint of the account identifier of the
     # first statement imported into it that printed one.
     conn.execute("""
@@ -185,6 +187,57 @@ def migrate_schema(conn: sqlite3.Connection) -> None:
         )
         """)
     conn.commit()
+
+
+def _backfill_card_last4(conn: sqlite3.Connection) -> None:
+    """Once per ledger: store the card digits of rows imported while only
+    known cards were kept (card_last4 NULL), from their raw description.
+
+    Recorded in ``settings``, so a row with no four-digit group is not
+    scanned again on every migration.
+    """
+    done = conn.execute(
+        "SELECT 1 FROM settings WHERE key = 'card_last4_backfilled'"
+    ).fetchone()
+    if done:
+        return
+    rows = conn.execute(
+        "SELECT rowid, description_raw FROM transactions WHERE card_last4 IS NULL"
+    ).fetchall()
+    for rowid, description in rows:
+        m = CARD_RE.search(description or "")
+        if m:
+            conn.execute(
+                "UPDATE transactions SET card_last4 = ? WHERE rowid = ?",
+                (m.group(1), rowid),
+            )
+    conn.execute(
+        "INSERT INTO settings (key, value) VALUES ('card_last4_backfilled', '1')"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Card holders
+# ---------------------------------------------------------------------------
+
+JOINT = "Joint"
+
+
+def apply_card_holders(rows: list[dict], cards_path: Path | None = None) -> None:
+    """Set each row's ``who`` from the card-holder file, as it is now.
+
+    A row whose ``card_last4`` is empty or has no holder is ``Joint``. Every
+    read path calls this, so adding, renaming or removing a mapping changes
+    old transactions too; the ``who`` column stored by older imports is not
+    read.
+    """
+    if cards_path is None:
+        from .constants import DEFAULT_CARDS
+
+        cards_path = DEFAULT_CARDS
+    holders = load_card_holders(cards_path)
+    for r in rows:
+        r["who"] = holders.get(r.get("card_last4") or "", JOINT)
 
 
 # ---------------------------------------------------------------------------
@@ -439,14 +492,14 @@ def _insert_rows(
                 transaction_id, date_posted, date_value, month, day_of_week,
                 description_raw, description_clean,
                 amount_signed, amount_abs, direction, tx_type, balance,
-                currency, account, card_last4, payment_type, who,
+                currency, account, card_last4, payment_type,
                 category, subcategory,
                 source_file, imported_at, source_format
             ) VALUES (
                 :transaction_id, :date_posted, :date_value, :month, :day_of_week,
                 :description_raw, :description_clean,
                 :amount_signed, :amount_abs, :direction, :tx_type, :balance,
-                :currency, :account, :card_last4, :payment_type, :who,
+                :currency, :account, :card_last4, :payment_type,
                 NULL, NULL,
                 :source_file, :imported_at, :source_format
             )
@@ -562,6 +615,9 @@ def ingest(
     A statement that prints its account identifier is checked against the
     account label it is imported into (see _check_account); ``force``
     imports one that does not match.
+
+    ``cards_path`` is no longer read: the card digits are stored and the
+    holder is looked up when transactions are read (apply_card_holders).
     """
     from .constants import DEFAULT_CARDS
 
@@ -817,15 +873,21 @@ def reclean_descriptions(db_path: Path) -> int:
     return updated
 
 
-def fetch_all_transactions(conn: sqlite3.Connection) -> list[dict]:
-    """Fetch all transactions as a list of dicts, sorted by date desc."""
+def fetch_all_transactions(
+    conn: sqlite3.Connection, cards_path: Path | None = None
+) -> list[dict]:
+    """Fetch all transactions as a list of dicts, sorted by date desc.
+
+    ``who`` comes from the card-holder file (``cards_path``, by default
+    DEFAULT_CARDS) via apply_card_holders(), not from the stored column.
+    """
     conn.row_factory = sqlite3.Row
     rows = conn.execute("""
         SELECT
             transaction_id, date_posted, date_value, month, day_of_week,
             description_raw, description_clean,
             amount_signed, amount_abs, direction, tx_type, balance,
-            currency, account, card_last4, payment_type, who,
+            currency, account, card_last4, payment_type,
             category, subcategory, notes, source_file, imported_at,
             source_format, suspected_of
         FROM transactions
@@ -839,4 +901,5 @@ def fetch_all_transactions(conn: sqlite3.Connection) -> list[dict]:
         d["status"] = "categorized" if d.get("category") else "uncategorized"
         d["spend"] = spend_amount(d)
         result.append(d)
+    apply_card_holders(result, cards_path)
     return result

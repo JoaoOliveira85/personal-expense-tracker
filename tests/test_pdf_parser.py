@@ -321,7 +321,16 @@ class TestParsePdfStatement:
         rows = parse_pdf_statement(pdf_statement, cards_path=cards_csv)
         continente = [r for r in rows if "CONTINENTE" in r["description_raw"]][0]
         assert continente["card_last4"] == "1234"
-        assert continente["who"] == "Alice"
+        assert "who" not in continente  # looked up when read (issue #4)
+
+    def test_card_without_a_holder_is_stored(self, pdf_statement, tmp_path):
+        rows = parse_pdf_statement(pdf_statement, cards_path=tmp_path / "none.csv")
+        continente = [r for r in rows if "CONTINENTE" in r["description_raw"]][0]
+        assert continente["card_last4"] == "1234"
+
+    def test_text_line_stores_the_card(self):
+        (row,) = _text_rows("2.02 2.02 COMPRA 4321 KIOSK 3.00 1 529.13")
+        assert row["card_last4"] == "4321"
 
     def test_empty_pdf_returns_empty(self, tmp_path, cards_csv):
         """A PDF with no transaction table should return empty list."""
@@ -377,9 +386,7 @@ class TestExtractPdfDateRange:
 def _text_rows(text: str, year: int = 2026, credit_patterns=None) -> list[dict]:
     from expense_tracker.pdf_parser import _parse_text_transactions
 
-    return _parse_text_transactions(
-        text, year, set(), {}, "statement.pdf", credit_patterns
-    )
+    return _parse_text_transactions(text, year, "statement.pdf", credit_patterns)
 
 
 class TestTextCreditPatterns:
