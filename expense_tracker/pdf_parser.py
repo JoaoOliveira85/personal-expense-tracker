@@ -123,9 +123,14 @@ TABLE_HEADERS = {
     "saldo",
 }
 
-# The account the statement belongs to: a "Conta:" line of the page text.
-# Only compared as a fingerprint (see db.py): never stored or printed.
-ACCOUNT_ID_RE = re.compile(r"^Conta\s*:\s*(\S.*?)\s*$", re.MULTILINE)
+# The account the statement belongs to, either a "Conta:" line or the bank's
+# header line, "CONTA <product>  N. <number>  MOEDA: EUR" (the first match in
+# the page text wins). Only compared as a fingerprint (see db.py): never
+# stored or printed.
+ACCOUNT_ID_RES = (
+    re.compile(r"^Conta\s*:\s*(\S.*?)\s*$", re.MULTILINE),
+    re.compile(r"^CONTA\b[^\n]*?\bN\.\s*º?\s*(\d+)\b", re.MULTILINE),
+)
 
 
 # ---------------------------------------------------------------------------
@@ -868,8 +873,11 @@ def extract_pdf_account_id(path: Path) -> Optional[str]:
 
     with pdfplumber.open(path) as pdf:
         full_text = "\n".join(page.extract_text() or "" for page in pdf.pages)
-    m = ACCOUNT_ID_RE.search(full_text)
-    return m.group(1) if m else None
+    matches = (r.search(full_text) for r in ACCOUNT_ID_RES)
+    found = [m for m in matches if m]
+    if not found:
+        return None
+    return min(found, key=lambda m: m.start()).group(1)
 
 
 def extract_pdf_date_range(path: Path) -> tuple[date, date]:

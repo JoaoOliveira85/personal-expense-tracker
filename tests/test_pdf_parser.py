@@ -1302,3 +1302,33 @@ class TestPdfAccountId:
             ["EXTRATO DE 2026/02/02 A 2026/02/27", "Conta: 0002 0123 4567"],
         )
         assert extract_pdf_account_id(path) == "0002 0123 4567"
+
+    def test_bank_header_line(self, tmp_path):
+        # Real statements print "CONTA <product>  N. <number>  MOEDA: EUR".
+        path = _make_text_pdf(
+            tmp_path / "s.pdf",
+            [
+                "CONTA MILLENNIUM N. 12345678901 MOEDA: EUR",
+                "EXTRATO DE 2026/02/02 A 2026/02/27",
+                "Centro de Contactos: 707 50 24 24 / 91 827 24 24",
+            ],
+        )
+        assert extract_pdf_account_id(path) == "12345678901"
+
+    def test_bank_header_line_with_ordinal_sign(self, tmp_path):
+        path = _make_text_pdf(
+            tmp_path / "s.pdf",
+            ["CONTA ORDENADO N.º 12345678901", "EXTRATO DE 2026/02/02 A 2026/02/27"],
+        )
+        assert extract_pdf_account_id(path) == "12345678901"
+
+    def test_other_numbers_are_not_the_account(self, tmp_path):
+        path = _make_text_pdf(
+            tmp_path / "s.pdf",
+            [
+                "EXTRATO DE 2026/02/02 A 2026/02/27",
+                "Centro de Contactos: 707 50 24 24 / 91 827 24 24",
+                "2.02 2.02 COMPRA N. 12345 3.00 1 529.13",
+            ],
+        )
+        assert extract_pdf_account_id(path) is None
